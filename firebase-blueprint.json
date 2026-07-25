@@ -1,0 +1,60 @@
+{
+  "entities": {
+    "posts": {
+      "title": "Post",
+      "description": "User posts",
+      "properties": {
+        "id": { "type": "string" }
+      },
+      "required": ["id"]
+    },
+    "users": {
+      "title": "User",
+      "description": "User profiles",
+      "properties": {
+        "id": { "type": "string" }
+      },
+      "required": ["id"]
+    },
+    "groups": {
+      "title": "StudyGroup",
+      "description": "Groups",
+      "properties": {
+        "id": { "type": "string" }
+      },
+      "required": ["id"]
+    },
+    "tutors": {
+      "title": "TutorPage",
+      "description": "Tutor profiles",
+      "properties": {
+        "id": { "type": "string" }
+      },
+      "required": ["id"]
+    },
+    "reels": {
+      "title": "Reel",
+      "description": "Reels",
+      "properties": {
+        "id": { "type": "string" }
+      },
+      "required": ["id"]
+    },
+    "marketplace": {
+      "title": "MarketplaceItem",
+      "description": "Marketplace items",
+      "properties": {
+        "id": { "type": "string" }
+      },
+      "required": ["id"]
+    },
+    "groupChats": {
+      "title": "GroupChat",
+      "description": "Group chats",
+      "properties": {
+        "groupId": { "type": "string" }
+      },
+      "required": ["groupId"]
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "StudyBook",
+  "description": "An educational social network resembling Facebook, styled with active study streaks, academic reactions, study groups with collaborative files, tutor profiles, reels with direct worksheet downloads, local stationery marketplaces, and settings like incognito study mode and Quiet Hours focus locks.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
