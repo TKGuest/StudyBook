@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { ShieldAlert, EyeOff, Sliders, Volume2, Save, Download, RefreshCw, User as UserIcon, Globe, LogOut, Check, Upload, X, BadgeCheck, Clock, Award, History, Search, Trash2, Maximize2, FileText, AlertTriangle, School, BookOpen } from 'lucide-react';
+import { ShieldAlert, EyeOff, Sliders, Volume2, VolumeX, Save, Download, RefreshCw, User as UserIcon, Globe, LogOut, Check, Upload, X, BadgeCheck, Clock, Award, History, Search, Trash2, Maximize2, FileText, AlertTriangle, School, BookOpen, Music, Sparkles, Flame } from 'lucide-react';
 import { isFirebaseConfigured, auth, db } from '../lib/firebase';
 import { setDoc, doc } from 'firebase/firestore';
 import { SILHOUETTE_AVATAR } from '../data/mockData';
 import { motion, AnimatePresence } from 'motion/react';
 import { User, TutorRequest } from '../types';
+import { playSound, SoundType } from '../utils/soundEffects';
 
 export const SettingsView: React.FC = () => {
   const { 
@@ -60,7 +61,7 @@ export const SettingsView: React.FC = () => {
     const file = e.target.files?.[0];
     if (file) {
       if (file.size > 1024 * 1024 * 2) {
-        showToast('Kích thước ảnh quá lớn! Vui lòng chọn ảnh dưới 2MB.', 'error');
+        showToast('Image size is too large! Please choose an image under 2MB.', 'error');
         return;
       }
       const reader = new FileReader();
@@ -75,7 +76,7 @@ export const SettingsView: React.FC = () => {
 
   const handleSaveProfile = async () => {
     if (!profileName.trim()) {
-      showToast('Vui lòng nhập tên hiển thị!', 'error');
+      showToast('Please enter a display name!', 'error');
       return;
     }
 
@@ -101,29 +102,29 @@ export const SettingsView: React.FC = () => {
       }
     }
 
-    showToast('Hồ sơ học tập của bạn đã được cập nhật và lưu thành công!', 'success');
+    showToast('Your academic profile has been updated successfully!', 'success');
   };
 
   const handleSubmitTutorVerification = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!verifyRealName.trim()) {
-      showToast('Vui lòng nhập Họ và tên thật!', 'error');
+      showToast('Please enter your legal full name!', 'error');
       return;
     }
     if (verifySubjects.length === 0) {
-      showToast('Vui lòng chọn ít nhất một môn học để dạy!', 'error');
+      showToast('Please select at least one subject to teach!', 'error');
       return;
     }
 
     await requestTutorVerification({
       realName: verifyRealName.trim(),
-      school: verifySchool.trim() || 'Không thuộc trường nào',
+      school: verifySchool.trim() || 'Independent Educator',
       description: verifyDescription.trim(),
       requestedSubjects: verifySubjects
     });
 
     setShowTutorModal(false);
-    showToast('Đã gửi yêu cầu xác minh Gia sư tới Quản trị viên (billkute030709@gmail.com)!', 'success');
+    showToast('Submitted Tutor verification request to Admin!', 'success');
   };
 
   const handleWeightChange = (subject: 'Math' | 'Physics' | 'English' | 'Chemistry' | 'ExamPrep', value: number) => {
@@ -136,7 +137,8 @@ export const SettingsView: React.FC = () => {
     }));
   };
 
-  const handleToggleSetting = (key: 'incognitoMode' | 'spoilerProtection' | 'ttsEnabled') => {
+  const handleToggleSetting = (key: 'incognitoMode' | 'spoilerProtection' | 'ttsEnabled' | 'showStreakToOthers') => {
+    playSound('toggle');
     setSettings(prev => ({
       ...prev,
       [key]: !prev[key]
@@ -145,9 +147,9 @@ export const SettingsView: React.FC = () => {
 
   const handleResetImplicitHistory = () => {
     setConfirmModal({
-      message: 'Bạn có chắc chắn muốn xóa toàn bộ bộ nhớ đệm ẩn và lịch sử nhấp chuột hành vi không? Việc này sẽ reset các gợi ý thuật toán Bảng Tin học tập về mặc định.',
+      message: 'Are you sure you want to clear all implicit behavior cache and click logs? This will reset feed algorithm preferences to default.',
       onConfirm: () => {
-        showToast('Đã xóa bộ nhớ đệm (implicit cache) thành công! Thuật toán đã quay về cấu hình cơ bản.', 'success');
+        showToast('Implicit cache cleared successfully! Algorithm reset to baseline.', 'success');
         setConfirmModal(null);
       }
     });
@@ -162,16 +164,16 @@ export const SettingsView: React.FC = () => {
       <div>
         <h2 className="font-display font-extrabold text-lg text-gray-800 dark:text-white flex items-center gap-2">
           <Sliders className="h-5.5 w-5.5 text-blue-600" />
-          Tùy Chỉnh Học Tập & Quyền Riêng Tư
+          Academic Settings & Privacy
         </h2>
-        <p className="text-xs text-gray-400 mt-0.5">Tối ưu hóa Bảng Tin, khóa xao nhãng, tinh chỉnh quyền riêng tư dữ liệu cá nhân của bạn.</p>
+        <p className="text-xs text-gray-400 mt-0.5">Optimize your feed, minimize distractions, and customize personal data privacy.</p>
       </div>
 
       {/* ACCOUNT & SIGN OUT INFO CARD */}
       {(() => {
         let savedEmail = '';
         try { savedEmail = localStorage.getItem('sb_current_email') || ''; } catch (_) {}
-        const currentEmail = auth?.currentUser?.email || savedEmail || (user.id && user.id !== 'guest' ? `${user.id}@studybook.vn` : 'Tài khoản Khách / Chưa đăng nhập');
+        const currentEmail = auth?.currentUser?.email || savedEmail || (user.id && user.id !== 'guest' ? `${user.id}@studybook.edu` : 'Guest Account / Not Signed In');
         return (
           <div className="bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm">
             <div className="flex items-center gap-3.5">
@@ -179,7 +181,7 @@ export const SettingsView: React.FC = () => {
                 <Globe className="h-5 w-5" />
               </div>
               <div className="space-y-0.5">
-                <p className="text-[11px] font-semibold text-gray-500 dark:text-slate-400">Tài khoản liên kết:</p>
+                <p className="text-[11px] font-semibold text-gray-500 dark:text-slate-400">Linked Account:</p>
                 <div className="text-sm font-bold text-gray-800 dark:text-white flex items-center gap-2">
                   <span className="font-mono text-blue-600 dark:text-blue-400">{currentEmail}</span>
                   {isAdmin && (
@@ -190,7 +192,7 @@ export const SettingsView: React.FC = () => {
                   {isVerifiedTutor && (
                     <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-extrabold border border-emerald-500/30 flex items-center gap-1">
                       <BadgeCheck className="h-3 w-3 text-blue-400" />
-                      Gia Sư Xác Minh
+                      Verified Tutor
                     </span>
                   )}
                 </div>
@@ -201,7 +203,7 @@ export const SettingsView: React.FC = () => {
               className="px-4 py-2 bg-red-50 hover:bg-red-100 dark:bg-red-950/40 dark:hover:bg-red-900/60 text-red-600 dark:text-red-400 rounded-xl text-xs font-bold flex items-center gap-2 border border-red-200 dark:border-red-800/50 transition-all cursor-pointer shadow-xs active:translate-y-0.5 whitespace-nowrap"
             >
               <LogOut className="h-4 w-4 text-red-500" />
-              Đăng xuất
+              Sign Out
             </button>
           </div>
         );
@@ -214,16 +216,16 @@ export const SettingsView: React.FC = () => {
             <div>
               <h3 className="font-display font-extrabold text-sm text-purple-300 flex items-center gap-2">
                 <ShieldAlert className="h-5 w-5 text-purple-400" />
-                Bảng Quản Trị Viên (Admin Panel) - Quản Lý Gia Sư
+                Admin Dashboard - Tutor Management
               </h3>
-              <p className="text-xs text-gray-400 mt-0.5">Duyệt & phân quyền Gia sư cho các tài khoản. Quản lý duy nhất 1 hồ sơ cho mỗi tài khoản.</p>
+              <p className="text-xs text-gray-400 mt-0.5">Approve and grant Tutor privileges for user accounts.</p>
             </div>
             <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
               <span className="px-2.5 py-1 bg-purple-500/20 text-purple-300 font-bold rounded-lg text-xs border border-purple-500/30">
-                {tutorRequests.filter(r => r.status === 'pending').length} Chờ duyệt
+                {tutorRequests.filter(r => r.status === 'pending').length} Pending
               </span>
               <span className="px-2.5 py-1 bg-emerald-500/20 text-emerald-300 font-bold rounded-lg text-xs border border-emerald-500/30">
-                {tutorRequests.filter(r => r.status === 'approved').length} Đã duyệt
+                {tutorRequests.filter(r => r.status === 'approved').length} Approved
               </span>
             </div>
           </div>
@@ -235,7 +237,7 @@ export const SettingsView: React.FC = () => {
               className="w-full sm:w-auto px-5 py-2.5 bg-purple-600 hover:bg-purple-500 text-white font-extrabold rounded-xl text-xs flex items-center justify-center gap-2 shadow-lg shadow-purple-600/30 transition-all cursor-pointer"
             >
               <ShieldAlert className="h-4 w-4" />
-              Xem & Quản Lý Yêu Cầu Xác Minh Gia Sư ({tutorRequests.length} Hồ sơ)
+              Manage Tutor Verification Requests ({tutorRequests.length} Total)
             </button>
           </div>
         </div>
@@ -245,7 +247,7 @@ export const SettingsView: React.FC = () => {
       <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-150 dark:border-slate-700 p-5 space-y-4 shadow-sm">
         <h3 className="font-display font-bold text-sm text-gray-800 dark:text-white flex items-center gap-1.5 border-b border-gray-150 dark:border-slate-700 pb-2">
           <UserIcon className="h-4.5 w-4.5 text-blue-600" />
-          Hồ Sơ Cá Nhân Học Tập (My Profile)
+          Academic Profile
         </h3>
         
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
@@ -266,35 +268,35 @@ export const SettingsView: React.FC = () => {
                 </div>
               )}
             </div>
-            <span className="text-[10px] text-gray-400">Xem trước ảnh đại diện</span>
+            <span className="text-[10px] text-gray-400">Avatar Preview</span>
           </div>
 
           {/* Form details */}
           <div className="md:col-span-2 space-y-3">
             <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase">Họ và Tên Hiển Thị</label>
+              <label className="text-[10px] font-bold text-gray-400 uppercase">Display Full Name</label>
               <input
                 type="text"
                 value={profileName}
                 onChange={(e) => setProfileName(e.target.value)}
-                placeholder="e.g. Nguyễn Tuấn Anh"
+                placeholder="e.g. Alex Rivera"
                 className="w-full bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs text-gray-800 dark:text-white mt-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
             </div>
 
             <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase">Trường / Viện Đào Tạo</label>
+              <label className="text-[10px] font-bold text-gray-400 uppercase">School / Institution</label>
               <input
                 type="text"
                 value={institution}
                 onChange={(e) => setInstitution(e.target.value)}
-                placeholder="e.g. ĐH Bách Khoa Hà Nội / THPT Chuyên..."
+                placeholder="e.g. Stanford University / Science High School"
                 className="w-full bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs text-gray-800 dark:text-white mt-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
             </div>
 
             <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase font-sans">Ảnh Đại Diện</label>
+              <label className="text-[10px] font-bold text-gray-400 uppercase font-sans">Avatar Photo</label>
               <div className="flex items-center gap-2 mt-1.5">
                 <input
                   type="file"
@@ -308,18 +310,18 @@ export const SettingsView: React.FC = () => {
                   className="inline-flex items-center gap-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-gray-700 dark:text-gray-200 font-bold px-3 py-1.5 rounded-xl text-xs cursor-pointer transition-all border border-gray-200 dark:border-slate-700"
                 >
                   <Upload className="h-3.5 w-3.5" />
-                  Tải ảnh từ máy tính (Upload)
+                  Upload Image from Device
                 </label>
               </div>
             </div>
 
             <div className="pt-1">
-              <label className="text-[10px] font-bold text-gray-400 uppercase">Hoặc dán Link ảnh tùy chỉnh</label>
+              <label className="text-[10px] font-bold text-gray-400 uppercase">Or Paste Custom Image URL</label>
               <input
                 type="text"
                 value={avatarUrl}
                 onChange={(e) => setAvatarUrl(e.target.value)}
-                placeholder="Dán link ảnh Unsplash, Imgur..."
+                placeholder="Paste image URL (Unsplash, Imgur...)"
                 className="w-full bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs text-gray-800 dark:text-white mt-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
             </div>
@@ -331,7 +333,7 @@ export const SettingsView: React.FC = () => {
                 className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 py-2 rounded-xl text-xs shadow-sm transition-all cursor-pointer"
               >
                 <Save className="h-4 w-4" />
-                Lưu Hồ Sơ
+                Save Profile
               </button>
             </div>
           </div>
@@ -344,10 +346,10 @@ export const SettingsView: React.FC = () => {
           <div className="space-y-1">
             <h3 className="font-display font-bold text-sm text-gray-800 dark:text-white flex items-center gap-1.5">
               <EyeOff className="h-4 w-4 text-slate-500" />
-              Chế Độ Ẩn Danh Học Tập (Incognito Mode)
+              Academic Incognito Mode
             </h3>
             <p className="text-[11px] text-gray-400 font-medium leading-relaxed">
-              Khi bật, ảnh đại diện của bạn sẽ chuyển xám ẩn danh, tên hiển thị của bạn ẩn đi ở mọi phòng học chung, giúp bạn yên tâm đọc tài liệu ôn thi mà không lo bị soi mói.
+              When enabled, your avatar switches to an incognito silhouette and your name is masked across study groups and forums.
             </p>
           </div>
           <button
@@ -364,19 +366,19 @@ export const SettingsView: React.FC = () => {
         <div className="space-y-1">
           <h3 className="font-display font-bold text-sm text-gray-800 dark:text-white flex items-center gap-1.5">
             <Sliders className="h-4 w-4 text-blue-600" />
-            Lọc Đề Xuất Môn Học (Subject Feed Preferences)
+            Subject Feed Preferences
           </h3>
           <p className="text-[11px] text-gray-400 font-medium">
-            Chọn các môn học bạn muốn xuất hiện trên Bảng Tin của bạn. Bỏ chọn môn nào sẽ ẩn hoàn toàn bài đăng của môn học đó.
+            Select subjects to emphasize on your Academic Feed. Unchecking a subject reduces its priority.
           </p>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
           {[
-            { key: 'Math' as const, label: 'Toán Học (Math)' },
-            { key: 'Physics' as const, label: 'Vật Lý (Physics)' },
-            { key: 'English' as const, label: 'Tiếng Anh (English)' },
-            { key: 'Chemistry' as const, label: 'Hóa Học (Chemistry)' }
+            { key: 'Math' as const, label: 'Mathematics' },
+            { key: 'Physics' as const, label: 'Physics' },
+            { key: 'English' as const, label: 'English' },
+            { key: 'Chemistry' as const, label: 'Chemistry' }
           ].map(sub => {
             const isSelected = ((settings.subjectWeights as any)?.[sub.key] ?? 50) >= 80;
             return (
@@ -396,7 +398,7 @@ export const SettingsView: React.FC = () => {
                 <div className="space-y-0.5">
                   <h4 className="text-xs font-bold text-gray-750 dark:text-gray-150">{sub.label}</h4>
                   <span className="text-[10px] text-gray-400 font-medium">
-                    {isSelected ? 'Ưu tiên học tập ⭐' : 'Bình thường'}
+                    {isSelected ? 'High Priority ⭐' : 'Standard'}
                   </span>
                 </div>
                 <div className={`h-4.5 w-4.5 rounded border flex items-center justify-center transition-all ${
@@ -418,9 +420,9 @@ export const SettingsView: React.FC = () => {
         {/* Spoiler protection toggle */}
         <div className="flex justify-between items-center py-2">
           <div className="space-y-0.5">
-            <h4 className="text-xs font-bold text-gray-800 dark:text-white">Bảo Vệ Chống Spoil Lời Giải (Spoiler Protection)</h4>
+            <h4 className="text-xs font-bold text-gray-800 dark:text-white">Solution Spoiler Protection</h4>
             <p className="text-[10px] text-gray-400 leading-relaxed pr-8">
-              Khi bật, các bình luận hay hình ảnh chứa từ khóa như "đáp án", "lời giải", "đáp số" sẽ bị mờ đi cho đến khi bạn nhấp chuột trực tiếp, bảo vệ bạn khỏi việc mất tập trung tự giải.
+              When enabled, comments or images containing solution keywords are blurred until clicked to prevent accidental answers during self-study.
             </p>
           </div>
           <button
@@ -431,15 +433,34 @@ export const SettingsView: React.FC = () => {
           </button>
         </div>
 
+        {/* Show / Hide Streak to Others Toggle */}
+        <div className="flex justify-between items-center py-2 pt-4">
+          <div className="space-y-0.5">
+            <h4 className="text-xs font-bold text-gray-800 dark:text-white flex items-center gap-1.5">
+              <Flame className="h-4 w-4 text-orange-500 fill-orange-500" />
+              Show Study Streak to Community
+            </h4>
+            <p className="text-[10px] text-gray-400 leading-relaxed pr-8">
+              Allows friends and study partners to view your active study streak on your profile and leaderboards.
+            </p>
+          </div>
+          <button
+            onClick={() => handleToggleSetting('showStreakToOthers')}
+            className={`w-11 h-6 rounded-full transition-colors relative shrink-0 focus:outline-none ${settings.showStreakToOthers !== false ? 'bg-orange-500' : 'bg-gray-200 dark:bg-slate-700'}`}
+          >
+            <span className={`absolute top-1 left-1 h-4 w-4 bg-white rounded-full transition-transform ${settings.showStreakToOthers !== false ? 'translate-x-5' : ''}`}></span>
+          </button>
+        </div>
+
         {/* Text-to-speech toggle */}
         <div className="flex justify-between items-center py-2 pt-4">
           <div className="space-y-0.5">
             <h4 className="text-xs font-bold text-gray-800 dark:text-white flex items-center gap-1.5">
               <Volume2 className="h-4 w-4 text-blue-500" />
-              Đọc Văn Bản Học Tập (Text-to-Speech)
+              Text-to-Speech Document Reader
             </h4>
             <p className="text-[10px] text-gray-400 leading-relaxed pr-8">
-              Tự động tích hợp nút Nghe Đọc tài liệu, bài giảng âm thanh và tin tức để học tập rảnh tay bằng tai nghe bất kỳ lúc nào.
+              Integrates audio narration options on study documents and course materials for hands-free learning.
             </p>
           </div>
           <button
@@ -450,6 +471,65 @@ export const SettingsView: React.FC = () => {
           </button>
         </div>
 
+        {/* Sound Effects & Audio Settings */}
+        <div className="pt-4 border-t border-gray-100 dark:border-slate-700/80 space-y-4">
+          <div className="flex justify-between items-center">
+            <div className="space-y-0.5">
+              <h4 className="text-xs font-bold text-gray-800 dark:text-white flex items-center gap-1.5">
+                {settings.soundEnabled !== false ? (
+                  <Volume2 className="h-4 w-4 text-purple-500" />
+                ) : (
+                  <VolumeX className="h-4 w-4 text-gray-400" />
+                )}
+                Global Sound Effects
+              </h4>
+              <p className="text-[10px] text-gray-400 leading-relaxed pr-8">
+                Play subtle interactive audio feedback when completing actions, liking posts, or achieving streaks.
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                const nextEnabled = !(settings.soundEnabled !== false);
+                setSettings(prev => ({ ...prev, soundEnabled: nextEnabled }));
+                if (nextEnabled) {
+                  playSound('toggle', settings.soundVolume ?? 0.7);
+                }
+              }}
+              className={`w-11 h-6 rounded-full transition-colors relative shrink-0 focus:outline-none ${settings.soundEnabled !== false ? 'bg-purple-600' : 'bg-gray-200 dark:bg-slate-700'}`}
+            >
+              <span className={`absolute top-1 left-1 h-4 w-4 bg-white rounded-full transition-transform ${settings.soundEnabled !== false ? 'translate-x-5' : ''}`}></span>
+            </button>
+          </div>
+
+          {/* Volume slider */}
+          {settings.soundEnabled !== false && (
+            <div className="p-3.5 bg-purple-50/60 dark:bg-purple-950/20 border border-purple-200/60 dark:border-purple-800/40 rounded-xl space-y-3">
+              <div className="flex items-center justify-between text-xs font-bold text-purple-900 dark:text-purple-200">
+                <span className="flex items-center gap-1.5">
+                  <Music className="h-3.5 w-3.5 text-purple-500" />
+                  Sound Effect Volume
+                </span>
+                <span className="font-mono text-purple-600 dark:text-purple-300">
+                  {Math.round((settings.soundVolume ?? 0.7) * 100)}%
+                </span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value={settings.soundVolume ?? 0.7}
+                onChange={(e) => {
+                  const vol = parseFloat(e.target.value);
+                  setSettings(prev => ({ ...prev, soundVolume: vol }));
+                  playSound('pop', vol);
+                }}
+                className="w-full h-1.5 bg-purple-200 dark:bg-purple-900 rounded-lg appearance-none cursor-pointer accent-purple-600"
+              />
+            </div>
+          )}
+        </div>
+
       </div>
 
       {/* BLOCK 5: TUTOR VERIFICATION SECTION */}
@@ -458,15 +538,15 @@ export const SettingsView: React.FC = () => {
           <div className="bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/50 rounded-2xl p-4 flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <div className="h-10 w-10 rounded-xl bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
-                <BadgeCheck className="h-6 w-6" />
+                <BadgeCheck className="h-6 w-6 text-blue-500" />
               </div>
               <div>
                 <h4 className="text-xs font-bold text-emerald-900 dark:text-emerald-200 flex items-center gap-1.5">
-                  Tài khoản đã được xác minh Gia Sư / Giáo Viên
+                  Verified Tutor / Educator Account
                   <BadgeCheck className="h-4 w-4 text-blue-500 fill-blue-500/20 inline" />
                 </h4>
                 <p className="text-[11px] text-emerald-700 dark:text-emerald-300 mt-0.5">
-                  Huy hiệu Verified Tutor được hiển thị xanh nổi bật bên cạnh ảnh đại diện và bài đăng của bạn.
+                  Your Verified Tutor badge is prominently displayed next to your avatar and posts.
                 </p>
               </div>
             </div>
@@ -479,10 +559,10 @@ export const SettingsView: React.FC = () => {
               </div>
               <div>
                 <h4 className="text-xs font-bold text-amber-900 dark:text-amber-200">
-                  Yêu cầu xác minh Gia sư đang chờ Admin duyệt
+                  Tutor verification request pending Admin approval
                 </h4>
                 <p className="text-[11px] text-amber-700 dark:text-amber-300 mt-0.5">
-                  Họ tên: <strong>{pendingRequest.realName}</strong> • Trường: <strong>{pendingRequest.school}</strong>
+                  Name: <strong>{pendingRequest.realName}</strong> • School: <strong>{pendingRequest.school}</strong>
                 </p>
               </div>
             </div>
@@ -491,7 +571,7 @@ export const SettingsView: React.FC = () => {
               onClick={() => setShowTutorModal(true)}
               className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl transition-all cursor-pointer shrink-0"
             >
-              Cập nhật hồ sơ
+              Update Application
             </button>
           </div>
         ) : (
@@ -500,10 +580,10 @@ export const SettingsView: React.FC = () => {
               <div className="space-y-1">
                 <h3 className="font-display font-bold text-sm text-gray-900 dark:text-white flex items-center gap-2">
                   <Award className="h-5 w-5 text-blue-600" />
-                  Đăng Ký Xác Minh Gia Sư / Giáo Viên (Tutor Verification)
+                  Apply for Tutor Verification
                 </h3>
                 <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
-                  Nếu bạn là giáo viên, trợ giảng hoặc học viên xuất sắc muốn hướng dẫn cộng đồng, hãy gửi yêu cầu xác minh để nhận huy hiệu Verified Tutor chính thức.
+                  If you are a teacher, assistant, or outstanding student wanting to mentor the community, submit a verification request to receive an official Verified Tutor badge.
                 </p>
               </div>
             </div>
@@ -513,7 +593,7 @@ export const SettingsView: React.FC = () => {
               className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold px-4 py-2.5 rounded-xl text-xs shadow-md shadow-blue-500/20 transition-all cursor-pointer"
             >
               <BadgeCheck className="h-4.5 w-4.5" />
-              Xác Minh Gia Sư (Tutor Verification)
+              Apply for Tutor Verification
             </button>
           </div>
         )}
@@ -521,7 +601,7 @@ export const SettingsView: React.FC = () => {
 
       {/* BLOCK 6: DATA STORAGE & UTILITIES */}
       <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-150 dark:border-slate-700 p-4 space-y-4 shadow-sm">
-        <span className="text-[11px] font-bold text-gray-400 uppercase tracking-widest block">Quản lý Dữ liệu & Đọc xuất báo cáo</span>
+        <span className="text-[11px] font-bold text-gray-400 uppercase tracking-widest block">Data Management & Reports</span>
         
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {/* Clear Cache */}
@@ -530,7 +610,7 @@ export const SettingsView: React.FC = () => {
             className="flex items-center justify-center gap-2 px-4 py-3 bg-gray-50 hover:bg-gray-100 dark:bg-slate-900 dark:hover:bg-slate-850 border border-gray-200 dark:border-slate-700 rounded-2xl text-xs font-bold text-gray-600 dark:text-gray-300 transition-colors cursor-pointer border-0 focus:outline-none"
           >
             <RefreshCw className="h-4 w-4 text-red-500 shrink-0" />
-            Wipe Implicit Cache (Reset thuật toán)
+            Clear Implicit Cache (Reset Algorithm)
           </button>
 
           {/* Export Portfolio Resume */}
@@ -539,7 +619,7 @@ export const SettingsView: React.FC = () => {
             className="flex items-center justify-center gap-2 px-4 py-3 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 border border-blue-100 dark:border-blue-900 rounded-2xl text-xs font-bold text-blue-700 dark:text-blue-300 transition-colors cursor-pointer border-0 focus:outline-none"
           >
             <Download className="h-4 w-4 shrink-0" />
-            Xuất Học Bạ Điện Tử (PDF/Resume)
+            Export Academic Portfolio (PDF/Resume)
           </button>
         </div>
       </div>
@@ -557,7 +637,7 @@ export const SettingsView: React.FC = () => {
               <div className="flex items-center justify-between border-b border-gray-150 dark:border-slate-800 pb-3">
                 <h3 className="font-display font-extrabold text-sm text-gray-900 dark:text-white flex items-center gap-2">
                   <Award className="h-5 w-5 text-blue-600" />
-                  Hồ Sơ Đăng Ký Xác Minh Gia Sư / Giáo Viên
+                  Tutor / Educator Verification Application
                 </h3>
                 <button onClick={() => setShowTutorModal(false)} className="text-gray-400 hover:text-white p-1 rounded-lg cursor-pointer">
                   <X className="h-4 w-4" />
@@ -566,49 +646,49 @@ export const SettingsView: React.FC = () => {
 
               <form onSubmit={handleSubmitTutorVerification} className="space-y-4 text-left">
                 <div>
-                  <label className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase">1. Họ và tên thật</label>
+                  <label className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase">1. Legal Full Name</label>
                   <input
                     type="text"
                     required
                     value={verifyRealName}
                     onChange={(e) => setVerifyRealName(e.target.value)}
-                    placeholder="Ví dụ: Nguyễn Văn A"
+                    placeholder="e.g. Alex Rivera"
                     className="w-full bg-gray-50 dark:bg-slate-950 border border-gray-200 dark:border-slate-800 rounded-xl px-3.5 py-2 text-xs text-gray-900 dark:text-white mt-1 focus:ring-2 focus:ring-blue-500 focus:outline-none"
                   />
                 </div>
 
                 <div>
-                  <label className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase">2. Trường / Cơ quan đang giảng dạy</label>
+                  <label className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase">2. School / Educational Institution</label>
                   <input
                     type="text"
                     value={verifySchool}
                     onChange={(e) => setVerifySchool(e.target.value)}
-                    placeholder="Ví dụ: THPT Chuyên Hà Nội - Amsterdam (hoặc điền 'Không thuộc trường nào')"
+                    placeholder="e.g. Science High School (or 'Independent Educator')"
                     className="w-full bg-gray-50 dark:bg-slate-950 border border-gray-200 dark:border-slate-800 rounded-xl px-3.5 py-2 text-xs text-gray-900 dark:text-white mt-1 focus:ring-2 focus:ring-blue-500 focus:outline-none"
                   />
                 </div>
 
                 <div>
-                  <label className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase">3. Mô tả kinh nghiệm / Bằng cấp chuyên môn</label>
+                  <label className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase">3. Qualifications & Experience</label>
                   <textarea
                     rows={3}
                     value={verifyDescription}
                     onChange={(e) => setVerifyDescription(e.target.value)}
-                    placeholder="Mô tả bằng cấp, chứng chỉ sư phạm, điểm thi hoặc kinh nghiệm giảng dạy..."
+                    placeholder="Describe degrees, teaching certificates, exam scores or tutoring experience..."
                     className="w-full bg-gray-50 dark:bg-slate-950 border border-gray-200 dark:border-slate-800 rounded-xl px-3.5 py-2 text-xs text-gray-900 dark:text-white mt-1 focus:ring-2 focus:ring-blue-500 focus:outline-none"
                   />
                 </div>
 
                 <div>
                   <label className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase block mb-1.5">
-                    4. Đăng ký xác minh chuyên môn (Có thể chọn nhiều môn)
+                    4. Subject Specializations (Multiple allowed)
                   </label>
                   <div className="grid grid-cols-2 gap-2">
                     {[
-                      { id: 'Toán (Math)', label: '📐 Toán (Math)' },
-                      { id: 'Vật Lý (Physics)', label: '⚡ Vật Lý (Physics)' },
-                      { id: 'Tiếng Anh (English)', label: '🌐 Tiếng Anh (English)' },
-                      { id: 'Hóa Học (Chemistry)', label: '🧪 Hóa Học (Chemistry)' }
+                      { id: 'Toán (Math)', label: '📐 Mathematics' },
+                      { id: 'Vật Lý (Physics)', label: '⚡ Physics' },
+                      { id: 'Tiếng Anh (English)', label: '🌐 English' },
+                      { id: 'Hóa Học (Chemistry)', label: '🧪 Chemistry' }
                     ].map(sub => {
                       const checked = verifySubjects.includes(sub.id);
                       return (
@@ -645,14 +725,14 @@ export const SettingsView: React.FC = () => {
                     onClick={() => setShowTutorModal(false)}
                     className="px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-gray-700 dark:text-gray-300 rounded-xl text-xs font-bold transition-all cursor-pointer"
                   >
-                    Hủy bỏ
+                    Cancel
                   </button>
                   <button
                     type="submit"
                     className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
                   >
                     <BadgeCheck className="h-4 w-4" />
-                    Gửi Yêu Cầu Xác Minh
+                    Submit Verification Request
                   </button>
                 </div>
               </form>
@@ -701,7 +781,7 @@ export const SettingsView: React.FC = () => {
                   <ShieldAlert className="h-5 w-5" />
                 </div>
                 <div className="space-y-1.5">
-                  <h3 className="font-display font-extrabold text-sm text-gray-900 dark:text-white">Xác nhận hành động</h3>
+                  <h3 className="font-display font-extrabold text-sm text-gray-900 dark:text-white">Confirm Action</h3>
                   <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed font-normal">
                     {confirmModal.message}
                   </p>
@@ -713,14 +793,14 @@ export const SettingsView: React.FC = () => {
                   onClick={() => setConfirmModal(null)}
                   className="px-3.5 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-gray-700 dark:text-gray-300 rounded-xl text-xs font-bold transition-all cursor-pointer border-0 focus:outline-none"
                 >
-                  Hủy bỏ
+                  Cancel
                 </button>
                 <button
                   type="button"
                   onClick={confirmModal.onConfirm}
                   className="px-3.5 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-md shadow-red-600/10 border-0 focus:outline-none"
                 >
-                  Xác nhận xóa
+                  Confirm Delete
                 </button>
               </div>
             </motion.div>
@@ -746,10 +826,10 @@ export const SettingsView: React.FC = () => {
                   </div>
                   <div>
                     <h3 className="font-display font-extrabold text-sm text-gray-900 dark:text-white">
-                      Danh Sách Quản Lý & Phân Quyền Gia Sư
+                      Tutor Verification Requests & Management
                     </h3>
                     <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                      Tổng số: {tutorRequests.length} hồ sơ | Duyệt, từ chối hoặc xem lịch sử cho từng tài khoản.
+                      Total: {tutorRequests.length} records | Approve, decline or review history logs.
                     </p>
                   </div>
                 </div>
@@ -769,7 +849,7 @@ export const SettingsView: React.FC = () => {
                     type="text"
                     value={adminSearchQuery}
                     onChange={(e) => setAdminSearchQuery(e.target.value)}
-                    placeholder="Tìm theo tên, email, trường học..."
+                    placeholder="Search by name, email, school..."
                     className="w-full pl-9 pr-3 py-2 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-xs text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500/50"
                   />
                 </div>
@@ -785,10 +865,10 @@ export const SettingsView: React.FC = () => {
                           : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
                       }`}
                     >
-                      {status === 'all' && `Tất cả (${tutorRequests.length})`}
-                      {status === 'pending' && `Chờ duyệt (${tutorRequests.filter(r => r.status === 'pending').length})`}
-                      {status === 'approved' && `Đã duyệt (${tutorRequests.filter(r => r.status === 'approved').length})`}
-                      {status === 'rejected' && `Đã từ chối (${tutorRequests.filter(r => r.status === 'rejected').length})`}
+                      {status === 'all' && `All (${tutorRequests.length})`}
+                      {status === 'pending' && `Pending (${tutorRequests.filter(r => r.status === 'pending').length})`}
+                      {status === 'approved' && `Approved (${tutorRequests.filter(r => r.status === 'approved').length})`}
+                      {status === 'rejected' && `Declined (${tutorRequests.filter(r => r.status === 'rejected').length})`}
                     </button>
                   ))}
                 </div>
@@ -813,7 +893,7 @@ export const SettingsView: React.FC = () => {
                   if (filtered.length === 0) {
                     return (
                       <div className="py-12 text-center text-gray-400 dark:text-gray-500 text-xs italic">
-                        Không tìm thấy hồ sơ đăng ký xác minh nào phù hợp.
+                        No matching verification requests found.
                       </div>
                     );
                   }
@@ -826,7 +906,7 @@ export const SettingsView: React.FC = () => {
                       <div 
                         onClick={() => setSelectedDetailRequest(req)}
                         className="flex items-start gap-3 flex-1 cursor-pointer"
-                        title="Bấm để xem chi tiết phóng to hồ sơ này"
+                        title="Click to view full request details"
                       >
                         <img src={req.userAvatar || SILHOUETTE_AVATAR} className="h-10 w-10 rounded-full border border-purple-500/40 object-cover shrink-0 mt-0.5 group-hover:scale-105 transition-transform" />
                         <div>
@@ -838,21 +918,21 @@ export const SettingsView: React.FC = () => {
                             <span className="text-[10px] text-gray-500 dark:text-gray-400 font-normal">({req.userEmail || req.userId})</span>
                             {req.status === 'approved' ? (
                               <span className="px-2 py-0.5 bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 rounded text-[9px] font-bold">
-                                Gia sư (Đã duyệt)
+                                Tutor (Approved)
                               </span>
                             ) : req.status === 'rejected' ? (
                               <span className="px-2 py-0.5 bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300 border border-red-500/30 rounded text-[9px] font-bold">
-                                Học sinh (Đã từ chối)
+                                Student (Declined)
                               </span>
                             ) : (
                               <span className="px-2 py-0.5 bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-500/30 rounded text-[9px] font-bold">
-                                Đang chờ duyệt
+                                Pending Approval
                               </span>
                             )}
                           </div>
-                          <p className="text-[11px] text-purple-600 dark:text-purple-300 font-medium mt-0.5">Trường: {req.school || 'Không thuộc trường nào'}</p>
+                          <p className="text-[11px] text-purple-600 dark:text-purple-300 font-medium mt-0.5">School: {req.school || 'Independent Educator'}</p>
                           {req.description && <p className="text-[10px] text-gray-600 dark:text-gray-300 italic line-clamp-2 mt-0.5">"{req.description}"</p>}
-                          <p className="text-[10px] text-blue-600 dark:text-blue-400 font-semibold mt-0.5">Môn đăng ký: {req.requestedSubjects?.join(', ') || 'Toán, Lý'}</p>
+                          <p className="text-[10px] text-blue-600 dark:text-blue-400 font-semibold mt-0.5">Subjects: {req.requestedSubjects?.join(', ') || 'Math, Physics'}</p>
                           <span className="text-[9px] text-gray-400">{req.timestamp}</span>
                         </div>
                       </div>
@@ -862,17 +942,17 @@ export const SettingsView: React.FC = () => {
                           type="button"
                           onClick={() => setSelectedDetailRequest(req)}
                           className="px-2.5 py-1.5 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/40 dark:hover:bg-purple-900/60 text-purple-600 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 shadow-2xs"
-                          title="Xem phóng to chi tiết yêu cầu"
+                          title="View enlarged details"
                         >
                           <Maximize2 className="h-3.5 w-3.5" />
-                          Chi Tiết
+                          Details
                         </button>
 
                         <button
                           type="button"
                           onClick={() => {
                             approveTutorRequest(req.id);
-                            showToast(`Đã duyệt & cấp quyền Gia sư cho ${req.realName || req.userName}`, 'success');
+                            showToast(`Approved & granted Tutor role for ${req.realName || req.userName}`, 'success');
                           }}
                           className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-2xs ${
                             req.status === 'approved' 
@@ -880,14 +960,14 @@ export const SettingsView: React.FC = () => {
                               : 'bg-emerald-600 hover:bg-emerald-700 text-white'
                           }`}
                         >
-                          {req.status === 'approved' ? '✓ Cấp Quyền' : 'Duyệt Gia Sư'}
+                          {req.status === 'approved' ? '✓ Approved' : 'Approve Tutor'}
                         </button>
 
                         <button
                           type="button"
                           onClick={() => {
                             rejectTutorRequest(req.id);
-                            showToast(`Đã thu hồi / Từ chối Gia sư đối với ${req.realName || req.userName}`, 'info');
+                            showToast(`Declined / Revoked Tutor role for ${req.realName || req.userName}`, 'info');
                           }}
                           className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-2xs ${
                             req.status === 'rejected'
@@ -895,24 +975,24 @@ export const SettingsView: React.FC = () => {
                               : 'bg-red-600/80 hover:bg-red-700 text-white'
                           }`}
                         >
-                          {req.status === 'rejected' ? '✕ Đã Từ Chối' : 'Thu Hồi / Từ Chối'}
+                          {req.status === 'rejected' ? '✕ Declined' : 'Decline / Revoke'}
                         </button>
 
                         <button
                           type="button"
                           onClick={() => setSelectedHistoryAccount(req)}
                           className="px-2.5 py-1.5 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 shadow-2xs"
-                          title="Xem lịch sử thao tác & nhật ký"
+                          title="View action history & logs"
                         >
                           <History className="h-3.5 w-3.5" />
-                          Lịch Sử
+                          History
                         </button>
 
                         <button
                           type="button"
                           onClick={() => setRequestToDelete(req)}
                           className="p-1.5 bg-red-50 hover:bg-red-100 dark:bg-red-950/40 dark:hover:bg-red-900/60 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800/60 rounded-lg transition-all cursor-pointer shadow-2xs"
-                          title="Xóa vĩnh viễn yêu cầu này"
+                          title="Permanently delete this request"
                         >
                           <Trash2 className="h-4 w-4" />
                         </button>
@@ -929,7 +1009,7 @@ export const SettingsView: React.FC = () => {
                   onClick={() => setShowAdminRequestsModal(false)}
                   className="px-4 py-2 bg-gray-100 dark:bg-slate-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-slate-700 rounded-xl text-xs font-bold cursor-pointer"
                 >
-                  Đóng Bảng Quản Lý
+                  Close Management Panel
                 </button>
               </div>
             </motion.div>
@@ -954,9 +1034,9 @@ export const SettingsView: React.FC = () => {
                   </div>
                   <div>
                     <h3 className="font-display font-extrabold text-sm text-gray-900 dark:text-white">
-                      Lịch Sử Đăng Ký & Nhật Ký Phân Quyền
+                      Application History & Permission Logs
                     </h3>
-                    <p className="text-[11px] text-gray-500 dark:text-gray-400">Tài khoản: {selectedHistoryAccount.userEmail || selectedHistoryAccount.userId}</p>
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400">Account: {selectedHistoryAccount.userEmail || selectedHistoryAccount.userId}</p>
                   </div>
                 </div>
                 <button
@@ -976,23 +1056,23 @@ export const SettingsView: React.FC = () => {
                       {selectedHistoryAccount.realName || selectedHistoryAccount.userName}
                       {selectedHistoryAccount.status === 'approved' ? (
                         <span className="px-2 py-0.5 bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 rounded text-[10px] font-bold">
-                          Gia Sư Đã Duyệt
+                          Approved Tutor
                         </span>
                       ) : selectedHistoryAccount.status === 'rejected' ? (
                         <span className="px-2 py-0.5 bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300 rounded text-[10px] font-bold">
-                          Học Sinh (Đã Từ Chối)
+                          Student (Declined)
                         </span>
                       ) : (
                         <span className="px-2 py-0.5 bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 rounded text-[10px] font-bold">
-                          Đang Chờ Duyệt
+                          Pending Approval
                         </span>
                       )}
                     </h4>
                     <p className="text-[11px] text-gray-600 dark:text-gray-300">
-                      <strong>Trường:</strong> {selectedHistoryAccount.school || 'Không thuộc trường nào'}
+                      <strong>School:</strong> {selectedHistoryAccount.school || 'Unspecified'}
                     </p>
                     <p className="text-[11px] text-blue-600 dark:text-blue-400">
-                      <strong>Môn đăng ký:</strong> {selectedHistoryAccount.requestedSubjects?.join(', ') || 'Toán, Lý'}
+                      <strong>Requested Subjects:</strong> {selectedHistoryAccount.requestedSubjects?.join(', ') || 'Math, Physics'}
                     </p>
                   </div>
                 </div>
@@ -1007,7 +1087,7 @@ export const SettingsView: React.FC = () => {
               <div className="space-y-3">
                 <h4 className="text-xs font-bold text-gray-800 dark:text-gray-200 uppercase tracking-wider flex items-center gap-1.5">
                   <Clock className="h-3.5 w-3.5 text-purple-500" />
-                  Nhật ký thao tác & Thay đổi trạng thái
+                  Action History & Status Changes
                 </h4>
 
                 <div className="relative pl-4 border-l-2 border-purple-200 dark:border-purple-900/50 space-y-4 my-2">
@@ -1021,7 +1101,7 @@ export const SettingsView: React.FC = () => {
                         </div>
                         {log.performedBy && (
                           <p className="text-[11px] text-purple-600 dark:text-purple-400 font-medium">
-                            Thực hiện bởi: {log.performedBy}
+                            Executed by: {log.performedBy}
                           </p>
                         )}
                         {log.details && (
@@ -1035,10 +1115,10 @@ export const SettingsView: React.FC = () => {
                     <div className="relative space-y-1">
                       <div className="absolute -left-[21px] top-1 h-2.5 w-2.5 rounded-full bg-purple-600 ring-4 ring-white dark:ring-slate-900" />
                       <div className="flex items-center justify-between text-xs">
-                        <span className="font-bold text-gray-800 dark:text-gray-200">Gửi yêu cầu xác minh Gia sư</span>
+                        <span className="font-bold text-gray-800 dark:text-gray-200">Submitted Tutor Verification Request</span>
                         <span className="text-[10px] text-gray-400 font-mono">{selectedHistoryAccount.timestamp}</span>
                       </div>
-                      <p className="text-[11px] text-gray-500 dark:text-gray-400">Yêu cầu xác minh gia sư đầu tiên được ghi nhận.</p>
+                      <p className="text-[11px] text-gray-500 dark:text-gray-400">Initial tutor verification request recorded.</p>
                     </div>
                   )}
                 </div>
@@ -1052,7 +1132,7 @@ export const SettingsView: React.FC = () => {
                   className="px-3 py-2 bg-red-50 hover:bg-red-100 dark:bg-red-950/40 dark:hover:bg-red-900/60 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800/60 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5"
                 >
                   <Trash2 className="h-4 w-4" />
-                  Xóa Yêu Cầu
+                  Delete Request
                 </button>
 
                 <div className="flex items-center justify-end gap-2">
@@ -1061,29 +1141,29 @@ export const SettingsView: React.FC = () => {
                     onClick={() => {
                       approveTutorRequest(selectedHistoryAccount.id);
                       setSelectedHistoryAccount(prev => prev ? { ...prev, status: 'approved' } : null);
-                      showToast(`Đã duyệt & cấp quyền Gia sư cho ${selectedHistoryAccount.realName || selectedHistoryAccount.userName}!`, 'success');
+                      showToast(`Approved & granted Tutor role for ${selectedHistoryAccount.realName || selectedHistoryAccount.userName}!`, 'success');
                     }}
                     className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all cursor-pointer"
                   >
-                    Cấp Quyền Gia Sư
+                    Grant Tutor Role
                   </button>
                   <button
                     type="button"
                     onClick={() => {
                       rejectTutorRequest(selectedHistoryAccount.id);
                       setSelectedHistoryAccount(prev => prev ? { ...prev, status: 'rejected' } : null);
-                      showToast(`Đã từ chối / thu hồi quyền Gia sư của ${selectedHistoryAccount.realName || selectedHistoryAccount.userName}`, 'info');
+                      showToast(`Declined / Revoked Tutor role for ${selectedHistoryAccount.realName || selectedHistoryAccount.userName}`, 'info');
                     }}
                     className="px-3.5 py-2 bg-red-600/80 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer"
                   >
-                    Thu Hồi / Từ Chối
+                    Revoke / Decline
                   </button>
                   <button
                     type="button"
                     onClick={() => setSelectedHistoryAccount(null)}
                     className="px-4 py-2 bg-gray-100 dark:bg-slate-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-slate-700 rounded-xl text-xs font-bold cursor-pointer"
                   >
-                    Đóng
+                    Close
                   </button>
                 </div>
               </div>
@@ -1116,15 +1196,15 @@ export const SettingsView: React.FC = () => {
                       </h3>
                       {selectedDetailRequest.status === 'approved' ? (
                         <span className="px-2.5 py-0.5 bg-emerald-100 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 rounded-full text-xs font-bold">
-                          Gia Sư (Đã duyệt)
+                          Approved Tutor
                         </span>
                       ) : selectedDetailRequest.status === 'rejected' ? (
                         <span className="px-2.5 py-0.5 bg-red-100 dark:bg-red-950/70 text-red-700 dark:text-red-300 border border-red-500/30 rounded-full text-xs font-bold">
-                          Đã từ chối / Thu hồi
+                          Declined / Revoked
                         </span>
                       ) : (
                         <span className="px-2.5 py-0.5 bg-amber-100 dark:bg-amber-950/70 text-amber-700 dark:text-amber-300 border border-amber-500/30 rounded-full text-xs font-bold">
-                          Đang chờ duyệt
+                          Pending Approval
                         </span>
                       )}
                     </div>
@@ -1132,7 +1212,7 @@ export const SettingsView: React.FC = () => {
                       Email / ID: {selectedDetailRequest.userEmail || selectedDetailRequest.userId}
                     </p>
                     <p className="text-[11px] text-gray-400 mt-0.5">
-                      Thời gian gửi: {selectedDetailRequest.timestamp}
+                      Submitted on: {selectedDetailRequest.timestamp}
                     </p>
                   </div>
                 </div>
@@ -1150,10 +1230,10 @@ export const SettingsView: React.FC = () => {
                 <div className="p-3.5 bg-gray-50 dark:bg-slate-800/60 rounded-xl border border-gray-200 dark:border-slate-700/80 space-y-1">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-purple-600 dark:text-purple-400 flex items-center gap-1.5">
                     <School className="h-4 w-4" />
-                    Trường / Cơ Sở Đào Tạo
+                    School / Educational Institution
                   </span>
                   <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">
-                    {selectedDetailRequest.school || 'Không khai báo trường'}
+                    {selectedDetailRequest.school || 'Unspecified'}
                   </p>
                 </div>
 
@@ -1161,7 +1241,7 @@ export const SettingsView: React.FC = () => {
                 <div className="p-3.5 bg-gray-50 dark:bg-slate-800/60 rounded-xl border border-gray-200 dark:border-slate-700/80 space-y-2">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 flex items-center gap-1.5">
                     <BookOpen className="h-4 w-4" />
-                    Các Môn Học Đăng Ký Giảng Dạy
+                    Requested Teaching Subjects
                   </span>
                   <div className="flex flex-wrap gap-2 pt-0.5">
                     {selectedDetailRequest.requestedSubjects && selectedDetailRequest.requestedSubjects.length > 0 ? (
@@ -1171,7 +1251,7 @@ export const SettingsView: React.FC = () => {
                         </span>
                       ))
                     ) : (
-                      <span className="text-xs text-gray-400 italic">Toán (Math), Vật Lý (Physics)</span>
+                      <span className="text-xs text-gray-400 italic">Mathematics, Physics</span>
                     )}
                   </div>
                 </div>
@@ -1180,14 +1260,14 @@ export const SettingsView: React.FC = () => {
                 <div className="p-4 bg-purple-50/50 dark:bg-purple-950/20 rounded-xl border border-purple-200/80 dark:border-purple-800/40 space-y-2">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-purple-700 dark:text-purple-300 flex items-center gap-1.5">
                     <FileText className="h-4 w-4" />
-                    Mô Tả Chi Tiết & Giới Thiệu Năng Lực
+                    Detailed Qualifications & Bio
                   </span>
                   {selectedDetailRequest.description ? (
                     <div className="text-sm text-gray-800 dark:text-gray-200 leading-relaxed font-normal whitespace-pre-wrap bg-white dark:bg-slate-900 p-3.5 rounded-lg border border-purple-100 dark:border-purple-900/40 shadow-2xs">
                       {selectedDetailRequest.description}
                     </div>
                   ) : (
-                    <p className="text-xs text-gray-400 italic">Ứng viên chưa nhập phần mô tả chi tiết.</p>
+                    <p className="text-xs text-gray-400 italic">No detailed description provided by applicant.</p>
                   )}
                 </div>
               </div>
@@ -1200,7 +1280,7 @@ export const SettingsView: React.FC = () => {
                   className="px-3.5 py-2 bg-red-50 hover:bg-red-100 dark:bg-red-950/40 dark:hover:bg-red-900/60 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800/60 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5"
                 >
                   <Trash2 className="h-4 w-4" />
-                  Xóa Yêu Cầu Này
+                  Delete Request
                 </button>
 
                 <div className="flex items-center gap-2 flex-wrap justify-end">
@@ -1209,11 +1289,11 @@ export const SettingsView: React.FC = () => {
                     onClick={() => {
                       approveTutorRequest(selectedDetailRequest.id);
                       setSelectedDetailRequest(prev => prev ? { ...prev, status: 'approved' } : null);
-                      showToast(`Đã duyệt & cấp quyền Gia sư cho ${selectedDetailRequest.realName || selectedDetailRequest.userName}!`, 'success');
+                      showToast(`Approved & granted Tutor role for ${selectedDetailRequest.realName || selectedDetailRequest.userName}!`, 'success');
                     }}
                     className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all cursor-pointer"
                   >
-                    Duyệt Gia Sư
+                    Approve Tutor
                   </button>
 
                   <button
@@ -1221,11 +1301,11 @@ export const SettingsView: React.FC = () => {
                     onClick={() => {
                       rejectTutorRequest(selectedDetailRequest.id);
                       setSelectedDetailRequest(prev => prev ? { ...prev, status: 'rejected' } : null);
-                      showToast(`Đã từ chối Gia sư đối với ${selectedDetailRequest.realName || selectedDetailRequest.userName}`, 'info');
+                      showToast(`Declined / Revoked Tutor role for ${selectedDetailRequest.realName || selectedDetailRequest.userName}`, 'info');
                     }}
                     className="px-4 py-2 bg-red-600/80 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer"
                   >
-                    Thu Hồi / Từ Chối
+                    Decline / Revoke
                   </button>
 
                   <button
@@ -1236,7 +1316,7 @@ export const SettingsView: React.FC = () => {
                     className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1"
                   >
                     <History className="h-3.5 w-3.5" />
-                    Lịch Sử
+                    History
                   </button>
 
                   <button
@@ -1244,7 +1324,7 @@ export const SettingsView: React.FC = () => {
                     onClick={() => setSelectedDetailRequest(null)}
                     className="px-4 py-2 bg-gray-100 dark:bg-slate-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-slate-700 rounded-xl text-xs font-bold cursor-pointer"
                   >
-                    Đóng
+                    Close
                   </button>
                 </div>
               </div>
@@ -1269,10 +1349,10 @@ export const SettingsView: React.FC = () => {
                 </div>
                 <div>
                   <h3 className="font-display font-extrabold text-base text-gray-900 dark:text-white">
-                    Xác Nhận Xóa Yêu Cầu?
+                    Confirm Deleting Request?
                   </h3>
                   <p className="text-xs text-gray-500 dark:text-gray-400">
-                    Hành động này không thể hoàn tác
+                    This action cannot be undone.
                   </p>
                 </div>
               </div>
@@ -1291,12 +1371,12 @@ export const SettingsView: React.FC = () => {
                   </div>
                 </div>
                 <p className="text-[11px] text-red-700 dark:text-red-300 font-medium">
-                  Trường: {requestToDelete.school || 'Không rõ'}
+                  School: {requestToDelete.school || 'Unspecified'}
                 </p>
               </div>
 
               <p className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed">
-                Bạn có chắc chắn muốn xóa hoàn toàn hồ sơ đăng ký xác minh gia sư này khỏi hệ thống? Dữ liệu yêu cầu sẽ bị xóa vĩnh viễn.
+                Are you sure you want to permanently remove this tutor verification request from the database?
               </p>
 
               {/* Actions */}
@@ -1306,14 +1386,14 @@ export const SettingsView: React.FC = () => {
                   onClick={() => setRequestToDelete(null)}
                   className="px-4 py-2 bg-gray-100 dark:bg-slate-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer"
                 >
-                  Hủy Bỏ
+                  Cancel
                 </button>
                 <button
                   type="button"
                   onClick={() => {
                     const reqId = requestToDelete.id;
                     deleteTutorRequest(reqId);
-                    showToast('Đã xóa yêu cầu xác minh thành công', 'info');
+                    showToast('Tutor verification request deleted', 'info');
                     setRequestToDelete(null);
                     if (selectedDetailRequest?.id === reqId) {
                       setSelectedDetailRequest(null);
@@ -1325,7 +1405,7 @@ export const SettingsView: React.FC = () => {
                   className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md shadow-red-600/30 transition-all cursor-pointer"
                 >
                   <Trash2 className="h-4 w-4" />
-                  Xóa Vĩnh Viễn
+                  Delete Permanently
                 </button>
               </div>
             </motion.div>

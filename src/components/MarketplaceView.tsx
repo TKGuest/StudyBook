@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { MarketplaceItem } from '../types';
 import { ShoppingBag, Search, Plus, MapPin, Tag, Star, MessageSquare } from 'lucide-react';
+import { playSound } from '../utils/soundEffects';
 
 export const MarketplaceView: React.FC = () => {
   const { marketplace, addMarketplaceItem, user } = useApp();
@@ -33,6 +34,7 @@ export const MarketplaceView: React.FC = () => {
     e.preventDefault();
     if (!listTitle.trim()) return;
 
+    playSound('send');
     addMarketplaceItem({
       title: listTitle,
       price: onlyFreebies ? 0 : listPrice,
@@ -52,6 +54,7 @@ export const MarketplaceView: React.FC = () => {
   };
 
   const handleInAppChatInit = (item: MarketplaceItem) => {
+    playSound('pop');
     const formattedPrice = item.price === 0 ? 'free (0 VND)' : `${item.price.toLocaleString('en-US')} VND`;
     const msg = `Hi ${item.seller.name}! I saw your listing for "${item.title}" priced at ${formattedPrice} located ${item.distance} km away on StudyBook. Is this item still available? I would love to discuss further.`;
     
@@ -75,7 +78,10 @@ export const MarketplaceView: React.FC = () => {
         <div className="flex gap-2">
           {/* Freebie 0 VND Filter Toggle */}
           <button
-            onClick={() => setOnlyFreebies(!onlyFreebies)}
+            onClick={() => {
+              playSound('pop');
+              setOnlyFreebies(!onlyFreebies);
+            }}
             className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
               onlyFreebies 
                 ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-300' 
@@ -87,8 +93,11 @@ export const MarketplaceView: React.FC = () => {
 
           {/* Add Listing Trigger */}
           <button
-            onClick={() => setShowAddListingModal(true)}
-            className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold px-3 py-1.5 rounded-xl text-xs shadow-sm"
+            onClick={() => {
+              playSound('pop');
+              setShowAddListingModal(true);
+            }}
+            className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold px-3 py-1.5 rounded-xl text-xs shadow-sm cursor-pointer"
           >
             <Plus className="h-4 w-4" />
             Post a Listing
@@ -107,8 +116,11 @@ export const MarketplaceView: React.FC = () => {
         ].map(cat => (
           <button
             key={cat.id}
-            onClick={() => setSelectedCategory(cat.id)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+            onClick={() => {
+              playSound('tab');
+              setSelectedCategory(cat.id);
+            }}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
               selectedCategory === cat.id 
                 ? 'bg-blue-600 text-white font-bold' 
                 : 'bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-300 border border-gray-150 dark:border-slate-700'

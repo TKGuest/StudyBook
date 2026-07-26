@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { SILHOUETTE_AVATAR } from '../data/mockData';
+import { playSound } from '../utils/soundEffects';
 import { 
   Search, 
   Flame, 
@@ -49,7 +50,7 @@ export const Header: React.FC<HeaderProps> = ({ onSearchQuery }) => {
 
   const tutorNotifications = isAdmin ? tutorRequests.filter(r => r.status === 'pending').map(r => ({
     id: r.id,
-    text: `🔔 Yêu cầu Gia sư: ${r.userName} (${r.userEmail || 'Học viên'}) muốn trở thành Gia sư!`,
+    text: `🔔 Tutor Request: ${r.userName} (${r.userEmail || 'Student'}) requested Tutor verification!`,
     time: r.timestamp,
     isHighPriority: true,
     isTutorRequest: true,
@@ -86,10 +87,12 @@ export const Header: React.FC<HeaderProps> = ({ onSearchQuery }) => {
   }, [user?.id]);
 
   const toggleDarkMode = () => {
+    playSound('toggle');
     setSettings(prev => ({ ...prev, darkMode: !prev.darkMode }));
   };
 
   const toggleIncognito = () => {
+    playSound('toggle');
     setSettings(prev => ({ ...prev, incognitoMode: !prev.incognitoMode }));
   };
 
@@ -102,6 +105,7 @@ export const Header: React.FC<HeaderProps> = ({ onSearchQuery }) => {
   // Streak badge ring styles based on streak status
   const getStreakRingStyle = () => {
     if (settings.incognitoMode) return 'ring-4 ring-slate-400 animate-pulse';
+    if (settings.showStreakToOthers === false) return 'ring-2 ring-slate-300 dark:ring-slate-700';
     if (user.streak >= 100) return 'ring-4 ring-yellow-400 ring-offset-2 shadow-lg shadow-yellow-500/20 animate-pulse';
     if (user.streak >= 30) return 'ring-4 ring-indigo-400 ring-offset-2 animate-pulse';
     return 'ring-4 ring-orange-500 ring-offset-1';
@@ -115,7 +119,7 @@ export const Header: React.FC<HeaderProps> = ({ onSearchQuery }) => {
 
   // Notifications
   const mockNotifications: { id: number; text: string; time: string; isHighPriority: boolean }[] = [
-    { id: 1, text: 'Chào mừng bạn đến với StudyBook! Hãy đăng tải tài liệu hoặc tạo nhóm học tập đầu tiên.', time: 'Vừa xong', isHighPriority: true }
+    { id: 1, text: 'Welcome to StudyBook! Feel free to upload documents or create your first study group.', time: 'Just now', isHighPriority: true }
   ];
 
   return (
@@ -154,17 +158,20 @@ export const Header: React.FC<HeaderProps> = ({ onSearchQuery }) => {
         {[
           { id: 'feed', icon: Home, label: 'Feed' },
           { id: 'reels', icon: Film, label: 'Reels' },
-          { id: 'marketplace', icon: ShoppingBag, label: 'Chợ' },
-          { id: 'groups', icon: Users, label: 'Nhóm' },
-          { id: 'games', icon: Gamepad2, label: 'Đấu trí' },
-          { id: 'tutors', icon: GraduationCap, label: 'Gia sư' }
+          { id: 'marketplace', icon: ShoppingBag, label: 'Marketplace' },
+          { id: 'groups', icon: Users, label: 'Groups' },
+          { id: 'games', icon: Gamepad2, label: 'Brain Battle' },
+          { id: 'tutors', icon: GraduationCap, label: 'Tutors' }
         ].map(item => {
           const Icon = item.icon;
           const isSelected = activeTab === item.id;
           return (
             <button
               key={item.id}
-              onClick={() => setActiveTab(item.id)}
+              onClick={() => {
+                if (activeTab !== item.id) playSound('tab');
+                setActiveTab(item.id);
+              }}
               className={`flex-1 flex flex-col items-center justify-center h-full relative cursor-pointer group focus:outline-none transition-colors ${
                 isSelected 
                   ? 'text-blue-600 dark:text-blue-400' 
@@ -329,7 +336,7 @@ export const Header: React.FC<HeaderProps> = ({ onSearchQuery }) => {
                         }}
                         className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[10px] font-bold transition-all shadow-xs"
                       >
-                        Xác minh ngay (Approve)
+                        Approve
                       </button>
                       <button
                         onClick={() => {
@@ -338,7 +345,7 @@ export const Header: React.FC<HeaderProps> = ({ onSearchQuery }) => {
                         }}
                         className="px-2.5 py-1 bg-slate-700 hover:bg-slate-600 text-white rounded text-[10px] font-bold transition-all"
                       >
-                        Xem Bảng Admin
+                        Admin Panel
                       </button>
                     </div>
                   </div>
@@ -375,7 +382,10 @@ export const Header: React.FC<HeaderProps> = ({ onSearchQuery }) => {
                 className={`h-9 w-9 rounded-full object-cover transition-all ${getStreakRingStyle()}`}
               />
               {!settings.incognitoMode && (
-                <span className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-orange-600 text-[10px] font-bold text-white border border-white">
+                <span 
+                  className={`absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold text-white border border-white ${settings.showStreakToOthers === false ? 'bg-gray-400 dark:bg-slate-600' : 'bg-orange-600'}`}
+                  title={settings.showStreakToOthers === false ? 'Streak hidden to others' : `Streak ${user.streak} Days`}
+                >
                   <Flame className="h-3 w-3 fill-white" />
                 </span>
               )}
@@ -397,10 +407,10 @@ export const Header: React.FC<HeaderProps> = ({ onSearchQuery }) => {
               <div className="my-3 p-3.5 bg-orange-50 dark:bg-orange-950/30 border border-orange-200/80 dark:border-orange-800/40 rounded-xl space-y-1.5 text-center">
                 <p className="text-xs font-bold text-orange-700 dark:text-orange-300 flex items-center justify-center gap-1">
                   <Flame className="h-4 w-4 fill-orange-500 text-orange-500" />
-                  Chuỗi Đăng Nhập Hàng Ngày
+                  Daily Login Streak
                 </p>
                 <p className="text-[11px] text-orange-800/80 dark:text-orange-200/80 leading-relaxed">
-                  Đăng nhập vào StudyBook mỗi ngày để duy trì streak! Nếu bỏ lỡ 1 ngày không đăng nhập, chuỗi streak sẽ bị ngắt và quay về 1.
+                  Log in to StudyBook every day to maintain your streak! If you miss a day, your streak resets to 1.
                 </p>
               </div>
 

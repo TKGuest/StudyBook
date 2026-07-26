@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { Gamepad2, Award, Zap, Timer, CheckCircle, XCircle } from 'lucide-react';
+import { playSound } from '../utils/soundEffects';
 
 interface Question {
   text: string;
@@ -51,11 +52,15 @@ export const GamesView: React.FC = () => {
     setSelectedAns(idx);
     
     if (idx === sampleQuestions[currentQIdx].correctIdx) {
+      playSound('pop');
       setScore(prev => prev + 10);
+    } else {
+      playSound('delete');
     }
   };
 
   const handleNextQ = () => {
+    playSound('tab');
     setSelectedAns(null);
     if (currentQIdx < sampleQuestions.length - 1) {
       setCurrentQIdx(currentQIdx + 1);
@@ -72,6 +77,7 @@ export const GamesView: React.FC = () => {
   };
 
   const resetGame = () => {
+    playSound('tab');
     setGameStarted(false);
     setCurrentQIdx(0);
     setSelectedAns(null);
@@ -81,7 +87,7 @@ export const GamesView: React.FC = () => {
 
   // Leaderboard List
   const mockLeaders = [
-    { name: `${user.name || 'Bạn'} (You)`, score: user.streak * 10 + 50, streak: user.streak ?? 1, badge: user.badges[0] || 'Member' }
+    { name: `${user.name || 'You'} (You)`, score: user.streak * 10 + 50, streak: user.streak ?? 1, badge: user.badges[0] || 'Member' }
   ];
 
   return (

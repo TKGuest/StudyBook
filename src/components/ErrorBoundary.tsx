@@ -53,9 +53,9 @@ export class ErrorBoundary extends React.Component<Props, State> {
             </div>
 
             <div className="space-y-2">
-              <h2 className="text-lg font-bold text-white">Đã xảy ra lỗi hiển thị</h2>
+              <h2 className="text-lg font-bold text-white">An error occurred</h2>
               <p className="text-xs text-slate-400 leading-relaxed">
-                Ứng dụng gặp một sự cố tạm thời. Bạn có thể bấm thử lại hoặc tải lại trang để tiếp tục sử dụng.
+                The application encountered a temporary error. You can try again or reload the page to continue.
               </p>
             </div>
 
@@ -73,14 +73,14 @@ export class ErrorBoundary extends React.Component<Props, State> {
                 className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 transition-colors cursor-pointer"
               >
                 <RefreshCw className="h-3.5 w-3.5" />
-                Thử lại
+                Try Again
               </button>
               <button
                 onClick={this.handleClearAndReset}
                 className="flex-1 bg-slate-700 hover:bg-slate-600 text-slate-200 font-semibold text-xs py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 transition-colors cursor-pointer"
               >
                 <Trash2 className="h-3.5 w-3.5" />
-                Đặt lại bộ nhớ
+                Reset Storage
               </button>
             </div>
           </div>

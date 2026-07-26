@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
+import { playSound } from '../utils/soundEffects';
 import { 
   Rss, 
   Users, 
@@ -13,7 +14,8 @@ import {
   Plus,
   FolderPlus,
   Check,
-  X
+  X,
+  UserCheck
 } from 'lucide-react';
 
 export const Sidebar: React.FC = () => {
@@ -28,6 +30,7 @@ export const Sidebar: React.FC = () => {
   const navItems = [
     { id: 'feed', label: 'Academic Feed', icon: Rss, desc: 'Resources, academic discussion' },
     { id: 'groups', label: 'Study Groups', icon: Users, desc: 'Virtual classrooms, shared files' },
+    { id: 'friends', label: 'Friends & Chat', icon: UserCheck, desc: 'Friends list, 1-on-1 direct messages' },
     { id: 'tutors', label: 'Tutors & Channels', icon: GraduationCap, desc: 'Teacher profiles, 5-star reviews' },
     { id: 'reels', label: 'Educational Reels', icon: Film, desc: 'Learn super fast in 60s' },
     { id: 'marketplace', label: 'Bazaar Marketplace', icon: ShoppingBag, desc: 'Calculators, textbooks, giveaways' },
@@ -47,7 +50,10 @@ export const Sidebar: React.FC = () => {
             return (
               <button
                 key={item.id}
-                onClick={() => setActiveTab(item.id)}
+                onClick={() => {
+                  if (activeTab !== item.id) playSound('tab');
+                  setActiveTab(item.id);
+                }}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all duration-200 group ${
                   isSelected 
                     ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 font-semibold shadow-sm' 
@@ -88,6 +94,7 @@ export const Sidebar: React.FC = () => {
               return (
                 <button
                   onClick={() => {
+                    playSound('tab');
                     setActiveTab('saved');
                     setActiveFolderId('f_watch_later');
                   }}

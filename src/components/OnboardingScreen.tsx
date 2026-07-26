@@ -112,28 +112,28 @@ export const OnboardingScreen: React.FC = () => {
                     required
                     value={displayName}
                     onChange={(e) => setDisplayName(e.target.value)}
-                    placeholder="Nhập họ và tên đầy đủ của bạn..."
+                    placeholder="Enter your full name..."
                     className="w-full bg-slate-950/50 border border-slate-800 rounded-xl py-2.5 pl-10 pr-4 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all font-sans"
                   />
                 </div>
-                <p className="text-[10px] text-slate-500 mt-1 pl-1">Tên hiển thị này sẽ xuất hiện trên bài viết và tài liệu của bạn.</p>
+                <p className="text-[10px] text-slate-500 mt-1 pl-1">This display name will appear on your posts and study materials.</p>
               </div>
 
               <div className="space-y-4">
-                <label className="text-xs font-bold text-slate-300 block mb-2 text-center">Vai trò của bạn trên StudyBook?</label>
+                <label className="text-xs font-bold text-slate-300 block mb-2 text-center">Your primary role on StudyBook?</label>
                 <div className="grid grid-cols-1 gap-3">
                   {[
                     { 
                       id: 'student' as const, 
-                      title: 'Học sinh / Sinh viên', 
-                      desc: 'Tìm kiếm tài liệu ôn thi, giải bài tập và tham gia các nhóm học tập.',
+                      title: 'Student / Scholar', 
+                      desc: 'Search for exam prep materials, solve practice problems, and join study groups.',
                       icon: GraduationCap,
                       accent: 'border-emerald-500/30 hover:border-emerald-500/50 text-emerald-400'
                     },
                     { 
                       id: 'tutor' as const, 
-                      title: 'Gia sư / Giáo viên (Gửi xác minh tới Admin)', 
-                      desc: 'Giảng dạy trực tuyến, chia sẻ tài liệu học thuật. Yêu cầu chuyển sang Gia sư sẽ gửi tới Admin (billkute030709@gmail.com) để xác minh.',
+                      title: 'Tutor / Educator (Verification sent to Admin)', 
+                      desc: 'Teach online and share academic courseware. Tutor verification requests are submitted to Admin for approval.',
                       icon: BookOpen,
                       accent: 'border-blue-500/30 hover:border-blue-500/50 text-blue-400'
                     }
@@ -181,18 +181,18 @@ export const OnboardingScreen: React.FC = () => {
               className="space-y-5"
             >
               <div className="text-center space-y-1.5 mb-2">
-                <h2 className="font-display font-extrabold text-xl tracking-tight">Môn học bạn muốn học nhất</h2>
+                <h2 className="font-display font-extrabold text-xl tracking-tight">Primary Focus Subjects</h2>
                 <p className="text-xs text-slate-400">
-                  Chọn các môn học bạn muốn tập trung học tập trên StudyBook (có thể chọn nhiều môn).
+                  Select the subjects you want to focus on in StudyBook (multiple selections allowed).
                 </p>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[280px] overflow-y-auto scrollbar-thin p-1">
                 {[
-                  { key: 'Math' as const, label: 'Toán Học', sub: 'Mathematics', desc: 'Đại số, Hình học, Giải tích...' },
-                  { key: 'Physics' as const, label: 'Vật Lý', sub: 'Physics', desc: 'Cơ học, Nhiệt học, Điện từ học...' },
-                  { key: 'English' as const, label: 'Tiếng Anh', sub: 'English', desc: 'Ngữ pháp, Từ vựng, Giao tiếp...' },
-                  { key: 'Chemistry' as const, label: 'Hóa Học', sub: 'Chemistry', desc: 'Hóa hữu cơ, vô cơ, phản ứng...' }
+                  { key: 'Math' as const, label: 'Mathematics', sub: 'Algebra, Geometry, Calculus', desc: 'Algebra, Geometry, Calculus...' },
+                  { key: 'Physics' as const, label: 'Physics', sub: 'Mechanics, Electromagnetism', desc: 'Mechanics, Electromagnetism, Optics...' },
+                  { key: 'English' as const, label: 'English', sub: 'Grammar, Vocabulary, Communication', desc: 'Grammar, Vocabulary, Writing...' },
+                  { key: 'Chemistry' as const, label: 'Chemistry', sub: 'Organic & Inorganic', desc: 'Organic, Inorganic, Reactions...' }
                 ].map(sub => {
                   const isSelected = selectedSubjects.includes(sub.key);
                   return (
@@ -249,7 +249,7 @@ export const OnboardingScreen: React.FC = () => {
               className="px-5 py-2.5 bg-slate-850 hover:bg-slate-800 text-slate-300 rounded-xl text-xs font-semibold flex items-center gap-1.5 border border-slate-800 transition-all cursor-pointer"
             >
               <ArrowLeft className="h-4 w-4" />
-              Quay lại
+              Back
             </motion.button>
           ) : (
             <div />
@@ -262,7 +262,7 @@ export const OnboardingScreen: React.FC = () => {
             whileTap={{ scale: 0.98 }}
             className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-lg shadow-blue-500/20 transition-all cursor-pointer"
           >
-            {step === 2 ? 'Bắt đầu ngay' : 'Tiếp tục'}
+            {step === 2 ? 'Get Started' : 'Continue'}
             {step === 2 ? <Check className="h-4 w-4" /> : <ArrowRight className="h-4 w-4" />}
           </motion.button>
         </div>

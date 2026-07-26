@@ -14,6 +14,7 @@ import { ReelsView } from './components/ReelsView';
 import { MarketplaceView } from './components/MarketplaceView';
 import { GamesView } from './components/GamesView';
 import { SettingsView } from './components/SettingsView';
+import { FriendsView } from './components/FriendsView';
 import { AuthScreen } from './components/AuthScreen';
 import { OnboardingScreen } from './components/OnboardingScreen';
 import { RightSidebar } from './components/RightSidebar';
@@ -27,7 +28,8 @@ import {
   Film, 
   ShoppingBag, 
   Gamepad2, 
-  Settings as SettingsIcon 
+  Settings as SettingsIcon,
+  UserCheck
 } from 'lucide-react';
 
 const AppContent: React.FC = () => {
@@ -48,7 +50,7 @@ const AppContent: React.FC = () => {
       <div id="firebase-loading-gate" className="min-h-screen flex items-center justify-center bg-slate-900 text-slate-100">
         <div className="flex flex-col items-center gap-3">
           <div className="h-10 w-10 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
-          <span className="text-xs text-slate-400 font-semibold animate-pulse pl-1">Đang đồng bộ hóa học tập...</span>
+          <span className="text-xs text-slate-400 font-semibold animate-pulse pl-1">Synchronizing study workspace...</span>
         </div>
       </div>
     );
@@ -75,6 +77,8 @@ const AppContent: React.FC = () => {
         return <FeedView searchQuery={searchQuery} savedOnly={true} />;
       case 'groups':
         return <GroupsView />;
+      case 'friends':
+        return <FriendsView />;
       case 'tutors':
         return <TutorsView />;
       case 'reels':
@@ -92,12 +96,13 @@ const AppContent: React.FC = () => {
 
   const mobileNavItems = [
     { id: 'feed', icon: Rss, label: 'Feed' },
-    { id: 'groups', icon: Users, label: 'Nhóm' },
-    { id: 'tutors', icon: GraduationCap, label: 'Gia sư' },
+    { id: 'groups', icon: Users, label: 'Groups' },
+    { id: 'friends', icon: UserCheck, label: 'Friends' },
+    { id: 'tutors', icon: GraduationCap, label: 'Tutors' },
     { id: 'reels', icon: Film, label: 'Reels' },
-    { id: 'marketplace', icon: ShoppingBag, label: 'Chợ' },
-    { id: 'games', icon: Gamepad2, label: 'Đấu trí' },
-    { id: 'settings', icon: SettingsIcon, label: 'Cài đặt' }
+    { id: 'marketplace', icon: ShoppingBag, label: 'Bazaar' },
+    { id: 'games', icon: Gamepad2, label: 'Battle' },
+    { id: 'settings', icon: SettingsIcon, label: 'Settings' }
   ];
 
   return (
@@ -127,7 +132,7 @@ const AppContent: React.FC = () => {
         </main>
 
         {/* Right Sidebar Contacts / Ads for Desktop */}
-        {activeTab === 'feed' && <RightSidebar />}
+        {(activeTab === 'feed' || activeTab === 'groups' || activeTab === 'friends') && <RightSidebar />}
       </div>
 
       {/* Floating Messenger Chats popup stack */}

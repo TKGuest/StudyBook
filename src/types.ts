@@ -198,6 +198,56 @@ export interface GroupChat {
   messages: Message[];
 }
 
+export interface Friend {
+  id: string;
+  name: string;
+  avatar: string;
+  email?: string;
+  role?: string;
+  institution?: string;
+  addedAt: string;
+  isOnline?: boolean;
+}
+
+export interface FriendRequest {
+  id: string;
+  senderId: string;
+  senderName: string;
+  senderAvatar: string;
+  senderEmail?: string;
+  receiverId: string;
+  status: 'pending' | 'accepted' | 'declined';
+  timestamp: string;
+}
+
+export interface DirectMessage {
+  id: string;
+  senderId: string;
+  senderName: string;
+  senderAvatar: string;
+  receiverId: string;
+  receiverName?: string;
+  receiverAvatar?: string;
+  content: string;
+  timestamp: string;
+  isImage?: boolean;
+  read?: boolean;
+}
+
+export interface DirectChat {
+  id: string; // e.g. "dm_userA_userB"
+  participants: {
+    id: string;
+    name: string;
+    avatar: string;
+    email?: string;
+    role?: string;
+  }[];
+  messages: DirectMessage[];
+  lastUpdated: string;
+  unreadCount?: number;
+}
+
 export interface AppSettings {
   darkMode: boolean;
   incognitoMode: boolean;
@@ -212,4 +262,7 @@ export interface AppSettings {
   muteTags: string[];
   spoilerProtection: boolean;
   ttsEnabled: boolean;
+  soundEnabled?: boolean;
+  soundVolume?: number; // 0 to 1
+  showStreakToOthers?: boolean;
 }

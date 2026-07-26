@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { Award, Star, MessageSquare, Plus, CheckCircle, ChevronLeft, ChevronRight, ThumbsUp } from 'lucide-react';
+import { Award, Star, MessageSquare, Plus, CheckCircle, ChevronLeft, ChevronRight, ThumbsUp, BadgeCheck } from 'lucide-react';
+import { playSound } from '../utils/soundEffects';
 
 export const TutorsView: React.FC = () => {
-  const { tutors, toggleFollowTutor, addTutorReview, user } = useApp();
+  const { tutors, toggleFollowTutor, addTutorReview, openDirectChat, user } = useApp();
   const [activeTutorId, setActiveTutorId] = useState<string>(tutors[0]?.id || '');
   
   // Custom states for writing reviews
@@ -17,8 +18,8 @@ export const TutorsView: React.FC = () => {
         <div className="p-4 rounded-full bg-blue-50 dark:bg-slate-800 text-blue-500 mb-4">
           <Award className="h-10 w-10" />
         </div>
-        <h2 className="font-display font-bold text-lg text-gray-800 dark:text-white">Chưa có Gia sư / Giáo viên nào</h2>
-        <p className="text-xs text-gray-400 mt-1 max-w-md">Danh sách gia sư sẽ hiển thị khi các giảng viên đăng ký tài khoản verified educator trên StudyBook.</p>
+        <h2 className="font-display font-bold text-lg text-gray-800 dark:text-white">No Verified Tutors or Educators Found</h2>
+        <p className="text-xs text-gray-400 mt-1 max-w-md">Verified tutors and educators will appear here once approved on StudyBook.</p>
       </div>
     );
   }
@@ -29,6 +30,7 @@ export const TutorsView: React.FC = () => {
     e.preventDefault();
     if (!reviewText.trim()) return;
 
+    playSound('send');
     addTutorReview(activeTutor.id, rating, reviewText);
     setReviewText('');
     setShowReviewForm(false);
@@ -46,6 +48,7 @@ export const TutorsView: React.FC = () => {
             <div
               key={t.id}
               onClick={() => {
+                playSound('tab');
                 setActiveTutorId(t.id);
                 setShowReviewForm(false);
               }}
@@ -55,18 +58,30 @@ export const TutorsView: React.FC = () => {
                   : 'border-gray-150 dark:border-slate-700 hover:shadow-sm'
               }`}
             >
-              <img src={t.avatar} alt={t.name} className="h-14 w-14 rounded-2xl object-cover shrink-0" />
+              <div className="relative shrink-0">
+                <img src={t.avatar} alt={t.name} className="h-14 w-14 rounded-2xl object-cover" />
+                {t.verified && (
+                  <span className="absolute -bottom-1 -right-1 bg-white dark:bg-slate-900 rounded-full p-0.5 shadow-xs" title="Verified Tutor">
+                    <BadgeCheck className="h-4 w-4 text-blue-500 fill-blue-500/20" />
+                  </span>
+                )}
+              </div>
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1.5 flex-wrap">
                   <h3 className="font-display font-bold text-xs text-gray-800 dark:text-white truncate">{t.name}</h3>
-                  {t.verified && <CheckCircle className="h-3.5 w-3.5 text-blue-500 shrink-0 fill-blue-50" />}
+                  {t.verified && (
+                    <span className="inline-flex items-center gap-0.5 text-[9px] font-extrabold bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border border-blue-300/60 dark:border-blue-700/60 px-1.5 py-0.2 rounded-full">
+                      <BadgeCheck className="h-3 w-3 text-blue-600 dark:text-blue-400 fill-blue-500/30 shrink-0" />
+                      <span>Verified Tutor</span>
+                    </span>
+                  )}
                 </div>
                 <p className="text-[10px] text-gray-400 dark:text-slate-500 truncate mt-0.5">{t.bio}</p>
                 
                 {/* Followers count */}
                 <div className="flex items-center gap-1.5 mt-2">
                   <span className="text-[10px] text-blue-600 bg-blue-50 dark:bg-blue-950/40 dark:text-blue-300 px-2 py-0.5 rounded font-bold">
-                    {t.followers.toLocaleString()} Follower
+                    {t.followers.toLocaleString()} Followers
                   </span>
                   <div className="flex gap-0.5 text-amber-500">
                     <Star className="h-2.5 w-2.5 fill-amber-500" />
@@ -87,13 +102,25 @@ export const TutorsView: React.FC = () => {
           <div className="absolute inset-0 bg-black/40 backdrop-blur-[1px]"></div>
           
           <div className="absolute bottom-4 left-4 flex gap-3 items-end">
-            <img src={activeTutor.avatar} alt="Profile" className="h-16 w-16 rounded-2xl object-cover border-2 border-white shadow-md bg-white shrink-0" />
+            <div className="relative shrink-0">
+              <img src={activeTutor.avatar} alt="Profile" className="h-16 w-16 rounded-2xl object-cover border-2 border-white shadow-md bg-white" />
+              {activeTutor.verified && (
+                <span className="absolute -bottom-1 -right-1 bg-white dark:bg-slate-900 rounded-full p-0.5 shadow-md">
+                  <BadgeCheck className="h-5 w-5 text-blue-500 fill-blue-500/20" />
+                </span>
+              )}
+            </div>
             <div className="mb-1 text-white">
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1.5 flex-wrap">
                 <h2 className="font-display font-extrabold text-sm tracking-tight">{activeTutor.name}</h2>
-                {activeTutor.verified && <CheckCircle className="h-4 w-4 text-blue-400 fill-white shrink-0" />}
+                {activeTutor.verified && (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-extrabold bg-blue-500 text-white px-2 py-0.5 rounded-full shadow-xs">
+                    <BadgeCheck className="h-3.5 w-3.5 fill-white text-blue-600" />
+                    Verified Tutor
+                  </span>
+                )}
               </div>
-              <p className="text-[10px] text-gray-200 font-medium">Verified Educator on StudyBook Network</p>
+              <p className="text-[10px] text-gray-200 font-medium mt-0.5">Verified Educator on StudyBook Network</p>
             </div>
           </div>
         </div>
@@ -110,7 +137,10 @@ export const TutorsView: React.FC = () => {
 
           <div className="flex gap-2">
             <button
-              onClick={() => toggleFollowTutor(activeTutor.id)}
+              onClick={() => {
+                playSound('pop');
+                toggleFollowTutor(activeTutor.id);
+              }}
               className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                 activeTutor.isFollowing 
                   ? 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-650' 
@@ -120,8 +150,16 @@ export const TutorsView: React.FC = () => {
               {activeTutor.isFollowing ? 'Following for Insights' : 'Follow Educator'}
             </button>
             <button 
-              onClick={() => alert(`Initiating a secure 1-on-1 Messenger Chat with Tutor ${activeTutor.name}...`)}
-              className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-gray-50 hover:bg-gray-100 dark:bg-slate-700 dark:hover:bg-slate-650 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-slate-650 text-xs font-bold transition-colors"
+              onClick={() => {
+                playSound('pop');
+                openDirectChat({
+                  id: activeTutor.id,
+                  name: activeTutor.name,
+                  avatar: activeTutor.avatar,
+                  role: 'tutor'
+                });
+              }}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/50 dark:hover:bg-purple-900/50 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 text-xs font-bold transition-colors cursor-pointer"
             >
               <MessageSquare className="h-3.5 w-3.5" />
               Direct Message

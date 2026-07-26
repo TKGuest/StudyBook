@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { User, Post, StudyGroup, TutorPage, Reel, MarketplaceItem, GroupChat, AppSettings, AcademicReactionType, Comment, Message, BinderFolder, TutorRequest, RequestHistoryLog } from '../types';
-import { currentUser, initialPosts, initialGroups, initialTutors, initialReels, initialMarketplaceItems, initialGroupChats, defaultSettings, SILHOUETTE_AVATAR } from '../data/mockData';
+import { User, Post, StudyGroup, TutorPage, Reel, MarketplaceItem, GroupChat, AppSettings, AcademicReactionType, Comment, Message, BinderFolder, TutorRequest, RequestHistoryLog, Friend, FriendRequest, DirectMessage, DirectChat } from '../types';
+import { currentUser, initialPosts, initialGroups, initialTutors, initialReels, initialMarketplaceItems, initialGroupChats, defaultSettings, SILHOUETTE_AVATAR, initialFriends, initialFriendRequests, initialDirectChats } from '../data/mockData';
+import { playSound } from '../utils/soundEffects';
 import { auth, db, isFirebaseConfigured } from '../lib/firebase';
 import { 
   onAuthStateChanged, 
@@ -101,6 +102,21 @@ interface AppContextType {
   openChatIds: string[];
   openChatWindow: (groupId: string) => void;
   closeChatWindow: (groupId: string) => void;
+
+  // Friending & Direct Messaging across accounts
+  friends: Friend[];
+  friendRequests: FriendRequest[];
+  directChats: DirectChat[];
+  sendFriendRequest: (targetUser: { id: string; name: string; avatar: string; email?: string; role?: string; institution?: string }) => Promise<void>;
+  acceptFriendRequest: (requestId: string) => Promise<void>;
+  declineFriendRequest: (requestId: string) => Promise<void>;
+  removeFriend: (friendId: string) => Promise<void>;
+  getFriendshipStatus: (targetUserId: string) => 'none' | 'pending_sent' | 'pending_received' | 'friends';
+
+  openDirectChat: (targetUser: { id: string; name: string; avatar: string; email?: string; role?: string }) => void;
+  sendDirectMessage: (chatId: string, content: string) => Promise<void>;
+  closeDirectChat: (chatId: string) => void;
+  openDirectChatIds: string[];
 }
 
 const safeGetTime = (ts?: string) => {
@@ -455,6 +471,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return saved ? JSON.parse(saved) : initialGroupChats;
     } catch (_) { return initialGroupChats; }
   });
+
+  const [friends, setFriends] = useState<Friend[]>(() => {
+    try {
+      const saved = localStorage.getItem('sb_friends');
+      return saved ? JSON.parse(saved) : initialFriends;
+    } catch (_) { return initialFriends; }
+  });
+
+  const [friendRequests, setFriendRequests] = useState<FriendRequest[]>(() => {
+    try {
+      const saved = localStorage.getItem('sb_friend_requests');
+      return saved ? JSON.parse(saved) : initialFriendRequests;
+    } catch (_) { return initialFriendRequests; }
+  });
+
+  const [directChats, setDirectChats] = useState<DirectChat[]>(() => {
+    try {
+      const saved = localStorage.getItem('sb_direct_chats');
+      return saved ? JSON.parse(saved) : initialDirectChats;
+    } catch (_) { return initialDirectChats; }
+  });
+
+  const [openDirectChatIds, setOpenDirectChatIds] = useState<string[]>([]);
 
   const [settings, setSettings] = useState<AppSettings>(() => {
     try {
@@ -832,6 +871,62 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     });
 
+    // G. Sync Direct Chats across accounts
+    const unsubscribeDirectChats = onSnapshot(collection(db, 'directChats'), async (snapshot) => {
+      if (snapshot.empty) {
+        for (const c of initialDirectChats) {
+          try {
+            await setDoc(doc(db, 'directChats', c.id), cleanForFirestore(c));
+          } catch (e) {
+            console.warn('Failed to seed direct chat:', e);
+          }
+        }
+      } else {
+        const loaded: DirectChat[] = [];
+        snapshot.forEach((d) => loaded.push(d.data() as DirectChat));
+        setDirectChats(loaded);
+        localStorage.setItem('sb_direct_chats', JSON.stringify(loaded));
+      }
+    }, (error) => {
+      console.warn('Firestore directChats sync failed (falling back to local):', error);
+      const saved = localStorage.getItem('sb_direct_chats');
+      if (saved) {
+        try { setDirectChats(JSON.parse(saved)); } catch (_) { setDirectChats(initialDirectChats); }
+      }
+    });
+
+    // H. Sync Friend Requests across accounts
+    const unsubscribeFriendRequests = onSnapshot(collection(db, 'friendRequests'), async (snapshot) => {
+      if (snapshot.empty) {
+        for (const fr of initialFriendRequests) {
+          try {
+            await setDoc(doc(db, 'friendRequests', fr.id), cleanForFirestore(fr));
+          } catch (e) {
+            console.warn('Failed to seed friend request:', e);
+          }
+        }
+      } else {
+        const loaded: FriendRequest[] = [];
+        snapshot.forEach((d) => loaded.push(d.data() as FriendRequest));
+        setFriendRequests(loaded);
+        localStorage.setItem('sb_friend_requests', JSON.stringify(loaded));
+      }
+    }, (error) => {
+      console.warn('Firestore friendRequests sync failed:', error);
+    });
+
+    // I. Sync Friends across accounts
+    const unsubscribeFriends = onSnapshot(collection(db, 'friends'), async (snapshot) => {
+      if (!snapshot.empty) {
+        const loaded: Friend[] = [];
+        snapshot.forEach((d) => loaded.push(d.data() as Friend));
+        setFriends(loaded);
+        localStorage.setItem('sb_friends', JSON.stringify(loaded));
+      }
+    }, (error) => {
+      console.warn('Firestore friends sync failed:', error);
+    });
+
     return () => {
       unsubscribePosts();
       unsubscribeGroups();
@@ -839,6 +934,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       unsubscribeReels();
       unsubscribeMarket();
       unsubscribeChats();
+      unsubscribeDirectChats();
+      unsubscribeFriendRequests();
+      unsubscribeFriends();
     };
   }, [isFirebaseConfigured, user.id]);
 
@@ -1107,7 +1205,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     attachmentUrl?: string
   ) => {
     const currentUserId = user.id || auth.currentUser?.uid || 'guest';
-    const authorName = isAnonymous ? 'Học sinh ẩn danh' : (user.name || 'Người dùng');
+    const authorName = isAnonymous ? 'Anonymous Scholar' : (user.name || 'User');
 
     const authorUser: User = isAnonymous ? {
       id: currentUserId,
@@ -1159,6 +1257,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const localPost = normalizePostForUser(rawLocalPost as any, currentUserId);
       setPosts(prev => [localPost, ...prev]);
     }
+    playSound('send');
   };
 
   const deletePost = async (postId: string) => {
@@ -1173,9 +1272,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Permission check: Owner OR Admin
     if (!isAdmin && postOwnerId && postOwnerId !== currentUserId) {
       console.warn(`Permission denied: User ${currentUserId} cannot delete post owned by ${postOwnerId}`);
-      alert('Bạn chỉ có thể xóa bài viết do chính bạn đăng!');
+      alert('You can only delete posts created by yourself!');
       return;
     }
+
+    playSound('delete');
 
     setPosts(prev => {
       const next = prev.filter(p => p.id !== postId);
@@ -1208,6 +1309,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const currentReaction = existingMap[currentUserId] || null;
     const newReaction = currentReaction === reaction ? null : reaction;
+
+    if (newReaction) {
+      playSound('like');
+    } else {
+      playSound('pop');
+    }
 
     const newMap = { ...existingMap };
     if (newReaction === null) {
@@ -1284,6 +1391,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     const updatedPost: Post = { ...targetPost, comments: [...targetPost.comments, newComment] };
+    playSound('send');
 
     // --- OPTIMISTIC LOCAL STATE UPDATE ---
     setPosts(prev => {
@@ -1334,12 +1442,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Permission check: Owner OR Admin
     if (!isAdmin && targetComment.user?.id && targetComment.user.id !== currentUserId) {
       console.warn(`Permission denied: User ${currentUserId} cannot delete comment owned by ${targetComment.user.id}`);
-      alert('Bạn chỉ có thể xóa bình luận do chính bạn tạo!');
+      alert('You can only delete comments created by yourself!');
       return;
     }
 
     const updatedComments = targetPost.comments.filter(c => c.id !== commentId);
     const updatedPost: Post = { ...targetPost, comments: updatedComments };
+    playSound('delete');
 
     // --- OPTIMISTIC LOCAL STATE UPDATE ---
     setPosts(prev => {
@@ -1459,6 +1568,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       newFolderId = folderId;
     }
 
+    if (isSaved) {
+      playSound('pop');
+    } else {
+      playSound('delete');
+    }
+
     savedByUsersMap[currentUserId] = { isSaved, savedFolderId: newFolderId };
 
     const rawPost: Post = {
@@ -1555,7 +1670,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       authorAvatar: user.avatar,
       rating,
       content,
-      date: new Date().toLocaleDateString('vi-VN')
+      date: new Date().toLocaleDateString('en-US')
     };
 
     const updatedTutor = {
@@ -1714,6 +1829,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ]
     };
 
+    setGroups(prev => [...prev, newG]);
+    setGroupChats(prev => {
+      const found = prev.some(c => c.groupId === groupId);
+      if (found) return prev;
+      return [...prev, newChat];
+    });
+
     if (isFirebaseConfigured) {
       try {
         await setDoc(doc(db, 'groups', groupId), cleanForFirestore(newG));
@@ -1721,13 +1843,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       } catch (e) {
         console.warn('Firebase save group failed:', e);
       }
-    } else {
-      setGroups(prev => [...prev, newG]);
-      setGroupChats(prev => {
-        const found = prev.some(c => c.groupId === groupId);
-        if (found) return prev;
-        return [...prev, newChat];
-      });
     }
 
     return groupId;
@@ -1960,6 +2075,12 @@ Báo cáo được trích xuất tự động vào ngày ${new Date().toLocaleDa
   // Helper to deduplicate requests so an account only has 1 request record
   const deduplicateRequests = (reqs: TutorRequest[]): TutorRequest[] => {
     const map = new Map<string, TutorRequest>();
+    const getPriority = (status: string) => {
+      if (status === 'approved') return 3;
+      if (status === 'rejected') return 2;
+      return 1; // pending
+    };
+
     reqs.forEach(r => {
       const key = r.userId || r.userEmail || r.id;
       const existing = map.get(key);
@@ -1971,8 +2092,8 @@ Báo cáo được trích xuất tự động vào ngày ${new Date().toLocaleDa
           ...(r.historyLogs || [])
         ].filter((v, i, a) => a.findIndex(t => t.timestamp === v.timestamp && t.action === v.action) === i);
 
-        // Keep the pending one or the latest one
-        const winner = (r.status === 'pending' && existing.status !== 'pending') ? r : existing;
+        // Keep the record with higher status priority (approved > rejected > pending)
+        const winner = getPriority(r.status) >= getPriority(existing.status) ? r : existing;
         map.set(key, {
           ...winner,
           historyLogs: mergedLogs.length > 0 ? mergedLogs : winner.historyLogs
@@ -2015,7 +2136,7 @@ Báo cáo được trích xuất tự động vào ngày ${new Date().toLocaleDa
     const isAdmin = user.role === 'admin' || currentEmail.toLowerCase() === 'billkute030709@gmail.com';
 
     const realName = details?.realName?.trim() || user.name;
-    const school = details?.school?.trim() || user.institution || 'Không thuộc trường nào';
+    const school = details?.school?.trim() || user.institution || 'Independent Educator';
     const description = details?.description?.trim() || '';
     const requestedSubjects = details?.requestedSubjects || ['Math', 'Physics'];
 
@@ -2027,18 +2148,21 @@ Báo cáo được trích xuất tự động vào ngày ${new Date().toLocaleDa
       };
       setUser(updatedUser);
       localStorage.setItem('sb_user', JSON.stringify(updatedUser));
+      playSound('success');
       return;
     }
 
+    playSound('send');
+
     const reqId = `tr_${user.id}`;
-    const nowStr = new Date().toLocaleDateString('vi-VN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    const nowStr = new Date().toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
     const existing = tutorRequests.find(r => r.userId === user.id || r.id === reqId || (currentEmail && r.userEmail === currentEmail));
     const newLog: RequestHistoryLog = {
       timestamp: nowStr,
-      action: 'Nộp yêu cầu xác minh Gia sư',
+      action: 'Submitted Tutor Verification Request',
       performedBy: user.name,
-      details: `Họ tên: ${realName} | Trường: ${school} | Môn: ${requestedSubjects.join(', ')}`
+      details: `Name: ${realName} | School: ${school} | Subjects: ${requestedSubjects.join(', ')}`
     };
 
     const newReq: TutorRequest = {
@@ -2070,10 +2194,11 @@ Báo cáo được trích xuất tự động vào ngày ${new Date().toLocaleDa
   const approveTutorRequest = async (requestId: string) => {
     const req = tutorRequests.find(r => r.id === requestId || r.userId === requestId);
     if (!req) return;
-    const nowStr = new Date().toLocaleDateString('vi-VN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    playSound('success');
+    const nowStr = new Date().toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
     const updatedLogs: RequestHistoryLog[] = [
-      { timestamp: nowStr, action: 'Cấp quyền & Duyệt Gia Sư', performedBy: 'Admin (Quản trị viên)' },
+      { timestamp: nowStr, action: 'Approved & Granted Tutor Privileges', performedBy: 'Admin' },
       ...(req.historyLogs || [])
     ];
 
@@ -2106,6 +2231,21 @@ Báo cáo được trích xuất tự động vào ngày ${new Date().toLocaleDa
       localStorage.setItem('sb_user', JSON.stringify(updatedUser));
     }
 
+    // Update posts authored by this user to reflect verified tutor status
+    setPosts(prev => prev.map(p => {
+      if (p.user?.id === req.userId || p.authorId === req.userId) {
+        return {
+          ...p,
+          user: {
+            ...p.user,
+            role: 'tutor',
+            badges: Array.from(new Set([...(p.user?.badges || []), 'Verified Tutor']))
+          }
+        };
+      }
+      return p;
+    }));
+
     setTutors(prev => {
       if (prev.some(t => t.id === req.userId)) {
         return prev.map(t => t.id === req.userId ? { ...t, name: req.realName || t.name, verified: true } : t);
@@ -2114,7 +2254,7 @@ Báo cáo được trích xuất tự động vào ngày ${new Date().toLocaleDa
           id: req.userId,
           name: req.realName || req.userName,
           avatar: req.userAvatar,
-          bio: req.description || `Gia sư / Giáo viên thuộc trường ${req.school || 'Tự do'}. Chuyên môn: ${req.requestedSubjects?.join(', ') || 'Các môn học'}.`,
+          bio: req.description || `Verified Educator & Tutor at ${req.school || 'Independent'}. Specializations: ${req.requestedSubjects?.join(', ') || 'Academic Subjects'}.`,
           coverPhoto: 'https://images.unsplash.com/photo-1524995997946-a1c2e315a42f?auto=format&fit=crop&q=80&w=1200',
           subjects: req.requestedSubjects || ['Math', 'Physics'],
           verified: true,
@@ -2131,10 +2271,11 @@ Báo cáo được trích xuất tự động vào ngày ${new Date().toLocaleDa
   const rejectTutorRequest = async (requestId: string) => {
     const req = tutorRequests.find(r => r.id === requestId || r.userId === requestId);
     if (!req) return;
-    const nowStr = new Date().toLocaleDateString('vi-VN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    playSound('delete');
+    const nowStr = new Date().toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
     const updatedLogs: RequestHistoryLog[] = [
-      { timestamp: nowStr, action: 'Từ chối / Thu hồi quyền Gia Sư', performedBy: 'Admin (Quản trị viên)' },
+      { timestamp: nowStr, action: 'Declined / Revoked Tutor Privileges', performedBy: 'Admin' },
       ...(req.historyLogs || [])
     ];
 
@@ -2167,6 +2308,7 @@ Báo cáo được trích xuất tự động vào ngày ${new Date().toLocaleDa
   const deleteTutorRequest = async (requestId: string) => {
     const req = tutorRequests.find(r => r.id === requestId || r.userId === requestId);
     if (!req) return;
+    playSound('delete');
 
     setTutorRequests(prev => prev.filter(r => r.id !== req.id && r.userId !== req.userId));
 
@@ -2196,6 +2338,228 @@ Báo cáo được trích xuất tự động vào ngày ${new Date().toLocaleDa
     alert(`Đã xác minh người dùng làm Gia sư thành công!`);
   };
 
+  // Friending Actions
+  const sendFriendRequest = async (targetUser: { id: string; name: string; avatar: string; email?: string; role?: string; institution?: string }) => {
+    if (!targetUser.id || targetUser.id === user.id) return;
+
+    if (friends.some(f => f.id === targetUser.id)) return;
+
+    const newReq: FriendRequest = {
+      id: `freq_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      senderId: user.id || 'guest',
+      senderName: user.name || 'StudyBook Learner',
+      senderAvatar: user.avatar || SILHOUETTE_AVATAR,
+      senderEmail: user.email,
+      receiverId: targetUser.id,
+      status: 'pending',
+      timestamp: 'Just now'
+    };
+
+    setFriendRequests(prev => {
+      const filtered = prev.filter(r => !(r.senderId === user.id && r.receiverId === targetUser.id));
+      const next = [...filtered, newReq];
+      localStorage.setItem('sb_friend_requests', JSON.stringify(next));
+      return next;
+    });
+
+    playSound('send');
+
+    if (isFirebaseConfigured) {
+      try {
+        await setDoc(doc(db, 'friendRequests', newReq.id), cleanForFirestore(newReq));
+      } catch (e) {
+        console.warn('Firebase send friend request failed:', e);
+      }
+    }
+  };
+
+  const acceptFriendRequest = async (requestId: string) => {
+    const req = friendRequests.find(r => r.id === requestId);
+    if (!req) return;
+
+    const newFriend: Friend = {
+      id: req.senderId,
+      name: req.senderName,
+      avatar: req.senderAvatar,
+      email: req.senderEmail,
+      addedAt: 'Just now',
+      isOnline: true
+    };
+
+    setFriends(prev => {
+      if (prev.some(f => f.id === newFriend.id)) return prev;
+      const next = [...prev, newFriend];
+      localStorage.setItem('sb_friends', JSON.stringify(next));
+      return next;
+    });
+
+    setFriendRequests(prev => {
+      const next = prev.map(r => r.id === requestId ? { ...r, status: 'accepted' as const } : r);
+      localStorage.setItem('sb_friend_requests', JSON.stringify(next));
+      return next;
+    });
+
+    playSound('pop');
+
+    if (isFirebaseConfigured) {
+      try {
+        await updateDoc(doc(db, 'friendRequests', requestId), { status: 'accepted' });
+        await setDoc(doc(db, 'friends', `${user.id}_${req.senderId}`), cleanForFirestore({ ...newFriend, userId: user.id }));
+      } catch (e) {
+        console.warn('Firebase accept friend request failed:', e);
+      }
+    }
+  };
+
+  const declineFriendRequest = async (requestId: string) => {
+    setFriendRequests(prev => {
+      const next = prev.map(r => r.id === requestId ? { ...r, status: 'declined' as const } : r);
+      localStorage.setItem('sb_friend_requests', JSON.stringify(next));
+      return next;
+    });
+
+    playSound('delete');
+
+    if (isFirebaseConfigured) {
+      try {
+        await updateDoc(doc(db, 'friendRequests', requestId), { status: 'declined' });
+      } catch (e) {
+        console.warn('Firebase decline friend request failed:', e);
+      }
+    }
+  };
+
+  const removeFriend = async (friendId: string) => {
+    setFriends(prev => {
+      const next = prev.filter(f => f.id !== friendId);
+      localStorage.setItem('sb_friends', JSON.stringify(next));
+      return next;
+    });
+
+    playSound('delete');
+
+    if (isFirebaseConfigured) {
+      try {
+        await deleteDoc(doc(db, 'friends', `${user.id}_${friendId}`));
+      } catch (e) {
+        console.warn('Firebase remove friend failed:', e);
+      }
+    }
+  };
+
+  const getFriendshipStatus = (targetUserId: string): 'none' | 'pending_sent' | 'pending_received' | 'friends' => {
+    if (friends.some(f => f.id === targetUserId)) return 'friends';
+
+    const sent = friendRequests.find(r => r.senderId === user.id && r.receiverId === targetUserId && r.status === 'pending');
+    if (sent) return 'pending_sent';
+
+    const received = friendRequests.find(r => r.receiverId === user.id && r.senderId === targetUserId && r.status === 'pending');
+    if (received) return 'pending_received';
+
+    return 'none';
+  };
+
+  // Direct Messaging Actions across accounts
+  const openDirectChat = (targetUser: { id: string; name: string; avatar: string; email?: string; role?: string }) => {
+    if (!targetUser.id) return;
+
+    const sortedIds = [user.id || 'guest', targetUser.id].sort();
+    const chatId = `dm_${sortedIds.join('_')}`;
+
+    setDirectChats(prev => {
+      const existing = prev.find(c => c.id === chatId || c.id === `dm_${targetUser.id}`);
+      if (existing) return prev;
+
+      const newChat: DirectChat = {
+        id: chatId,
+        participants: [
+          { id: user.id || 'guest', name: user.name || 'You', avatar: user.avatar || SILHOUETTE_AVATAR, role: user.role },
+          { id: targetUser.id, name: targetUser.name, avatar: targetUser.avatar, email: targetUser.email, role: targetUser.role }
+        ],
+        messages: [],
+        lastUpdated: new Date().toISOString()
+      };
+
+      const next = [...prev, newChat];
+      localStorage.setItem('sb_direct_chats', JSON.stringify(next));
+
+      if (isFirebaseConfigured) {
+        setDoc(doc(db, 'directChats', chatId), cleanForFirestore(newChat)).catch(e => console.warn('Firebase create direct chat failed:', e));
+      }
+
+      return next;
+    });
+
+    setOpenChatIds(prev => {
+      if (prev.includes(chatId)) return prev;
+      return [...prev, chatId].slice(-3);
+    });
+
+    setOpenDirectChatIds(prev => {
+      if (prev.includes(chatId)) return prev;
+      return [...prev, chatId].slice(-3);
+    });
+
+    playSound('pop');
+  };
+
+  const sendDirectMessage = async (chatId: string, content: string) => {
+    if (!content.trim()) return;
+
+    const newMsg: DirectMessage = {
+      id: `dm_msg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      senderId: user.id || 'guest',
+      senderName: user.name || 'StudyBook Learner',
+      senderAvatar: user.avatar || SILHOUETTE_AVATAR,
+      receiverId: chatId.replace('dm_', '').replace(user.id || 'guest', '').replace('_', ''),
+      content: content.trim(),
+      timestamp: 'Just now',
+      read: false
+    };
+
+    setDirectChats(prev => {
+      const targetIndex = prev.findIndex(c => c.id === chatId);
+      let updatedList: DirectChat[] = [];
+
+      if (targetIndex >= 0) {
+        const existingChat = prev[targetIndex];
+        const updatedChat: DirectChat = {
+          ...existingChat,
+          messages: [...existingChat.messages, newMsg],
+          lastUpdated: new Date().toISOString()
+        };
+        updatedList = [...prev];
+        updatedList[targetIndex] = updatedChat;
+      } else {
+        const newChat: DirectChat = {
+          id: chatId,
+          participants: [{ id: user.id, name: user.name, avatar: user.avatar }],
+          messages: [newMsg],
+          lastUpdated: new Date().toISOString()
+        };
+        updatedList = [...prev, newChat];
+      }
+
+      localStorage.setItem('sb_direct_chats', JSON.stringify(updatedList));
+
+      if (isFirebaseConfigured) {
+        const chatToSave = updatedList.find(c => c.id === chatId);
+        if (chatToSave) {
+          setDoc(doc(db, 'directChats', chatId), cleanForFirestore(chatToSave)).catch(e => console.warn('Firebase save direct message failed:', e));
+        }
+      }
+
+      return updatedList;
+    });
+
+    playSound('send');
+  };
+
+  const closeDirectChat = (chatId: string) => {
+    setOpenDirectChatIds(prev => prev.filter(id => id !== chatId));
+    setOpenChatIds(prev => prev.filter(id => id !== chatId));
+  };
+
   return (
     <AppContext.Provider value={{
       activeTab,
@@ -2216,6 +2580,20 @@ Báo cáo được trích xuất tự động vào ngày ${new Date().toLocaleDa
       setGroupChats,
       settings,
       setSettings,
+
+      friends,
+      friendRequests,
+      directChats,
+      sendFriendRequest,
+      acceptFriendRequest,
+      declineFriendRequest,
+      removeFriend,
+      getFriendshipStatus,
+
+      openDirectChat,
+      sendDirectMessage,
+      closeDirectChat,
+      openDirectChatIds,
       
       tutorRequests,
       requestTutorVerification,

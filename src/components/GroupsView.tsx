@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { StudyGroup } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
+import { playSound } from '../utils/soundEffects';
 import { 
   Users, 
   Calendar, 
@@ -15,7 +16,8 @@ import {
   FileCode, 
   Plus, 
   EyeOff, 
-  UserCheck 
+  UserCheck,
+  X 
 } from 'lucide-react';
 
 export const GroupsView: React.FC = () => {
@@ -34,6 +36,12 @@ export const GroupsView: React.FC = () => {
   const [anonToggle, setAnonToggle] = useState(false);
   const [groupPostText, setGroupPostText] = useState('');
   
+  // Custom states for creating study group
+  const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
+  const [newGroupName, setNewGroupName] = useState('');
+  const [newGroupCategory, setNewGroupCategory] = useState('General');
+  const [newGroupDescription, setNewGroupDescription] = useState('');
+
   // Custom states for creating new files
   const [showAddFileModal, setShowAddFileModal] = useState(false);
   const [newFileTitle, setNewFileTitle] = useState('');
@@ -44,14 +52,140 @@ export const GroupsView: React.FC = () => {
   const activeGroup = groups.find(g => g.id === selectedGroupId) || groups[0];
   const activeChat = groupChats.find(c => c.groupId === selectedGroupId);
 
+  const handleCreateGroupSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newGroupName.trim()) return;
+
+    playSound('send');
+    try {
+      const createdId = await createStudyGroup(
+        newGroupName.trim(),
+        newGroupDescription.trim() || 'A new study group co-created by learners.',
+        newGroupCategory || 'General'
+      );
+      setSelectedGroupId(createdId);
+      setActiveSubTab('feed');
+      setShowCreateGroupModal(false);
+      setNewGroupName('');
+      setNewGroupDescription('');
+      setNewGroupCategory('General');
+    } catch (err) {
+      console.warn('Failed to create study group:', err);
+    }
+  };
+
+  const renderCreateGroupModal = () => {
+    if (!showCreateGroupModal) return null;
+
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+        <div className="bg-white dark:bg-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-150 dark:border-slate-700 text-left animate-in fade-in zoom-in-95 duration-200">
+          <div className="flex justify-between items-center mb-4 pb-3 border-b border-gray-100 dark:border-slate-700">
+            <h3 className="font-display font-extrabold text-base text-gray-900 dark:text-white flex items-center gap-2">
+              <Users className="h-5 w-5 text-blue-600" />
+              Create New Study Group
+            </h3>
+            <button
+              type="button"
+              onClick={() => {
+                playSound('pop');
+                setShowCreateGroupModal(false);
+              }}
+              className="text-gray-400 hover:text-gray-600 dark:hover:text-white p-1 rounded-lg transition-colors cursor-pointer"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          <form onSubmit={handleCreateGroupSubmit} className="space-y-4">
+            <div>
+              <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                Group Name *
+              </label>
+              <input
+                type="text"
+                required
+                value={newGroupName}
+                onChange={e => setNewGroupName(e.target.value)}
+                placeholder="e.g. AP Calculus BC Exam Prep 2026"
+                className="w-full bg-gray-50 dark:bg-slate-750 border border-gray-200 dark:border-slate-650 rounded-xl px-3.5 py-2.5 text-xs text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                Category / Subject
+              </label>
+              <select
+                value={newGroupCategory}
+                onChange={e => setNewGroupCategory(e.target.value)}
+                className="w-full bg-gray-50 dark:bg-slate-750 border border-gray-200 dark:border-slate-650 rounded-xl px-3.5 py-2.5 text-xs text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+              >
+                <option value="General">General / Study Lounge</option>
+                <option value="Math & Science">Math & Science</option>
+                <option value="Literature & Humanities">Literature & Humanities</option>
+                <option value="Computer Science">Computer Science & Tech</option>
+                <option value="Exam Prep">Exam Prep (SAT / AP / Graduation)</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                Description
+              </label>
+              <textarea
+                rows={3}
+                value={newGroupDescription}
+                onChange={e => setNewGroupDescription(e.target.value)}
+                placeholder="Describe the main goals, schedule, or rules for this group..."
+                className="w-full bg-gray-50 dark:bg-slate-750 border border-gray-200 dark:border-slate-650 rounded-xl px-3.5 py-2.5 text-xs text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/40 resize-none"
+              />
+            </div>
+
+            <div className="flex gap-2 justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => setShowCreateGroupModal(false)}
+                className="px-4 py-2.5 rounded-xl text-xs font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-5 py-2.5 rounded-xl text-xs font-extrabold bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-500/20 transition-all cursor-pointer"
+              >
+                Create Group
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  };
+
   if (!activeGroup || groups.length === 0) {
     return (
       <div className="flex-1 p-6 max-w-4xl mx-auto h-[calc(100vh-57px)] flex flex-col items-center justify-center text-center">
-        <div className="p-4 rounded-full bg-blue-50 dark:bg-slate-800 text-blue-500 mb-4">
+        <div className="p-5 rounded-full bg-blue-50 dark:bg-slate-800 text-blue-500 mb-4 shadow-sm border border-blue-100 dark:border-slate-700">
           <Users className="h-10 w-10" />
         </div>
-        <h2 className="font-display font-bold text-lg text-gray-800 dark:text-white">Chưa tham gia nhóm học tập nào</h2>
-        <p className="text-xs text-gray-400 mt-1 max-w-md">Tạo nhóm học tập đầu tiên của bạn để trao đổi tài liệu, trò chuyện nhóm và đếm ngược kỳ thi!</p>
+        <h2 className="font-display font-bold text-lg text-gray-800 dark:text-white">No Study Groups Joined Yet</h2>
+        <p className="text-xs text-gray-400 mt-1 max-w-md mb-6 leading-relaxed">
+          Create your first study group to share resources, chat in real-time, and track exam countdowns!
+        </p>
+        <button
+          type="button"
+          onClick={() => {
+            playSound('pop');
+            setShowCreateGroupModal(true);
+          }}
+          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-extrabold px-6 py-3 rounded-xl text-xs shadow-lg shadow-blue-500/25 transition-all cursor-pointer transform hover:scale-105 active:scale-95"
+        >
+          <Plus className="h-4.5 w-4.5" />
+          Create Study Group
+        </button>
+
+        {renderCreateGroupModal()}
       </div>
     );
   }
@@ -102,6 +236,7 @@ export const GroupsView: React.FC = () => {
     e.preventDefault();
     if (!chatInput.trim()) return;
 
+    playSound('send');
     sendGroupMessage(activeGroup.id, chatInput);
     setChatInput('');
   };
@@ -110,6 +245,7 @@ export const GroupsView: React.FC = () => {
     e.preventDefault();
     if (!groupPostText.trim()) return;
 
+    playSound('send');
     // Simulate adding a file or post directly in group files
     if (anonToggle) {
       alert('Anonymous question posted to group timeline successfully!');
@@ -123,6 +259,7 @@ export const GroupsView: React.FC = () => {
     e.preventDefault();
     if (!newFileTitle.trim()) return;
 
+    playSound('send');
     const newFile = {
       id: `f_${Date.now()}`,
       title: newFileTitle.endsWith('.pdf') || newFileTitle.endsWith('.docx') ? newFileTitle : `${newFileTitle}.${newFileType.toLowerCase()}`,
@@ -146,6 +283,7 @@ export const GroupsView: React.FC = () => {
   };
 
   const handleGoingToggle = (eventId: string) => {
+    playSound('pop');
     setGroups(prev => prev.map(g => {
       if (g.id !== activeGroup.id) return g;
       return {
@@ -166,17 +304,9 @@ export const GroupsView: React.FC = () => {
     }));
   };
 
-  const handleCreateGroupPrompt = async () => {
-    const name = prompt('Nhập tên nhóm học tập mới / Enter new Study Group name:');
-    if (name) {
-      try {
-        const newId = await createStudyGroup(name);
-        setSelectedGroupId(newId);
-        setActiveSubTab('feed');
-      } catch (err) {
-        console.warn('Failed to create group:', err);
-      }
-    }
+  const handleCreateGroupPrompt = () => {
+    playSound('pop');
+    setShowCreateGroupModal(true);
   };
 
   return (
@@ -600,6 +730,7 @@ export const GroupsView: React.FC = () => {
 
         </div>
       </div>
+      {renderCreateGroupModal()}
     </div>
   );
 };

@@ -19,13 +19,13 @@ export const AuthScreen: React.FC = () => {
     setIsLoading(true);
 
     if (!email.includes('@')) {
-      setError('Vui lòng nhập địa chỉ email hợp lệ!');
+      setError('Please enter a valid email address!');
       setIsLoading(false);
       return;
     }
 
     if (password.length < 6) {
-      setError('Mật khẩu phải dài tối thiểu 6 ký tự!');
+      setError('Password must be at least 6 characters long!');
       setIsLoading(false);
       return;
     }
@@ -33,7 +33,7 @@ export const AuthScreen: React.FC = () => {
     try {
       if (isRegister) {
         if (!name.trim()) {
-          setError('Vui lòng nhập họ tên của bạn!');
+          setError('Please enter your full name!');
           setIsLoading(false);
           return;
         }
@@ -44,11 +44,11 @@ export const AuthScreen: React.FC = () => {
     } catch (err: any) {
       console.error(err);
       if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
-        setError('Email hoặc mật khẩu không chính xác. Hãy kiểm tra lại!');
+        setError('Incorrect email or password. Please check again!');
       } else if (err.code === 'auth/email-already-in-use') {
-        setError('Địa chỉ email này đã được sử dụng bởi tài khoản khác!');
+        setError('This email address is already in use by another account!');
       } else {
-        setError(err.message || 'Có lỗi xảy ra trong quá trình xác thực. Hãy thử lại!');
+        setError(err.message || 'An error occurred during authentication. Please try again!');
       }
     } finally {
       setIsLoading(false);
@@ -63,9 +63,9 @@ export const AuthScreen: React.FC = () => {
     } catch (err: any) {
       console.error(err);
       if (err.code === 'auth/popup-closed-by-user') {
-        setError('Cửa sổ đăng nhập bằng Google đã bị đóng trước khi hoàn thành.');
+        setError('Google sign-in popup was closed before completion.');
       } else {
-        setError('Không thể đăng nhập bằng Google. Vui lòng thử lại!');
+        setError('Unable to sign in with Google. Please try again!');
       }
     } finally {
       setIsLoading(false);
@@ -94,7 +94,7 @@ export const AuthScreen: React.FC = () => {
           <h1 className="font-display text-3xl font-black tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-300">
             studybook
           </h1>
-          <p className="text-xs text-slate-400 mt-1.5 font-medium">Mạng Xã Hội Học Tập Trực Tuyến Hàng Đầu</p>
+          <p className="text-xs text-slate-400 mt-1.5 font-medium">The Premier Online Academic Network</p>
         </div>
 
         {/* Title Tab Selector */}
@@ -104,14 +104,14 @@ export const AuthScreen: React.FC = () => {
             onClick={() => { setIsRegister(false); setError(null); }}
             className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer ${!isRegister ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'}`}
           >
-            Đăng Nhập
+            Sign In
           </button>
           <button
             type="button"
             onClick={() => { setIsRegister(true); setError(null); }}
             className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer ${isRegister ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'}`}
           >
-            Đăng Ký
+            Sign Up
           </button>
         </div>
 
@@ -138,7 +138,7 @@ export const AuthScreen: React.FC = () => {
               >
                 {/* Full Name */}
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider pl-1">Họ và Tên</label>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider pl-1">Full Name</label>
                   <div className="relative">
                     <UserIcon className="absolute left-3 top-3 h-4 w-4 text-slate-500" />
                     <input
@@ -146,7 +146,7 @@ export const AuthScreen: React.FC = () => {
                       required={isRegister}
                       value={name}
                       onChange={(e) => setName(e.target.value)}
-                      placeholder="Nguyễn Văn A"
+                      placeholder="e.g. Alex Rivera"
                       className="w-full bg-slate-950/50 border border-slate-800 rounded-xl py-2.5 pl-10 pr-4 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all"
                     />
                   </div>
@@ -156,7 +156,7 @@ export const AuthScreen: React.FC = () => {
 
                 {/* Role Select */}
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider pl-1">Vai Trò Học Tập</label>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider pl-1">Academic Role</label>
                   <div className="relative">
                     <GraduationCap className="absolute left-3 top-3 h-4 w-4 text-slate-500" />
                     <select
@@ -164,9 +164,9 @@ export const AuthScreen: React.FC = () => {
                       onChange={(e) => setRole(e.target.value as any)}
                       className="w-full bg-slate-950/50 border border-slate-800 rounded-xl py-2.5 pl-10 pr-4 text-xs text-white appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all cursor-pointer"
                     >
-                      <option value="student" className="bg-slate-900 text-white">Học Sinh / Sinh Viên</option>
-                      <option value="tutor" className="bg-slate-900 text-white">Gia Sư / Giáo Viên</option>
-                      <option value="creator" className="bg-slate-900 text-white">Nhà Sáng Tạo Tài Liệu</option>
+                      <option value="student" className="bg-slate-900 text-white">Student / Scholar</option>
+                      <option value="tutor" className="bg-slate-900 text-white">Tutor / Educator</option>
+                      <option value="creator" className="bg-slate-900 text-white">Content Creator</option>
                     </select>
                   </div>
                 </div>
@@ -176,7 +176,7 @@ export const AuthScreen: React.FC = () => {
 
           {/* Email Address */}
           <div className="space-y-1">
-            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider pl-1">Địa chỉ Email</label>
+            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider pl-1">Email Address</label>
             <div className="relative">
               <Mail className="absolute left-3 top-3 h-4 w-4 text-slate-500" />
               <input
@@ -184,7 +184,7 @@ export const AuthScreen: React.FC = () => {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="tenbanchon@gmail.com"
+                placeholder="you@studybook.edu"
                 className="w-full bg-slate-950/50 border border-slate-800 rounded-xl py-2.5 pl-10 pr-4 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all"
               />
             </div>
@@ -192,7 +192,7 @@ export const AuthScreen: React.FC = () => {
 
           {/* Password */}
           <div className="space-y-1">
-            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider pl-1">Mật khẩu</label>
+            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider pl-1">Password</label>
             <div className="relative">
               <Lock className="absolute left-3 top-3 h-4 w-4 text-slate-500" />
               <input
@@ -200,7 +200,7 @@ export const AuthScreen: React.FC = () => {
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Tối thiểu 6 ký tự..."
+                placeholder="At least 6 characters..."
                 className="w-full bg-slate-950/50 border border-slate-800 rounded-xl py-2.5 pl-10 pr-4 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all"
               />
             </div>
@@ -217,9 +217,9 @@ export const AuthScreen: React.FC = () => {
             {isLoading ? (
               <span className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
             ) : isRegister ? (
-              'Đăng Ký Học Viên Trực Tuyến'
+              'Create Account'
             ) : (
-              'Đăng Nhập StudyBook'
+              'Sign In to StudyBook'
             )}
           </motion.button>
         </form>
@@ -229,7 +229,7 @@ export const AuthScreen: React.FC = () => {
           <div className="absolute inset-0 flex items-center">
             <div className="w-full border-t border-slate-800"></div>
           </div>
-          <span className="relative bg-slate-900/90 px-3 text-[10px] uppercase font-bold text-slate-500">Hoặc tiếp tục với</span>
+          <span className="relative bg-slate-900/90 px-3 text-[10px] uppercase font-bold text-slate-500">Or continue with</span>
         </div>
 
         {/* Google Sign-In Mode */}
@@ -246,18 +246,18 @@ export const AuthScreen: React.FC = () => {
             <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" fill="#FBBC05" />
             <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" fill="#EA4335" />
           </svg>
-          Đăng nhập bằng tài khoản Google
+          Sign in with Google
         </motion.button>
 
         {/* Offline Mode Option */}
         <div className="mt-6 text-center">
-          <p className="text-[11px] text-slate-500 mb-2">Không kết nối được dịch vụ đám mây?</p>
+          <p className="text-[11px] text-slate-500 mb-2">Can't connect to cloud services?</p>
           <button
             type="button"
             onClick={() => setIsOfflineBypass(true)}
             className="text-xs text-blue-400 hover:text-blue-300 font-bold transition-colors cursor-pointer hover:underline"
           >
-            Sử dụng Chế Độ Ngoại Tuyến (Offline Mode)
+            Use Offline Mode
           </button>
         </div>
 

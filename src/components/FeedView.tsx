@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { AcademicReactionType, Post } from '../types';
+import { playSound } from '../utils/soundEffects';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Flame, 
@@ -29,7 +30,9 @@ import {
   Video,
   Upload,
   Lock,
-  BadgeCheck
+  BadgeCheck,
+  UserPlus,
+  MessageSquare
 } from 'lucide-react';
 
 interface FeedViewProps {
@@ -54,7 +57,10 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
     settings,
     activeFolderId,
     setActiveFolderId,
-    folders
+    folders,
+    openDirectChat,
+    sendFriendRequest,
+    getFriendshipStatus
   } = useApp();
 
   const [newPostText, setNewPostText] = useState('');
@@ -236,6 +242,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
   const isAdmin = user.role === 'admin' || currentEmail.toLowerCase() === 'billkute030709@gmail.com';
 
   const handleDeletePost = (id: string, postOwnerId?: string, authorName?: string) => {
+    playSound('openModal');
     setDeleteConfirmTarget({
       type: 'post',
       postId: id,
@@ -245,6 +252,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
   };
 
   const handleDeleteComment = (postId: string, commentId: string, commentOwnerId?: string, authorName?: string) => {
+    playSound('openModal');
     setDeleteConfirmTarget({
       type: 'comment',
       postId,
@@ -261,13 +269,14 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
     } else if (deleteConfirmTarget.type === 'comment' && deleteConfirmTarget.commentId) {
       deleteComment(deleteConfirmTarget.postId, deleteConfirmTarget.commentId);
     }
+    playSound('delete');
     setDeleteConfirmTarget(null);
   };
 
   const mockStories = [
     {
       id: 'story_current',
-      userName: 'Tạo tin',
+      userName: 'Create Story',
       userAvatar: settings.incognitoMode ? 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=150' : user.avatar,
       coverImg: settings.incognitoMode ? 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=150' : user.avatar,
       isCreator: true,
@@ -380,7 +389,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
                         <div className="absolute -top-3 left-1/2 -translate-x-1/2 h-6.5 w-6.5 rounded-full bg-blue-600 border-2 border-white dark:border-white/20 flex items-center justify-center text-white text-base font-bold">
                           +
                         </div>
-                        <span className="text-[10px] font-bold text-gray-800 dark:text-gray-200 leading-none mt-1">Tạo tin</span>
+                        <span className="text-[10px] font-bold text-gray-800 dark:text-gray-200 leading-none mt-1">Create Story</span>
                       </div>
                     </div>
                   ) : (
@@ -587,7 +596,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
               {/* Modal Header */}
               <div className="flex items-center justify-between p-4 border-b border-gray-150 dark:border-slate-700">
                 <div className="w-6" /> {/* Balance */}
-                <h3 className="font-display font-bold text-gray-900 dark:text-white text-base">Tạo bài viết</h3>
+                <h3 className="font-display font-bold text-gray-900 dark:text-white text-base">Create Post</h3>
                 <button
                   onClick={() => setCreatePostModalOpen(false)}
                   className="p-1.5 rounded-full bg-gray-100 dark:bg-slate-700 hover:bg-gray-200 dark:hover:bg-slate-650 transition-colors text-gray-500 dark:text-gray-300 cursor-pointer"
@@ -817,7 +826,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
                   className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold py-2.5 px-4 rounded-lg text-sm shadow-md transition-all cursor-pointer text-center flex items-center justify-center gap-1.5 border-none"
                 >
                   <Send className="h-4 w-4" />
-                  Đăng (Post to Academic Feed)
+                  Post to Academic Feed
                 </button>
               </form>
             </motion.div>
@@ -867,7 +876,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
                     <button 
                       onClick={() => handleDeletePost(post.id, post.authorId || post.user?.id, post.user?.name)}
                       className="p-1 text-gray-400 hover:text-red-500 rounded-full hover:bg-red-50 transition-colors"
-                      title={isAdmin && post.user?.id !== user.id ? 'Admin: Xóa bài viết này' : 'Xóa bài viết'}
+                      title={isAdmin && post.user?.id !== user.id ? 'Admin: Delete this post' : 'Delete post'}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
@@ -888,22 +897,60 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
                         {post.user.streak}
                       </span>
                     )}
+                    {!post.isAnonymous && (post.user?.role === 'tutor' || post.user?.badges?.includes('Verified Tutor') || post.user?.role === 'admin') && post.user.streak === 0 && (
+                      <span className="absolute -bottom-1 -right-1 bg-white dark:bg-slate-900 rounded-full p-0.5 shadow-xs" title="Verified Tutor">
+                        <BadgeCheck className="h-4 w-4 text-blue-500 fill-blue-500/20 shrink-0" />
+                      </span>
+                    )}
                   </div>
                   <div>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="text-xs font-bold text-gray-900 dark:text-white hover:underline cursor-pointer flex items-center gap-1">
                         {post.isAnonymous ? 'Anonymous Student' : post.user.name}
-                        {!post.isAnonymous && (post.user.role === 'tutor' || post.user.badges?.includes('Verified Tutor') || post.user.role === 'admin') && (
-                          <span title="Đã xác minh gia sư">
-                            <BadgeCheck className="h-3.5 w-3.5 text-blue-500 fill-blue-500/20 shrink-0" />
-                          </span>
-                        )}
                       </span>
-                      {post.user.role === 'tutor' && (
-                        <span className="flex items-center gap-0.5 text-[9px] font-bold bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-300 px-1.5 py-0.5 rounded">
-                          <Award className="h-2.5 w-2.5 shrink-0" />
-                          GIA SƯ
+                      {!post.isAnonymous && (post.user?.role === 'tutor' || post.user?.badges?.includes('Verified Tutor') || post.user?.role === 'admin') && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-extrabold bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border border-blue-300/80 dark:border-blue-700/80 px-2 py-0.5 rounded-full" title="Verified Educator & Tutor">
+                          <BadgeCheck className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 fill-blue-500/30 shrink-0" />
+                          <span>Verified Tutor</span>
                         </span>
+                      )}
+
+                      {!post.isAnonymous && post.user?.id && post.user.id !== user.id && (
+                        <div className="flex items-center gap-1 ml-1">
+                          {getFriendshipStatus(post.user.id) === 'none' && (
+                            <button
+                              onClick={() => sendFriendRequest({
+                                id: post.user.id,
+                                name: post.user.name,
+                                avatar: post.user.avatar,
+                                email: post.user.email
+                              })}
+                              className="px-1.5 py-0.5 bg-purple-50 hover:bg-purple-100 text-purple-600 dark:bg-purple-950/40 dark:text-purple-300 text-[10px] font-semibold rounded-md flex items-center gap-1 transition-colors cursor-pointer"
+                              title="Send Friend Request"
+                            >
+                              <UserPlus className="h-3 w-3" />
+                              Add Friend
+                            </button>
+                          )}
+
+                          <button
+                            onClick={() => {
+                              playSound('pop');
+                              openDirectChat({
+                                id: post.user.id,
+                                name: post.user.name,
+                                avatar: post.user.avatar,
+                                email: post.user.email,
+                                role: post.user.role
+                              });
+                            }}
+                            className="px-1.5 py-0.5 bg-gray-100 hover:bg-gray-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-gray-700 dark:text-gray-200 text-[10px] font-semibold rounded-md flex items-center gap-1 transition-colors cursor-pointer"
+                            title="Direct Message"
+                          >
+                            <MessageSquare className="h-3 w-3 text-purple-500" />
+                            Chat
+                          </button>
+                        </div>
                       )}
                     </div>
                     <div className="flex items-center gap-1 text-[10px] text-gray-400 mt-0.5">
@@ -1158,14 +1205,12 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
                                   <div className="flex items-center gap-1.5">
                                     <span className="text-[11px] font-bold text-gray-800 dark:text-white hover:underline cursor-pointer flex items-center gap-1">
                                       {comment.user.name}
-                                      {(comment.user.role === 'tutor' || comment.user.badges?.includes('Verified Tutor') || comment.user.role === 'admin') && (
-                                        <span title="Đã xác minh gia sư">
-                                          <BadgeCheck className="h-3 w-3 text-blue-500 fill-blue-500/20 shrink-0" />
-                                        </span>
-                                      )}
                                     </span>
-                                    {isTeacher && (
-                                      <span className="text-[9px] font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 px-1 rounded">Gia sư</span>
+                                    {(comment.user.role === 'tutor' || comment.user.badges?.includes('Verified Tutor') || comment.user.role === 'admin') && (
+                                      <span className="inline-flex items-center gap-0.5 text-[9px] font-extrabold bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border border-blue-300/60 dark:border-blue-700/60 px-1.5 py-0.2 rounded-full" title="Verified Tutor">
+                                        <BadgeCheck className="h-3 w-3 text-blue-600 dark:text-blue-400 fill-blue-500/30 shrink-0" />
+                                        <span>Verified Tutor</span>
+                                      </span>
                                     )}
                                     {comment.hasHelped && (
                                       <span className="text-[9px] font-bold bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-300 px-1 rounded flex items-center gap-0.5">
@@ -1177,7 +1222,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
                                     <button
                                       onClick={() => handleDeleteComment(post.id, comment.id, comment.user?.id, comment.user?.name)}
                                       className="p-1 text-gray-400 hover:text-red-500 rounded-full hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
-                                      title={isAdmin && !isMyComment ? 'Admin: Xóa bình luận này' : 'Xóa bình luận'}
+                                      title={isAdmin && !isMyComment ? 'Admin: Delete this comment' : 'Delete comment'}
                                     >
                                       <Trash2 className="h-3 w-3" />
                                     </button>

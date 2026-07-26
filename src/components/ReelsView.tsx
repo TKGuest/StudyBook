@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
+import { playSound } from '../utils/soundEffects';
 import { 
   ThumbsUp, 
   MessageSquare, 
@@ -123,6 +124,7 @@ export const ReelsView: React.FC = () => {
 
   const toggleMute = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    playSound('toggle');
     const vid = videoRefs.current[id];
     const isMuted = mutedStates[id] ?? true; // Default muted for browser autoplay policies
     const nextMuted = !isMuted;
@@ -133,6 +135,7 @@ export const ReelsView: React.FC = () => {
 
   const toggleFollow = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    playSound('pop');
     setFollowingStates(prev => {
       const next = { ...prev, [id]: !prev[id] };
       if (user?.id) {
@@ -144,6 +147,7 @@ export const ReelsView: React.FC = () => {
 
   const toggleSave = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    playSound('pop');
     setSavedReels(prev => {
       const next = { ...prev, [id]: !prev[id] };
       if (user?.id) {
@@ -155,12 +159,13 @@ export const ReelsView: React.FC = () => {
 
   const handleAddComment = (reelId: string) => {
     if (!newCommentText.trim()) return;
+    playSound('send');
     const commentObj: LocalComment = {
       id: `c_${Date.now()}`,
-      authorName: user.name || 'Người dùng StudyBook',
+      authorName: user.name || 'StudyBook User',
       authorAvatar: user.avatar,
       text: newCommentText.trim(),
-      timestamp: 'Vừa xong',
+      timestamp: 'Just now',
       likes: 0
     };
 
@@ -191,7 +196,7 @@ export const ReelsView: React.FC = () => {
   const handleDownloadWorksheet = (reel: any, e: React.MouseEvent) => {
     e.stopPropagation();
     if (reel.worksheet) {
-      alert(`Đã tải tài liệu bài học đính kèm:\n"${reel.worksheet.title}" (${reel.worksheet.size}) vào bộ sưu tập của bạn!`);
+      alert(`Downloaded worksheet:\n"${reel.worksheet.title}" (${reel.worksheet.size}) to your collection!`);
     }
   };
 
@@ -327,7 +332,7 @@ export const ReelsView: React.FC = () => {
                 <button 
                   onClick={(e) => toggleSave(reel.id, e)}
                   className="flex flex-col items-center group cursor-pointer focus:outline-none"
-                  title="Lưu video"
+                  title="Save video"
                 >
                   <div className={`p-3 rounded-full backdrop-blur-md transition-transform active:scale-110 shadow-lg ${
                     isSaved ? 'bg-amber-500 text-white' : 'bg-black/40 hover:bg-black/60 text-white border border-white/10'
@@ -335,7 +340,7 @@ export const ReelsView: React.FC = () => {
                     <Bookmark className={`h-5 w-5 ${isSaved ? 'fill-white' : ''}`} />
                   </div>
                   <span className="text-[11px] font-bold mt-1 text-white shadow-sm">
-                    {isSaved ? 'Đã lưu' : 'Lưu'}
+                    {isSaved ? 'Saved' : 'Save'}
                   </span>
                 </button>
 
@@ -367,12 +372,12 @@ export const ReelsView: React.FC = () => {
                       {isFollowing ? (
                         <>
                           <UserCheck className="h-3 w-3" />
-                          Đã theo dõi
+                          Following
                         </>
                       ) : (
                         <>
                           <UserPlus className="h-3 w-3" />
-                          Theo dõi
+                          Follow
                         </>
                       )}
                     </button>
@@ -464,7 +469,7 @@ export const ReelsView: React.FC = () => {
                                 onClick={() => toggleCommentLike(reel.id, comment.id)}
                                 className={`font-semibold hover:underline ${comment.hasLiked ? 'text-blue-400' : 'hover:text-gray-200'}`}
                               >
-                                {comment.hasLiked ? 'Đã thích' : 'Thích'} ({comment.likes})
+                                {comment.hasLiked ? 'Liked' : 'Like'} ({comment.likes})
                               </button>
                             </div>
                           </div>
@@ -485,7 +490,7 @@ export const ReelsView: React.FC = () => {
                       value={newCommentText}
                       onChange={(e) => setNewCommentText(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && handleAddComment(reel.id)}
-                      placeholder="Viết bình luận công khai..."
+                      placeholder="Write a public comment..."
                       className="flex-1 bg-neutral-800 text-white rounded-full px-4 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder-gray-500"
                     />
                     <button 
@@ -510,7 +515,7 @@ export const ReelsView: React.FC = () => {
                     className="w-full max-w-xs bg-neutral-900 border border-neutral-800 rounded-2xl p-4 space-y-4 text-white shadow-2xl animate-in zoom-in-95 duration-200"
                   >
                     <div className="flex justify-between items-center border-b border-neutral-800 pb-2">
-                      <span className="font-bold text-sm">Chia sẻ Reel</span>
+                      <span className="font-bold text-sm">Share Reel</span>
                       <button onClick={() => setShowShareModal(null)} className="p-1 text-gray-400 hover:text-white">
                         <X className="h-4 w-4" />
                       </button>
@@ -519,35 +524,35 @@ export const ReelsView: React.FC = () => {
                     <div className="grid grid-cols-3 gap-3 text-center">
                       <button 
                         onClick={() => {
-                          alert('Đã sao chép liên kết video Reel vào bộ nhớ tạm!');
+                          alert('Reel link copied to clipboard!');
                           setShowShareModal(null);
                         }}
                         className="flex flex-col items-center gap-1.5 p-3 rounded-xl bg-neutral-800 hover:bg-neutral-750 transition-colors"
                       >
                         <Copy className="h-5 w-5 text-blue-400" />
-                        <span className="text-[10px] text-gray-300">Sao chép link</span>
+                        <span className="text-[10px] text-gray-300">Copy Link</span>
                       </button>
 
                       <button 
                         onClick={() => {
-                          alert('Đã chia sẻ lên Bảng tin StudyBook của bạn!');
+                          alert('Shared to your StudyBook feed!');
                           setShowShareModal(null);
                         }}
                         className="flex flex-col items-center gap-1.5 p-3 rounded-xl bg-neutral-800 hover:bg-neutral-750 transition-colors"
                       >
                         <Share2 className="h-5 w-5 text-emerald-400" />
-                        <span className="text-[10px] text-gray-300">Lên Trang cá nhân</span>
+                        <span className="text-[10px] text-gray-300">Share to Feed</span>
                       </button>
 
                       <button 
                         onClick={() => {
-                          alert('Đã gửi Reel vào tin nhắn nhóm học tập!');
+                          alert('Reel sent to study group chat!');
                           setShowShareModal(null);
                         }}
                         className="flex flex-col items-center gap-1.5 p-3 rounded-xl bg-neutral-800 hover:bg-neutral-750 transition-colors"
                       >
                         <Send className="h-5 w-5 text-purple-400" />
-                        <span className="text-[10px] text-gray-300">Gửi Messenger</span>
+                        <span className="text-[10px] text-gray-300">Send Direct</span>
                       </button>
                     </div>
                   </div>
