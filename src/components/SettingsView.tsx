@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { ShieldAlert, EyeOff, Sliders, Volume2, VolumeX, Save, Download, RefreshCw, User as UserIcon, Globe, LogOut, Check, Upload, X, BadgeCheck, Clock, Award, History, Search, Trash2, Maximize2, FileText, AlertTriangle, School, BookOpen, Music, Sparkles, Flame } from 'lucide-react';
+import { ShieldAlert, EyeOff, Sliders, Volume2, VolumeX, Save, Download, RefreshCw, User as UserIcon, Globe, LogOut, Check, Upload, X, BadgeCheck, Clock, Award, History, Search, Trash2, Maximize2, FileText, AlertTriangle, School, BookOpen, Music, Sparkles, Flame, MessageSquare, UserX, ShieldCheck, Zap, Activity } from 'lucide-react';
 import { isFirebaseConfigured, auth, db } from '../lib/firebase';
 import { setDoc, doc } from 'firebase/firestore';
 import { SILHOUETTE_AVATAR } from '../data/mockData';
 import { motion, AnimatePresence } from 'motion/react';
-import { User, TutorRequest } from '../types';
+import { User, TutorRequest, GRADE_LEVELS, GradeLevel } from '../types';
 import { playSound, SoundType } from '../utils/soundEffects';
+import { calculateFreshnessValue, simulateFreshnessDecayTest, ALGORITHM_CONFIG } from '../utils/feedAlgorithm';
 
 export const SettingsView: React.FC = () => {
   const { 
@@ -15,6 +16,7 @@ export const SettingsView: React.FC = () => {
     exportResume, 
     user, 
     setUser,
+    setUserGrade,
     isFirebaseConnected,
     logout,
     isOfflineBypass,
@@ -23,20 +25,28 @@ export const SettingsView: React.FC = () => {
     requestTutorVerification,
     approveTutorRequest,
     rejectTutorRequest,
-    deleteTutorRequest
+    deleteTutorRequest,
+    blockedUsers,
+    blockUser,
+    unblockUser
   } = useApp();
   
   // Profile editor states
   const [profileName, setProfileName] = useState(user.name);
   const [institution, setInstitution] = useState(user.institution || '');
   const [avatarUrl, setAvatarUrl] = useState(user.avatar);
+  const [selectedGrade, setSelectedGrade] = useState<string>(user.grade || 'Grade 10');
+  const [blockInputName, setBlockInputName] = useState('');
+
+  // Algorithm Simulator states
+  const [testHoursAgo, setTestHoursAgo] = useState<number>(2.0);
 
   // Tutor Modal States
   const [showTutorModal, setShowTutorModal] = useState(false);
   const [verifyRealName, setVerifyRealName] = useState(user.name);
   const [verifySchool, setVerifySchool] = useState(user.institution || '');
   const [verifyDescription, setVerifyDescription] = useState('');
-  const [verifySubjects, setVerifySubjects] = useState<string[]>(['Toán (Math)', 'Vật Lý (Physics)']);
+  const [verifySubjects, setVerifySubjects] = useState<string[]>(['Mathematics', 'Physics']);
 
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [confirmModal, setConfirmModal] = useState<{ message: string; onConfirm: () => void } | null>(null);
@@ -84,7 +94,8 @@ export const SettingsView: React.FC = () => {
       ...user,
       name: profileName.trim(),
       institution: institution.trim(),
-      avatar: avatarUrl
+      avatar: avatarUrl,
+      grade: selectedGrade || user.grade || 'Grade 10'
     };
 
     setUser(updatedUser);
@@ -95,14 +106,22 @@ export const SettingsView: React.FC = () => {
         await setDoc(doc(db, 'users', user.id), {
           name: profileName.trim(),
           institution: institution.trim(),
-          avatar: avatarUrl
+          avatar: avatarUrl,
+          grade: selectedGrade || user.grade || 'Grade 10'
         }, { merge: true });
       } catch (e) {
         console.warn('Failed to sync profile save to Firestore:', e);
       }
     }
 
-    showToast('Your academic profile has been updated successfully!', 'success');
+    showToast('Your academic profile and grade have been updated successfully!', 'success');
+  };
+
+  const handleSelectGrade = async (grade: string) => {
+    setSelectedGrade(grade);
+    await setUserGrade(grade);
+    playSound('pop');
+    showToast(`Academic grade set to ${grade}! Newsfeed algorithm adjusted.`, 'success');
   };
 
   const handleSubmitTutorVerification = async (e: React.FormEvent) => {
@@ -127,7 +146,7 @@ export const SettingsView: React.FC = () => {
     showToast('Submitted Tutor verification request to Admin!', 'success');
   };
 
-  const handleWeightChange = (subject: 'Math' | 'Physics' | 'English' | 'Chemistry' | 'ExamPrep', value: number) => {
+  const handleWeightChange = (subject: 'Math' | 'Physics' | 'English' | 'Chemistry' | 'Other' | 'ExamPrep', value: number) => {
     setSettings(prev => ({
       ...prev,
       subjectWeights: {
@@ -137,12 +156,39 @@ export const SettingsView: React.FC = () => {
     }));
   };
 
-  const handleToggleSetting = (key: 'incognitoMode' | 'spoilerProtection' | 'ttsEnabled' | 'showStreakToOthers') => {
+  const handleToggleSetting = (key: 'incognitoMode' | 'spoilerProtection' | 'ttsEnabled' | 'showStreakToOthers' | 'allowDMsFromStrangers') => {
     playSound('toggle');
-    setSettings(prev => ({
-      ...prev,
-      [key]: !prev[key]
-    }));
+    setSettings(prev => {
+      const next = {
+        ...prev,
+        [key]: !prev[key]
+      };
+      localStorage.setItem('sb_settings', JSON.stringify(next));
+      return next;
+    });
+
+    if (key === 'allowDMsFromStrangers') {
+      const newVal = settings.allowDMsFromStrangers === false ? true : false;
+      setUser(prev => {
+        const nextUser = { ...prev, allowDMsFromStrangers: newVal };
+        localStorage.setItem('sb_user', JSON.stringify(nextUser));
+        return nextUser;
+      });
+      if (isFirebaseConfigured && user.id) {
+        setDoc(doc(db, 'users', user.id), { allowDMsFromStrangers: newVal }, { merge: true }).catch(console.warn);
+      }
+      showToast(newVal ? 'Direct messages from strangers enabled.' : 'Stranger direct messages disabled. Only approved friends can message you.', 'info');
+    }
+  };
+
+  const handleQuickBlockSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!blockInputName.trim()) return;
+    const target = blockInputName.trim();
+    const targetId = `blocked_${Date.now()}`;
+    await blockUser(targetId, target, SILHOUETTE_AVATAR);
+    setBlockInputName('');
+    showToast(`Blocked user "${target}". They can no longer direct message you or view your posts.`, 'info');
   };
 
   const handleResetImplicitHistory = () => {
@@ -284,15 +330,32 @@ export const SettingsView: React.FC = () => {
               />
             </div>
 
-            <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase">School / Institution</label>
-              <input
-                type="text"
-                value={institution}
-                onChange={(e) => setInstitution(e.target.value)}
-                placeholder="e.g. Stanford University / Science High School"
-                className="w-full bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs text-gray-800 dark:text-white mt-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase">School / Institution</label>
+                <input
+                  type="text"
+                  value={institution}
+                  onChange={(e) => setInstitution(e.target.value)}
+                  placeholder="e.g. Stanford University / Science High School"
+                  className="w-full bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs text-gray-800 dark:text-white mt-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase">Academic Grade Level</label>
+                <select
+                  value={selectedGrade}
+                  onChange={(e) => handleSelectGrade(e.target.value)}
+                  className="w-full bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs text-gray-800 dark:text-white mt-1 focus:outline-none focus:ring-1 focus:ring-blue-500 font-semibold"
+                >
+                  {GRADE_LEVELS.map(g => (
+                    <option key={g} value={g} className="bg-white dark:bg-slate-800 text-gray-900 dark:text-white">
+                      {g}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             <div>
@@ -340,6 +403,66 @@ export const SettingsView: React.FC = () => {
         </div>
       </div>
 
+      {/* BLOCK 1.1: ACADEMIC GRADE SECTION (GRADE 1 TO COLLEGE) */}
+      <div id="academic-grade-section" className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-150 dark:border-slate-700 p-5 space-y-4 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-150 dark:border-slate-700 pb-3">
+          <div className="space-y-1">
+            <h3 className="font-display font-bold text-sm text-gray-800 dark:text-white flex items-center gap-1.5">
+              <School className="h-4.5 w-4.5 text-indigo-600 dark:text-indigo-400" />
+              Academic Grade Level (Grade 1 to College)
+            </h3>
+            <p className="text-[11px] text-gray-400 font-medium leading-relaxed">
+              Set your current school grade. The Newsfeed algorithm boosts study materials matching your grade (+35 pts boost) directly to the top of your feed.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
+            <span className="px-3 py-1 bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-300 font-bold rounded-lg text-xs border border-indigo-200 dark:border-indigo-800/80 flex items-center gap-1.5">
+              🎓 Active: {selectedGrade || user.grade || 'Grade 10'}
+            </span>
+          </div>
+        </div>
+
+        {/* Grade Category Groups */}
+        <div className="space-y-4 pt-1">
+          {[
+            { title: 'Elementary School', desc: 'Foundations & primary education', grades: ['Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5'] },
+            { title: 'Middle School', desc: 'Junior secondary curriculum', grades: ['Grade 6', 'Grade 7', 'Grade 8'] },
+            { title: 'High School', desc: 'Senior secondary & college prep', grades: ['Grade 9', 'Grade 10', 'Grade 11', 'Grade 12'] },
+            { title: 'Higher Education', desc: 'University & undergraduate courses', grades: ['College'] }
+          ].map(cat => (
+            <div key={cat.title} className="p-3 bg-gray-50/70 dark:bg-slate-900/50 rounded-xl border border-gray-200/80 dark:border-slate-700/80 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-indigo-500" />
+                  {cat.title}
+                </span>
+                <span className="text-[10px] text-gray-400 font-medium">{cat.desc}</span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
+                {cat.grades.map(grade => {
+                  const isCurrent = (selectedGrade || user.grade) === grade;
+                  return (
+                    <button
+                      key={grade}
+                      type="button"
+                      onClick={() => handleSelectGrade(grade)}
+                      className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-between transition-all duration-150 cursor-pointer ${
+                        isCurrent
+                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-600/30 ring-2 ring-indigo-500/30'
+                          : 'bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-700 hover:bg-indigo-50/40 dark:hover:bg-slate-750'
+                      }`}
+                    >
+                      <span>{grade}</span>
+                      {isCurrent && <Check className="h-3.5 w-3.5 text-white stroke-[3]" />}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
       {/* BLOCK 1: INCOGNITO STUDY MODE */}
       <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-150 dark:border-slate-700 p-4 space-y-4 shadow-sm">
         <div className="flex justify-between items-start gap-4">
@@ -361,6 +484,111 @@ export const SettingsView: React.FC = () => {
         </div>
       </div>
 
+      {/* BLOCK 1.5: DIRECT MESSAGING PRIVACY */}
+      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-150 dark:border-slate-700 p-4 space-y-3 shadow-sm">
+        <div className="flex justify-between items-start gap-4">
+          <div className="space-y-1">
+            <h3 className="font-display font-bold text-sm text-gray-800 dark:text-white flex items-center gap-1.5">
+              <MessageSquare className="h-4 w-4 text-purple-600" />
+              Direct Messages from Strangers
+            </h3>
+            <p className="text-[11px] text-gray-400 font-medium leading-relaxed">
+              Turn on to receive 1-on-1 direct messages from any student or tutor. When turned off, only users on your approved Friends list can direct message you.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => handleToggleSetting('allowDMsFromStrangers')}
+            className={`w-11 h-6 rounded-full transition-colors relative shrink-0 focus:outline-none cursor-pointer ${settings.allowDMsFromStrangers !== false ? 'bg-purple-600' : 'bg-gray-200 dark:bg-slate-700'}`}
+          >
+            <span className={`absolute top-1 left-1 h-4 w-4 bg-white rounded-full transition-transform ${settings.allowDMsFromStrangers !== false ? 'translate-x-5' : ''}`}></span>
+          </button>
+        </div>
+        <div className="pt-2 border-t border-gray-100 dark:border-slate-700/80 flex items-center gap-2 text-[11px] text-gray-500 dark:text-gray-400">
+          <span className={`inline-block h-2 w-2 rounded-full ${settings.allowDMsFromStrangers !== false ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
+          <span>{settings.allowDMsFromStrangers !== false ? 'Direct messages from all members are currently accepted.' : 'Stranger direct messages are disabled. Only approved friends can message you.'}</span>
+        </div>
+      </div>
+
+      {/* BLOCK 1.6: BLOCKED USERS MANAGEMENT */}
+      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-150 dark:border-slate-700 p-5 space-y-4 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-150 dark:border-slate-700 pb-3">
+          <div className="space-y-1">
+            <h3 className="font-display font-bold text-sm text-gray-800 dark:text-white flex items-center gap-1.5">
+              <ShieldAlert className="h-4.5 w-4.5 text-red-500" />
+              Blocked Accounts & Content Protection
+            </h3>
+            <p className="text-[11px] text-gray-400 font-medium leading-relaxed">
+              Blocked accounts cannot send you direct messages, cannot view any of your posts in the academic feed, and are removed from your friends list.
+            </p>
+          </div>
+          <span className="px-2.5 py-1 bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-300 font-bold rounded-lg text-xs border border-red-200 dark:border-red-900/60 shrink-0 self-start sm:self-auto">
+            {blockedUsers.length} Blocked
+          </span>
+        </div>
+
+        {/* Quick Block Input */}
+        <form onSubmit={handleQuickBlockSubmit} className="flex gap-2">
+          <input
+            type="text"
+            value={blockInputName}
+            onChange={e => setBlockInputName(e.target.value)}
+            placeholder="Type user name or account ID to block..."
+            className="flex-1 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl px-3.5 py-2 text-xs text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-red-500"
+          />
+          <button
+            type="submit"
+            disabled={!blockInputName.trim()}
+            className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-bold text-xs rounded-xl transition-all cursor-pointer flex items-center gap-1.5 shrink-0 shadow-xs"
+          >
+            <UserX className="h-3.5 w-3.5" />
+            Block User
+          </button>
+        </form>
+
+        {/* List of blocked accounts */}
+        {blockedUsers.length === 0 ? (
+          <div className="p-6 text-center border border-dashed border-gray-200 dark:border-slate-700 rounded-xl bg-gray-50/40 dark:bg-slate-900/30">
+            <ShieldCheck className="h-7 w-7 text-gray-300 dark:text-slate-600 mx-auto mb-1.5" />
+            <p className="text-xs font-semibold text-gray-600 dark:text-gray-300">No blocked accounts</p>
+            <p className="text-[10px] text-gray-400 mt-0.5">You have not blocked any users. You can block anyone directly from their posts or chat.</p>
+          </div>
+        ) : (
+          <div className="space-y-2 max-h-60 overflow-y-auto scrollbar-thin">
+            {blockedUsers.map(blocked => (
+              <div
+                key={blocked.id}
+                className="p-3 bg-gray-50 dark:bg-slate-900/60 border border-gray-200 dark:border-slate-700 rounded-xl flex items-center justify-between gap-3 hover:border-red-200 dark:hover:border-red-900/40 transition-colors"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <img
+                    src={blocked.avatar || SILHOUETTE_AVATAR}
+                    alt={blocked.name}
+                    className="h-8 w-8 rounded-full object-cover border border-gray-200 dark:border-slate-700 shrink-0"
+                  />
+                  <div className="min-w-0">
+                    <h4 className="text-xs font-bold text-gray-800 dark:text-white truncate">{blocked.name}</h4>
+                    <p className="text-[10px] text-gray-400">
+                      Blocked on {blocked.blockedAt || 'Recent'} • Cannot message or view posts
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    unblockUser(blocked.id);
+                    showToast(`Unblocked ${blocked.name}.`, 'info');
+                  }}
+                  className="px-3 py-1.5 bg-gray-200 hover:bg-gray-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-gray-700 dark:text-gray-200 text-xs font-semibold rounded-lg transition-colors cursor-pointer shrink-0"
+                >
+                  Unblock
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* BLOCK 2: SUBJECT FOCUS WEIGHTS (MULTIPLE CHOICE SUBJECT SELECTION) */}
       <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-150 dark:border-slate-700 p-4 space-y-4 shadow-sm">
         <div className="space-y-1">
@@ -378,7 +606,8 @@ export const SettingsView: React.FC = () => {
             { key: 'Math' as const, label: 'Mathematics' },
             { key: 'Physics' as const, label: 'Physics' },
             { key: 'English' as const, label: 'English' },
-            { key: 'Chemistry' as const, label: 'Chemistry' }
+            { key: 'Chemistry' as const, label: 'Chemistry' },
+            { key: 'Other' as const, label: 'Other Subjects' }
           ].map(sub => {
             const isSelected = ((settings.subjectWeights as any)?.[sub.key] ?? 50) >= 80;
             return (
@@ -411,6 +640,150 @@ export const SettingsView: React.FC = () => {
               </button>
             );
           })}
+        </div>
+      </div>
+
+      {/* BLOCK 3: FEED ALGORITHM & FRESHNESS VALUE VERIFICATION */}
+      <div id="algorithm-verification-section" className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-150 dark:border-slate-700 p-5 space-y-4 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-150 dark:border-slate-700 pb-3">
+          <div className="space-y-1">
+            <h3 className="font-display font-bold text-sm text-gray-800 dark:text-white flex items-center gap-1.5">
+              <Zap className="h-4.5 w-4.5 text-amber-500 fill-amber-500/20" />
+              Algorithm Freshness Value & Ranking Verification
+            </h3>
+            <p className="text-[11px] text-gray-400 font-medium leading-relaxed">
+              Verify how StudyBook's personalized algorithm ranks posts using Freshness Decay (-2.5 pts/hr) and Grade Matching (+35 pts boost).
+            </p>
+          </div>
+          <span className="px-2.5 py-1 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 font-bold rounded-lg text-xs border border-emerald-200 dark:border-emerald-800 flex items-center gap-1 self-start sm:self-auto shrink-0">
+            <Activity className="h-3.5 w-3.5 animate-pulse" />
+            Freshness Decay Active (-2.5 pt/hr)
+          </span>
+        </div>
+
+        {/* Algorithm Score Formula Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="p-3 bg-amber-50/50 dark:bg-amber-950/20 rounded-xl border border-amber-200/70 dark:border-amber-900/40 space-y-1">
+            <div className="flex items-center justify-between text-[11px] font-bold text-amber-700 dark:text-amber-300">
+              <span>🕒 Freshness Value</span>
+              <span>50 → 0 pts</span>
+            </div>
+            <p className="text-[10px] text-amber-900/70 dark:text-amber-300/70 leading-normal">
+              Recent posts start with <strong>50 points</strong> and decay at <strong>-2.5 pts per hour</strong>. Floor at 0 pts after 20 hours.
+            </p>
+          </div>
+
+          <div className="p-3 bg-indigo-50/50 dark:bg-indigo-950/20 rounded-xl border border-indigo-200/70 dark:border-indigo-900/40 space-y-1">
+            <div className="flex items-center justify-between text-[11px] font-bold text-indigo-700 dark:text-indigo-300">
+              <span>🎓 Grade Matching</span>
+              <span>+35.0 pts</span>
+            </div>
+            <p className="text-[10px] text-indigo-900/70 dark:text-indigo-300/70 leading-normal">
+              Posts matching your active grade (<strong>{selectedGrade || user.grade || 'Grade 10'}</strong>) are boosted directly to the top.
+            </p>
+          </div>
+
+          <div className="p-3 bg-blue-50/50 dark:bg-blue-950/20 rounded-xl border border-blue-200/70 dark:border-blue-900/40 space-y-1">
+            <div className="flex items-center justify-between text-[11px] font-bold text-blue-700 dark:text-blue-300">
+              <span>👍 Popularity & Subject</span>
+              <span>Variable</span>
+            </div>
+            <p className="text-[10px] text-blue-900/70 dark:text-blue-300/70 leading-normal">
+              Verified solutions (+8), insightful remarks (+4), helpful reactions (+2), and subject priority weights.
+            </p>
+          </div>
+        </div>
+
+        {/* Live Interactive Freshness Tester */}
+        <div className="p-4 bg-gray-50 dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-700 space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <h4 className="text-xs font-bold text-gray-800 dark:text-gray-200">
+                Interactive Freshness Decay Simulator
+              </h4>
+              <p className="text-[10px] text-gray-400">
+                Move the slider to simulate post age and check the resulting Freshness Value.
+              </p>
+            </div>
+            <div className="text-right">
+              <span className="text-xs font-mono font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 px-2.5 py-1 rounded-md border border-blue-200 dark:border-blue-800">
+                Post Age: {testHoursAgo} {testHoursAgo === 1 ? 'hour' : 'hours'} ago
+              </span>
+            </div>
+          </div>
+
+          {/* Slider input */}
+          <input
+            type="range"
+            min="0"
+            max="24"
+            step="0.5"
+            value={testHoursAgo}
+            onChange={(e) => setTestHoursAgo(parseFloat(e.target.value))}
+            className="w-full accent-blue-600 cursor-pointer"
+          />
+
+          {/* Real-time Calculation Result */}
+          {(() => {
+            const decay = Math.min(50, testHoursAgo * 2.5);
+            const freshness = Math.max(0, 50 - testHoursAgo * 2.5);
+            const percent = (freshness / 50) * 100;
+            return (
+              <div className="space-y-2 pt-1">
+                <div className="flex justify-between items-center text-xs font-semibold">
+                  <span className="text-gray-600 dark:text-gray-300 flex items-center gap-1.5">
+                    <span>Base: 50.0 pts</span>
+                    <span className="text-red-500 font-mono">- {decay.toFixed(1)} pts decay ({testHoursAgo}h × 2.5)</span>
+                  </span>
+                  <span className="font-mono font-extrabold text-sm text-amber-600 dark:text-amber-400">
+                    Freshness: {freshness.toFixed(1)} / 50.0 pts
+                  </span>
+                </div>
+
+                {/* Progress bar visual */}
+                <div className="w-full h-3 bg-gray-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                  <div 
+                    className={`h-full transition-all duration-150 ${
+                      percent > 60 ? 'bg-emerald-500' : percent > 25 ? 'bg-amber-500' : 'bg-red-500'
+                    }`}
+                    style={{ width: `${percent}%` }}
+                  />
+                </div>
+
+                <div className="text-[10px] text-gray-400 flex justify-between font-mono">
+                  <span>0h (50 pts, Newest)</span>
+                  <span>10h (25 pts, Half)</span>
+                  <span>20h+ (0 pts, Decay Floor)</span>
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+
+        {/* Verification Matrix Table */}
+        <div className="border border-gray-200 dark:border-slate-700 rounded-xl overflow-hidden text-xs">
+          <div className="bg-gray-100 dark:bg-slate-750 px-3 py-2 font-bold text-gray-700 dark:text-gray-200 flex justify-between">
+            <span>Freshness Value Decay Verification Benchmark Table</span>
+            <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-normal">Algorithm Rule: 50 - (hrs × 2.5)</span>
+          </div>
+          <div className="divide-y divide-gray-150 dark:divide-slate-700 font-mono text-[11px]">
+            {[
+              { hours: 0, decay: 0, points: 50.0, status: 'Peak Freshness (Recent post)' },
+              { hours: 2, decay: 5.0, points: 45.0, status: 'Slight decay (-5.0 pts)' },
+              { hours: 4, decay: 10.0, points: 40.0, status: 'Moderate decay (-10.0 pts)' },
+              { hours: 8, decay: 20.0, points: 30.0, status: 'Active decay (-20.0 pts)' },
+              { hours: 12, decay: 30.0, points: 20.0, status: 'Older post (-30.0 pts)' },
+              { hours: 20, decay: 50.0, points: 0.0, status: 'Decay floor reached (0 pts)' },
+              { hours: 24, decay: 50.0, points: 0.0, status: 'Permanent floor clamped at 0' }
+            ].map(item => (
+              <div key={item.hours} className="px-3 py-1.5 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-slate-750/50">
+                <span className="w-24 text-gray-600 dark:text-gray-300 font-semibold">{item.hours} hrs ago</span>
+                <span className="w-28 text-red-500">-{item.decay.toFixed(1)} pts</span>
+                <span className="w-24 font-bold text-gray-900 dark:text-white">{item.points.toFixed(1)} pts</span>
+                <span className="text-[10px] text-gray-400 text-right flex-1">{item.status}</span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -471,63 +844,38 @@ export const SettingsView: React.FC = () => {
           </button>
         </div>
 
-        {/* Sound Effects & Audio Settings */}
-        <div className="pt-4 border-t border-gray-100 dark:border-slate-700/80 space-y-4">
-          <div className="flex justify-between items-center">
-            <div className="space-y-0.5">
-              <h4 className="text-xs font-bold text-gray-800 dark:text-white flex items-center gap-1.5">
-                {settings.soundEnabled !== false ? (
-                  <Volume2 className="h-4 w-4 text-purple-500" />
+        {/* Sound Volume Setting */}
+        <div className="pt-4 border-t border-gray-100 dark:border-slate-700/80 space-y-3">
+          <div className="p-3.5 bg-purple-50/60 dark:bg-purple-950/20 border border-purple-200/60 dark:border-purple-800/40 rounded-xl space-y-3">
+            <div className="flex items-center justify-between text-xs font-bold text-purple-900 dark:text-purple-200">
+              <span className="flex items-center gap-1.5">
+                {(settings.soundVolume ?? 0.7) > 0 ? (
+                  <Music className="h-3.5 w-3.5 text-purple-500" />
                 ) : (
-                  <VolumeX className="h-4 w-4 text-gray-400" />
+                  <VolumeX className="h-3.5 w-3.5 text-gray-400" />
                 )}
-                Global Sound Effects
-              </h4>
-              <p className="text-[10px] text-gray-400 leading-relaxed pr-8">
-                Play subtle interactive audio feedback when completing actions, liking posts, or achieving streaks.
-              </p>
+                Sound Effect Volume
+              </span>
+              <span className="font-mono text-purple-600 dark:text-purple-300">
+                {(settings.soundVolume ?? 0.7) === 0 ? 'Muted' : `${Math.round((settings.soundVolume ?? 0.7) * 100)}%`}
+              </span>
             </div>
-            <button
-              onClick={() => {
-                const nextEnabled = !(settings.soundEnabled !== false);
-                setSettings(prev => ({ ...prev, soundEnabled: nextEnabled }));
-                if (nextEnabled) {
-                  playSound('toggle', settings.soundVolume ?? 0.7);
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.05"
+              value={settings.soundVolume ?? 0.7}
+              onChange={(e) => {
+                const vol = parseFloat(e.target.value);
+                setSettings(prev => ({ ...prev, soundVolume: vol, soundEnabled: vol > 0 }));
+                if (vol > 0) {
+                  playSound('pop', vol);
                 }
               }}
-              className={`w-11 h-6 rounded-full transition-colors relative shrink-0 focus:outline-none ${settings.soundEnabled !== false ? 'bg-purple-600' : 'bg-gray-200 dark:bg-slate-700'}`}
-            >
-              <span className={`absolute top-1 left-1 h-4 w-4 bg-white rounded-full transition-transform ${settings.soundEnabled !== false ? 'translate-x-5' : ''}`}></span>
-            </button>
+              className="w-full h-1.5 bg-purple-200 dark:bg-purple-900 rounded-lg appearance-none cursor-pointer accent-purple-600"
+            />
           </div>
-
-          {/* Volume slider */}
-          {settings.soundEnabled !== false && (
-            <div className="p-3.5 bg-purple-50/60 dark:bg-purple-950/20 border border-purple-200/60 dark:border-purple-800/40 rounded-xl space-y-3">
-              <div className="flex items-center justify-between text-xs font-bold text-purple-900 dark:text-purple-200">
-                <span className="flex items-center gap-1.5">
-                  <Music className="h-3.5 w-3.5 text-purple-500" />
-                  Sound Effect Volume
-                </span>
-                <span className="font-mono text-purple-600 dark:text-purple-300">
-                  {Math.round((settings.soundVolume ?? 0.7) * 100)}%
-                </span>
-              </div>
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.05"
-                value={settings.soundVolume ?? 0.7}
-                onChange={(e) => {
-                  const vol = parseFloat(e.target.value);
-                  setSettings(prev => ({ ...prev, soundVolume: vol }));
-                  playSound('pop', vol);
-                }}
-                className="w-full h-1.5 bg-purple-200 dark:bg-purple-900 rounded-lg appearance-none cursor-pointer accent-purple-600"
-              />
-            </div>
-          )}
         </div>
 
       </div>
@@ -685,10 +1033,10 @@ export const SettingsView: React.FC = () => {
                   </label>
                   <div className="grid grid-cols-2 gap-2">
                     {[
-                      { id: 'Toán (Math)', label: '📐 Mathematics' },
-                      { id: 'Vật Lý (Physics)', label: '⚡ Physics' },
-                      { id: 'Tiếng Anh (English)', label: '🌐 English' },
-                      { id: 'Hóa Học (Chemistry)', label: '🧪 Chemistry' }
+                      { id: 'Mathematics', label: '📐 Mathematics' },
+                      { id: 'Physics', label: '⚡ Physics' },
+                      { id: 'English', label: '🌐 English' },
+                      { id: 'Chemistry', label: '🧪 Chemistry' }
                     ].map(sub => {
                       const checked = verifySubjects.includes(sub.id);
                       return (

@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../context/AppContext';
-import { AcademicReactionType, Post } from '../types';
+import { AcademicReactionType, Post, GRADE_LEVELS, GradeLevel, AlgorithmScoreBreakdown } from '../types';
 import { playSound } from '../utils/soundEffects';
+import { sortFeedPosts, calculatePostScore, calculateFreshnessValue, FeedSortOption, simulateFreshnessDecayTest } from '../utils/feedAlgorithm';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Flame, 
@@ -25,6 +26,7 @@ import {
   Trash2,
   Check,
   ChevronDown,
+  ChevronUp,
   X,
   FileText,
   Video,
@@ -32,7 +34,18 @@ import {
   Lock,
   BadgeCheck,
   UserPlus,
-  MessageSquare
+  MessageSquare,
+  UserX,
+  ShieldAlert,
+  Zap,
+  School,
+  Sparkles,
+  SlidersHorizontal,
+  Info,
+  Clock,
+  ArrowUpDown,
+  Activity,
+  Loader2
 } from 'lucide-react';
 
 interface FeedViewProps {
@@ -53,14 +66,19 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
     savePostToLibrary, 
     speakText, 
     isSpeaking,
+    isUserVerifiedTutor,
     user,
+    setUserGrade,
     settings,
     activeFolderId,
     setActiveFolderId,
     folders,
     openDirectChat,
     sendFriendRequest,
-    getFriendshipStatus
+    getFriendshipStatus,
+    blockUser,
+    isUserBlocked,
+    isBlockedByAuthor
   } = useApp();
 
   const [newPostText, setNewPostText] = useState('');
@@ -69,6 +87,9 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
   const [isAnonymous, setIsAnonymous] = useState(false);
   const [commentInputs, setCommentInputs] = useState<Record<string, string>>({});
   const [activeSaveMenuPostId, setActiveSaveMenuPostId] = useState<string | null>(null);
+
+  // Post target grade state
+  const [postTargetGrade, setPostTargetGrade] = useState<string>(user?.grade || 'Grade 10');
   
   // Advanced attachment states
   const [showAttachmentForm, setShowAttachmentForm] = useState(false);
@@ -94,6 +115,14 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
 
   // Filtering based on subject filters AND Search Query AND settings.subjectWeights (if we want to reflect weights or mute tags!)
   const filteredPosts = posts.filter(post => {
+    // 0. Privacy & Blocking checks
+    const authorId = post.authorId || post.user?.id;
+    if (authorId && authorId !== user.id) {
+      if (isUserBlocked(authorId)) return false;
+      if (isBlockedByAuthor(authorId, post.authorBlockedUserIds || post.blockedUserIds)) return false;
+      if (post.user?.blockedUserIds?.includes(user.id)) return false;
+    }
+
     // If we're looking at Saved Items, only show posts where isSaved is true and matches folder
     if (savedOnly) {
       if (!post.isSaved) return false;
@@ -111,8 +140,16 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
     }
 
     // 1. Filter by subject filter tabs
-    if (activeSubjectFilter !== 'All' && post.subject.toLowerCase() !== activeSubjectFilter.toLowerCase()) {
-      return false;
+    if (activeSubjectFilter !== 'All') {
+      if (activeSubjectFilter.toLowerCase() === 'other') {
+        const standardSubjects = ['math', 'physics', 'english', 'chemistry'];
+        const isStandard = standardSubjects.includes(post.subject.toLowerCase());
+        if (isStandard) {
+          return false;
+        }
+      } else if (post.subject.toLowerCase() !== activeSubjectFilter.toLowerCase()) {
+        return false;
+      }
     }
 
     // 2. Filter by search query
@@ -138,6 +175,59 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
 
     return true;
   });
+
+  // Personalized dynamic newsfeed algorithm sorting:
+  // - Matches user's grade and language preferences
+  // - Blends likes and freshness decay (-2.5 pts/hr)
+  // - Applies -100 pts penalty for posts already in user's seenPostIds
+  // - Randomizes in buckets of 5 (e.g. top 5 highest score randomized together)
+  const sortedPosts = sortFeedPosts(
+    filteredPosts,
+    user,
+    settings.subjectWeights,
+    'algorithm',
+    true
+  );
+
+  // Facebook-style Infinite Scroll Pagination state
+  const [visibleCount, setVisibleCount] = useState<number>(5);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
+
+  // Reset pagination back to first chunk whenever filter or query changes
+  useEffect(() => {
+    setVisibleCount(5);
+  }, [searchQuery, activeSubjectFilter, savedOnly]);
+
+  const loadNextBatch = () => {
+    if (isLoadingMore || visibleCount >= sortedPosts.length) return;
+    setIsLoadingMore(true);
+    setTimeout(() => {
+      setVisibleCount(prev => prev + 5);
+      setIsLoadingMore(false);
+    }, 300);
+  };
+
+  // IntersectionObserver for Facebook-style auto infinite scroll as user reaches bottom
+  useEffect(() => {
+    const sentinel = loadMoreSentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      entries => {
+        if (entries[0].isIntersecting && !isLoadingMore && visibleCount < sortedPosts.length) {
+          loadNextBatch();
+        }
+      },
+      { rootMargin: '200px' }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [visibleCount, sortedPosts.length, isLoadingMore]);
+
+  const visiblePosts = sortedPosts.slice(0, visibleCount);
+  const hasMorePosts = visibleCount < sortedPosts.length;
 
   const handleDownloadAttachment = (attachment: { title: string; url: string; type: string }) => {
     if (attachment.url && attachment.url !== '#') {
@@ -212,7 +302,8 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
       showAttachmentForm ? typeToSend : undefined,
       showAttachmentForm ? (attachTitle.trim() || 'Untitled Attachment') : undefined,
       isAnonymous,
-      showAttachmentForm ? attachUrl : undefined
+      showAttachmentForm ? attachUrl : undefined,
+      postTargetGrade || user.grade || 'Grade 10'
     );
 
     // Reset fields & view filters so newly posted item is immediately visible
@@ -341,7 +432,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
         <>
           {/* Top horizontal tabs for subject filtering */}
           <div className="flex gap-1.5 overflow-x-auto pb-1.5 scrollbar-none border-b border-gray-150 dark:border-slate-800">
-            {['All', 'Math', 'Physics', 'English', 'Chemistry'].map(sub => (
+            {['All', 'Math', 'Physics', 'English', 'Chemistry', 'Other'].map(sub => (
               <motion.button
                 key={sub}
                 onClick={() => setActiveSubjectFilter(sub)}
@@ -437,7 +528,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
               <button
                 onClick={() => setSelectedStoryIndex(null)}
                 className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white cursor-pointer transition-colors"
-                title="Đóng tin"
+                title="Close Story"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -621,7 +712,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
                     {/* Audience/Subject Badges */}
                     <div className="flex gap-1.5 mt-1">
                       <span className="flex items-center gap-1 text-[9px] font-semibold bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-gray-300 py-0.5 px-2 rounded-md">
-                        Công khai
+                        Public
                       </span>
                       <span className="flex items-center gap-1 text-[9px] font-semibold bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-300 py-0.5 px-2 rounded-md uppercase">
                         Subject: {selectedSubject}
@@ -641,20 +732,41 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
                   autoFocus
                 />
 
-                {/* Subject Selector inside modal */}
-                <div className="flex items-center justify-between pt-2 border-t border-gray-100 dark:border-slate-700">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">Category:</span>
-                    <select
-                      value={selectedSubject}
-                      onChange={e => setSelectedSubject(e.target.value)}
-                      className="bg-gray-50 dark:bg-slate-750 border border-gray-200 dark:border-slate-700 rounded-lg text-xs font-semibold py-1 px-2.5 text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                    >
-                      <option value="Math" className="bg-white dark:bg-slate-800 text-gray-900 dark:text-white">Mathematics</option>
-                      <option value="Physics" className="bg-white dark:bg-slate-800 text-gray-900 dark:text-white">Physics</option>
-                      <option value="English" className="bg-white dark:bg-slate-800 text-gray-900 dark:text-white">English</option>
-                      <option value="Chemistry" className="bg-white dark:bg-slate-800 text-gray-900 dark:text-white">Chemistry</option>
-                    </select>
+                {/* Subject and Grade Selector inside modal */}
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-gray-150 dark:border-slate-700">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">Category:</span>
+                      <select
+                        value={selectedSubject}
+                        onChange={e => setSelectedSubject(e.target.value)}
+                        className="bg-gray-50 dark:bg-slate-750 border border-gray-200 dark:border-slate-700 rounded-lg text-xs font-semibold py-1 px-2.5 text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      >
+                        <option value="Math" className="bg-white dark:bg-slate-800 text-gray-900 dark:text-white">Mathematics</option>
+                        <option value="Physics" className="bg-white dark:bg-slate-800 text-gray-900 dark:text-white">Physics</option>
+                        <option value="English" className="bg-white dark:bg-slate-800 text-gray-900 dark:text-white">English</option>
+                        <option value="Chemistry" className="bg-white dark:bg-slate-800 text-gray-900 dark:text-white">Chemistry</option>
+                        <option value="Other" className="bg-white dark:bg-slate-800 text-gray-900 dark:text-white">Other</option>
+                      </select>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-wide flex items-center gap-0.5">
+                        <School className="h-3 w-3" />
+                        Target Grade:
+                      </span>
+                      <select
+                        value={postTargetGrade}
+                        onChange={e => setPostTargetGrade(e.target.value)}
+                        className="bg-indigo-50/60 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-lg text-xs font-semibold py-1 px-2 text-indigo-700 dark:text-indigo-300 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      >
+                        {GRADE_LEVELS.map(g => (
+                          <option key={g} value={g} className="bg-white dark:bg-slate-800 text-gray-900 dark:text-white">
+                            {g}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -705,8 +817,8 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
                           }}
                           className="w-full bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 rounded-lg text-xs py-2 px-2.5 text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500"
                         >
-                          <option value="doc" className="bg-white dark:bg-slate-800 text-gray-900 dark:text-white">Tài liệu học tập (PDF, DOC, DOCX...)</option>
-                          <option value="link" className="bg-white dark:bg-slate-800 text-gray-900 dark:text-white">Tài liệu liên kết / Video (URL, YouTube)</option>
+                          <option value="doc" className="bg-white dark:bg-slate-800 text-gray-900 dark:text-white">Academic Document (PDF, DOC, DOCX...)</option>
+                          <option value="link" className="bg-white dark:bg-slate-800 text-gray-900 dark:text-white">Online Resource / Video (URL, YouTube)</option>
                         </select>
                       </div>
 
@@ -745,10 +857,10 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
                               <div className="flex flex-col items-center justify-center gap-2">
                                 <Upload className="w-6 h-6 text-blue-500 animate-bounce" />
                                 <span className="text-xs font-bold text-gray-700 dark:text-gray-300">
-                                  Kéo thả hoặc nhấp để chọn tệp {attachType.toUpperCase()}
+                                  Drag and drop or click to choose {attachType.toUpperCase()} file
                                 </span>
                                 <span className="text-[10px] text-gray-400">
-                                  Hỗ trợ tệp {attachType === 'pdf' ? 'PDF lên đến 10MB' : 'DOC, DOCX, TXT'}
+                                  Supports {attachType === 'pdf' ? 'PDF up to 10MB' : 'DOC, DOCX, TXT'}
                                 </span>
                               </div>
                             </div>
@@ -765,10 +877,10 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
                                     type="text"
                                     value={attachTitle}
                                     onChange={(e) => setAttachTitle(e.target.value)}
-                                    placeholder="Đặt tên cho tệp học tập..."
+                                    placeholder="Name your study material..."
                                     className="bg-transparent border-b border-dashed border-gray-300 dark:border-slate-600 text-xs font-semibold text-gray-800 dark:text-slate-100 focus:outline-none focus:border-blue-500 w-full"
                                   />
-                                  <span className="text-[9px] text-emerald-500 font-bold block mt-0.5">Tải lên thành công</span>
+                                  <span className="text-[9px] text-emerald-500 font-bold block mt-0.5">Uploaded successfully</span>
                                 </div>
                               </div>
                               <button
@@ -784,7 +896,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
                           {uploadProgress !== null && (
                             <div className="space-y-1">
                               <div className="flex justify-between text-[9px] text-gray-400 font-bold">
-                                <span>Đang xử lý tệp...</span>
+                                <span>Processing file...</span>
                                 <span>{uploadProgress}%</span>
                               </div>
                               <div className="w-full bg-gray-200 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden">
@@ -803,14 +915,14 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
                             type="text"
                             value={attachUrl}
                             onChange={e => setAttachUrl(e.target.value)}
-                            placeholder="Nhập địa chỉ liên kết URL (ví dụ: https://youtube.com/watch?v=... hoặc https://..."
+                            placeholder="Enter link URL (e.g., https://youtube.com/watch?v=... or https://...)"
                             className="w-full bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-650 rounded-lg text-xs py-2 px-3 text-gray-700 dark:text-gray-200 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500"
                           />
                           <input
                             type="text"
                             value={attachTitle}
                             onChange={e => setAttachTitle(e.target.value)}
-                            placeholder="Nhập tiêu đề cho liên kết / bài giảng..."
+                            placeholder="Enter title for this link / lecture..."
                             className="w-full bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-650 rounded-lg text-xs py-2 px-3 text-gray-700 dark:text-gray-200 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500"
                           />
                         </div>
@@ -836,16 +948,20 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
 
       {/* Main post listing */}
       <div className="space-y-4">
-        {filteredPosts.length === 0 ? (
+        {sortedPosts.length === 0 ? (
           <div className="bg-white dark:bg-slate-800 rounded-2xl p-8 text-center border border-gray-100 dark:border-slate-700 space-y-2">
             <BookOpen className="h-10 w-10 text-gray-300 mx-auto" />
             <h3 className="font-display font-bold text-base text-gray-700 dark:text-white">No academic posts found</h3>
             <p className="text-xs text-gray-400">Try searching other keywords or choose another subject.</p>
           </div>
         ) : (
-          <AnimatePresence mode="popLayout">
-            {filteredPosts.map(post => {
+          <>
+            <AnimatePresence mode="popLayout">
+              {visiblePosts.map(({ post, scoreBreakdown }) => {
               const hasSaved = post.isSaved;
+              const postGrade = post.grade || post.user?.grade || 'Grade 10';
+              const isGradeMatch = scoreBreakdown.isGradeMatch;
+              const breakdown = scoreBreakdown;
               
               // Generate glowing ring classes for authors with daily streaks
               const getStreakRing = (streak: number) => {
@@ -867,11 +983,29 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
                   transition={{ duration: 0.25, ease: 'easeOut' }}
                   className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 p-4 shadow-sm space-y-4 hover:shadow-md transition-shadow duration-200 relative overflow-hidden"
                 >
-                {/* Category subject ribbon */}
-                <div className="absolute top-4 right-4 flex items-center gap-1.5">
+                {/* Category subject ribbon & Algorithm badges */}
+                <div className="absolute top-4 right-4 flex items-center gap-1.5 flex-wrap justify-end">
+                  {/* Grade Badge */}
+                  <span 
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 transition-all ${
+                      isGradeMatch
+                        ? 'bg-indigo-100 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 ring-1 ring-indigo-400/40'
+                        : 'bg-gray-100 dark:bg-slate-750 text-gray-600 dark:text-gray-400'
+                    }`}
+                    title={isGradeMatch ? `Matches your active grade (${postGrade})! +35 pts algorithm boost` : `Target Grade: ${postGrade}`}
+                  >
+                    <School className="h-2.5 w-2.5" />
+                    {postGrade}
+                    {isGradeMatch && (
+                      <span className="text-amber-500 font-extrabold">⭐</span>
+                    )}
+                  </span>
+
+                  {/* Subject Ribbon */}
                   <span className="text-[10px] font-bold bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-300 px-2 py-0.5 rounded-full uppercase tracking-wider">
                     {post.subject}
                   </span>
+
                   {(post.user?.id === user.id || post.authorId === user.id || isAdmin) && (
                     <button 
                       onClick={() => handleDeletePost(post.id, post.authorId || post.user?.id, post.user?.name)}
@@ -879,6 +1013,19 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
                       title={isAdmin && post.user?.id !== user.id ? 'Admin: Delete this post' : 'Delete post'}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                  {!post.isAnonymous && post.user?.id && post.user.id !== user.id && (
+                    <button 
+                      onClick={() => {
+                        if (confirm(`Block ${post.user.name}? They will no longer be able to message you or view your posts.`)) {
+                          blockUser(post.user.id, post.user.name, post.user.avatar);
+                        }
+                      }}
+                      className="p-1 text-gray-400 hover:text-red-500 rounded-full hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors cursor-pointer"
+                      title={`Block ${post.user.name}`}
+                    >
+                      <UserX className="h-3.5 w-3.5" />
                     </button>
                   )}
                 </div>
@@ -897,7 +1044,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
                         {post.user.streak}
                       </span>
                     )}
-                    {!post.isAnonymous && (post.user?.role === 'tutor' || post.user?.badges?.includes('Verified Tutor') || post.user?.role === 'admin') && post.user.streak === 0 && (
+                    {!post.isAnonymous && isUserVerifiedTutor(post.user, post.authorId) && post.user.streak === 0 && (
                       <span className="absolute -bottom-1 -right-1 bg-white dark:bg-slate-900 rounded-full p-0.5 shadow-xs" title="Verified Tutor">
                         <BadgeCheck className="h-4 w-4 text-blue-500 fill-blue-500/20 shrink-0" />
                       </span>
@@ -908,14 +1055,14 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
                       <span className="text-xs font-bold text-gray-900 dark:text-white hover:underline cursor-pointer flex items-center gap-1">
                         {post.isAnonymous ? 'Anonymous Student' : post.user.name}
                       </span>
-                      {!post.isAnonymous && (post.user?.role === 'tutor' || post.user?.badges?.includes('Verified Tutor') || post.user?.role === 'admin') && (
+                      {!post.isAnonymous && isUserVerifiedTutor(post.user, post.authorId) && (
                         <span className="inline-flex items-center gap-1 text-[10px] font-extrabold bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border border-blue-300/80 dark:border-blue-700/80 px-2 py-0.5 rounded-full" title="Verified Educator & Tutor">
                           <BadgeCheck className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 fill-blue-500/30 shrink-0" />
                           <span>Verified Tutor</span>
                         </span>
                       )}
 
-                      {!post.isAnonymous && post.user?.id && post.user.id !== user.id && (
+                      {!post.isAnonymous && post.user?.id && post.user.id !== user.id && !isUserBlocked(post.user.id) && (
                         <div className="flex items-center gap-1 ml-1">
                           {getFriendshipStatus(post.user.id) === 'none' && (
                             <button
@@ -941,7 +1088,8 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
                                 name: post.user.name,
                                 avatar: post.user.avatar,
                                 email: post.user.email,
-                                role: post.user.role
+                                role: post.user.role,
+                                allowDMsFromStrangers: post.user.allowDMsFromStrangers
                               });
                             }}
                             className="px-1.5 py-0.5 bg-gray-100 hover:bg-gray-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-gray-700 dark:text-gray-200 text-[10px] font-semibold rounded-md flex items-center gap-1 transition-colors cursor-pointer"
@@ -1206,7 +1354,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
                                     <span className="text-[11px] font-bold text-gray-800 dark:text-white hover:underline cursor-pointer flex items-center gap-1">
                                       {comment.user.name}
                                     </span>
-                                    {(comment.user.role === 'tutor' || comment.user.badges?.includes('Verified Tutor') || comment.user.role === 'admin') && (
+                                    {isUserVerifiedTutor(comment.user, comment.user?.id) && (
                                       <span className="inline-flex items-center gap-0.5 text-[9px] font-extrabold bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border border-blue-300/60 dark:border-blue-700/60 px-1.5 py-0.2 rounded-full" title="Verified Tutor">
                                         <BadgeCheck className="h-3 w-3 text-blue-600 dark:text-blue-400 fill-blue-500/30 shrink-0" />
                                         <span>Verified Tutor</span>
@@ -1265,8 +1413,29 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
             );
           })}
           </AnimatePresence>
-        )}
-      </div>
+
+          {/* Facebook-style Infinite Scroll Sentinel & Loader */}
+          {hasMorePosts && (
+            <div ref={loadMoreSentinelRef} className="pt-2 pb-6 flex flex-col items-center justify-center gap-2">
+              {isLoadingMore ? (
+                <div className="flex items-center gap-2 text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-4 py-2 rounded-xl border border-blue-200 dark:border-blue-800">
+                  <Loader2 className="h-4 w-4 animate-spin text-blue-600 dark:text-blue-400" />
+                  <span>Loading more study posts...</span>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={loadNextBatch}
+                  className="px-4 py-2 text-xs font-bold text-blue-600 dark:text-blue-400 bg-white dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-slate-750 rounded-xl transition-all border border-gray-200 dark:border-slate-700 cursor-pointer shadow-2xs flex items-center gap-1.5"
+                >
+                  <span>Load More Posts ({sortedPosts.length - visiblePosts.length} remaining)</span>
+                </button>
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </div>
 
       {/* Delete Confirmation Modal */}
       <AnimatePresence>
@@ -1284,16 +1453,16 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
                 </div>
                 <div className="space-y-1.5">
                   <h3 className="font-display font-extrabold text-sm text-gray-900 dark:text-white">
-                    {deleteConfirmTarget.type === 'post' ? 'Xác nhận xóa bài viết' : 'Xác nhận xóa bình luận'}
+                    {deleteConfirmTarget.type === 'post' ? 'Confirm Delete Post' : 'Confirm Delete Comment'}
                   </h3>
                   <p className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed font-normal">
                     {isAdmin && !deleteConfirmTarget.isOwner ? (
                       <>
-                        <span className="font-bold text-amber-500 block mb-1">⚠️ CẢNH BÁO QUẢN TRỊ VIÊN (ADMIN):</span>
-                        Bạn đang thao tác xóa {deleteConfirmTarget.type === 'post' ? 'bài viết' : 'bình luận'} của {deleteConfirmTarget.authorName ? <strong>{deleteConfirmTarget.authorName}</strong> : 'người dùng này'}. Thao tác này không thể hoàn tác.
+                        <span className="font-bold text-amber-500 block mb-1">⚠️ ADMIN WARNING:</span>
+                        You are about to delete the {deleteConfirmTarget.type === 'post' ? 'post' : 'comment'} authored by {deleteConfirmTarget.authorName ? <strong>{deleteConfirmTarget.authorName}</strong> : 'this user'}. This action cannot be undone.
                       </>
                     ) : (
-                      `Bạn có chắc chắn muốn xóa ${deleteConfirmTarget.type === 'post' ? 'bài viết này cùng tất cả bình luận' : 'bình luận này'} không? Thao tác này sẽ xóa vĩnh viễn.`
+                      `Are you sure you want to delete ${deleteConfirmTarget.type === 'post' ? 'this post along with all of its comments' : 'this comment'}? This action is permanent and cannot be undone.`
                     )}
                   </p>
                 </div>
@@ -1304,14 +1473,14 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
                   onClick={() => setDeleteConfirmTarget(null)}
                   className="px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-gray-700 dark:text-gray-300 rounded-xl text-xs font-bold transition-all cursor-pointer"
                 >
-                  Hủy bỏ
+                  Cancel
                 </button>
                 <button
                   type="button"
                   onClick={executeDelete}
                   className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-md shadow-red-600/20"
                 >
-                  Xác nhận xóa
+                  Confirm Delete
                 </button>
               </div>
             </motion.div>

@@ -1,3 +1,47 @@
+export const GRADE_LEVELS = [
+  'Grade 1',
+  'Grade 2',
+  'Grade 3',
+  'Grade 4',
+  'Grade 5',
+  'Grade 6',
+  'Grade 7',
+  'Grade 8',
+  'Grade 9',
+  'Grade 10',
+  'Grade 11',
+  'Grade 12',
+  'College'
+] as const;
+
+export type GradeLevel = typeof GRADE_LEVELS[number];
+
+export interface AlgorithmScoreBreakdown {
+  totalScore: number;
+  freshnessScore: number;
+  hoursAgo: number;
+  decayAmount: number;
+  decayRatePerHour: number; // 2.5 pts/hr
+  baseFreshness: number; // 50 pts
+  gradeMatchBoost: number;
+  popularityScore: number;
+  subjectScore: number;
+  isGradeMatch: boolean;
+  postGrade?: string;
+  userGrade?: string;
+  likesScore?: number;
+  languageBoost?: number;
+  seenPenalty?: number;
+  isSeen?: boolean;
+}
+
+export interface BlockedUser {
+  id: string;
+  name: string;
+  avatar?: string;
+  blockedAt?: string;
+}
+
 export interface User {
   id: string;
   name: string;
@@ -8,8 +52,13 @@ export interface User {
   streakLevel: 'none' | 'bronze' | 'silver' | 'gold';
   badges: string[]; // e.g., 'Top Contributor', 'Math Whiz', 'Verified Tutor'
   institution?: string;
+  grade?: string; // Grade 1 to Grade 12 or College
+  language?: string; // Preferred language (e.g. English, Vietnamese)
+  seenPostIds?: string[]; // IDs of posts already viewed by user
   hasCompletedOnboarding?: boolean;
   lastLoginDate?: string; // YYYY-MM-DD
+  allowDMsFromStrangers?: boolean;
+  blockedUserIds?: string[];
 }
 
 export interface RequestHistoryLog {
@@ -52,9 +101,16 @@ export interface Post {
   id: string;
   user: User;
   authorId?: string;
+  authorName?: string;
   content: string;
+  text?: string; // Text field alias for algorithm processing
   subject: string; // Math, Physics, English, Chemistry, Exam Prep, Biology
+  grade?: string; // e.g., 'Grade 10', 'College', 'All'
+  gradeLevel?: string; // Grade level alias for algorithm processing
+  language?: string; // e.g., 'English', 'Vietnamese', 'All'
+  likes?: number; // Total like count alias for algorithm processing
   timestamp: string;
+  createdDate?: string | Date; // Date alias for algorithm processing
   attachment?: {
     type: 'pdf' | 'doc' | 'link' | 'youtube';
     title: string;
@@ -87,6 +143,8 @@ export interface Post {
   savedFolderId?: string;
   savedByUsersMap?: Record<string, { isSaved: boolean; savedFolderId?: string }>;
   isAnonymous?: boolean;
+  blockedUserIds?: string[];
+  authorBlockedUserIds?: string[];
 }
 
 export interface StudyGroup {
@@ -171,7 +229,7 @@ export interface BinderFolder {
 export interface MarketplaceItem {
   id: string;
   title: string;
-  price: number; // 0 for VNĐ (freebie)
+  price: number; // 0 for free
   image: string;
   category: 'textbooks' | 'hardware' | 'notes' | 'other';
   distance: number; // in km
@@ -258,6 +316,7 @@ export interface AppSettings {
     Physics: number;
     English: number;
     Chemistry: number;
+    Other?: number;
   };
   muteTags: string[];
   spoilerProtection: boolean;
@@ -265,4 +324,6 @@ export interface AppSettings {
   soundEnabled?: boolean;
   soundVolume?: number; // 0 to 1
   showStreakToOthers?: boolean;
+  allowDMsFromStrangers?: boolean;
+  blockedUsers?: BlockedUser[];
 }

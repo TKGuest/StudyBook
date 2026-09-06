@@ -1,28 +1,24 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { GraduationCap, BookOpen, Sliders, Check, ArrowRight, ArrowLeft, Award, Sparkles, User as UserIcon } from 'lucide-react';
+import { GRADE_LEVELS, GradeLevel } from '../types';
+import { GraduationCap, BookOpen, Check, ArrowRight, ArrowLeft, Sparkles, User as UserIcon, School } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 export const OnboardingScreen: React.FC = () => {
   const { completeOnboarding, user, requestTutorVerification } = useApp();
-  const [step, setStep] = useState(() => {
-    // If name is already customized (not empty or generic) and role is set, jump directly to subject preferences
-    if (user?.name && user.name !== 'Học viên StudyBook' && user?.role) {
-      return 2;
-    }
-    return 1;
-  });
+  const [step, setStep] = useState(1);
   const [displayName, setDisplayName] = useState(user?.name || '');
+  const [selectedGrade, setSelectedGrade] = useState<string>(user?.grade || 'Grade 10');
   const [role, setRole] = useState<'student' | 'tutor'>(() => {
     const r = user?.role;
     if (r === 'tutor') return 'tutor';
     return 'student';
   });
   
-  const [selectedSubjects, setSelectedSubjects] = useState<('Math' | 'Physics' | 'English' | 'Chemistry')[]>([]);
+  const [selectedSubjects, setSelectedSubjects] = useState<('Math' | 'Physics' | 'English' | 'Chemistry' | 'Other')[]>([]);
 
   const handleNext = async () => {
-    if (step < 2) {
+    if (step < 3) {
       setStep(prev => prev + 1);
     } else {
       const hasSelection = selectedSubjects.length > 0;
@@ -31,15 +27,15 @@ export const OnboardingScreen: React.FC = () => {
         Physics: !hasSelection || selectedSubjects.includes('Physics') ? 100 : 50,
         English: !hasSelection || selectedSubjects.includes('English') ? 100 : 50,
         Chemistry: !hasSelection || selectedSubjects.includes('Chemistry') ? 100 : 50,
-        ExamPrep: 100
+        Other: !hasSelection || selectedSubjects.includes('Other') ? 100 : 50
       };
       if (role === 'tutor' && user.email?.toLowerCase() !== 'billkute030709@gmail.com') {
-        await completeOnboarding(displayName, 'student', '', finalWeights);
+        await completeOnboarding(displayName, 'student', '', finalWeights, selectedGrade);
         await requestTutorVerification({ 
-          requestedSubjects: selectedSubjects.map(s => s === 'Math' ? 'Mathematics' : s === 'Physics' ? 'Physics' : s === 'English' ? 'English' : 'Chemistry') 
+          requestedSubjects: selectedSubjects.map(s => s === 'Math' ? 'Mathematics' : s === 'Physics' ? 'Physics' : s === 'English' ? 'English' : s === 'Chemistry' ? 'Chemistry' : 'Other Subjects') 
         });
       } else {
-        await completeOnboarding(displayName, role, '', finalWeights);
+        await completeOnboarding(displayName, role, '', finalWeights, selectedGrade);
       }
     }
   };
@@ -49,6 +45,13 @@ export const OnboardingScreen: React.FC = () => {
       setStep(prev => prev - 1);
     }
   };
+
+  const gradeCategories = [
+    { title: 'Elementary School', grades: ['Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5'] },
+    { title: 'Middle School', grades: ['Grade 6', 'Grade 7', 'Grade 8'] },
+    { title: 'High School', grades: ['Grade 9', 'Grade 10', 'Grade 11', 'Grade 12'] },
+    { title: 'Higher Education', grades: ['College'] }
+  ];
 
   return (
     <div id="onboarding-container" className="min-h-screen flex items-center justify-center bg-gradient-to-b from-slate-900 via-slate-850 to-slate-900 text-slate-100 p-4 md:p-8 font-sans">
@@ -67,7 +70,7 @@ export const OnboardingScreen: React.FC = () => {
         {/* Top Progress bar */}
         <div className="flex justify-between items-center mb-8">
           <div className="flex gap-1.5 w-full">
-            {[1, 2].map(s => (
+            {[1, 2, 3].map(s => (
               <div 
                 key={s} 
                 className={`h-1.5 flex-1 rounded-full transition-all duration-300 ${
@@ -76,13 +79,13 @@ export const OnboardingScreen: React.FC = () => {
               />
             ))}
           </div>
-          <span className="text-[10px] font-black tracking-widest uppercase text-slate-500 pl-4">
-            Bước {step}/2
+          <span className="text-[10px] font-black tracking-widest uppercase text-slate-500 pl-4 whitespace-nowrap">
+            Step {step}/3
           </span>
         </div>
 
         <AnimatePresence mode="wait">
-          {/* Step 1: Role selection */}
+          {/* Step 1: Profile and Role */}
           {step === 1 && (
             <motion.div
               key="step1"
@@ -97,14 +100,15 @@ export const OnboardingScreen: React.FC = () => {
                 <div className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600/20 text-blue-400 border border-blue-500/30 mb-2">
                   <Sparkles className="h-5 w-5" />
                 </div>
+                <h2 className="font-display font-extrabold text-xl tracking-tight">Welcome to StudyBook</h2>
                 <p className="text-xs text-slate-400 max-w-md mx-auto">
-                  Hãy giúp chúng tôi cá nhân hóa trải nghiệm StudyBook của bạn bằng cách trả lời một vài câu hỏi nhanh.
+                  Help us personalize your StudyBook learning feed with your profile details.
                 </p>
               </div>
 
               {/* Name Input Field */}
               <div className="space-y-1.5 bg-slate-950/20 p-4 rounded-2xl border border-slate-800/60">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider pl-1 block">Họ và Tên của bạn</label>
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider pl-1 block">Your Full Name</label>
                 <div className="relative">
                   <UserIcon className="absolute left-3.5 top-3.5 h-4 w-4 text-slate-500" />
                   <input
@@ -143,6 +147,7 @@ export const OnboardingScreen: React.FC = () => {
                     return (
                       <motion.button
                         key={item.id}
+                        type="button"
                         onClick={() => setRole(item.id)}
                         whileHover={{ scale: 1.015, y: -1 }}
                         whileTap={{ scale: 0.99 }}
@@ -170,7 +175,7 @@ export const OnboardingScreen: React.FC = () => {
             </motion.div>
           )}
 
-          {/* Step 2: Preferred subject multiple choice */}
+          {/* Step 2: Grade Selection (Grade 1 to College) */}
           {step === 2 && (
             <motion.div
               key="step2"
@@ -181,18 +186,81 @@ export const OnboardingScreen: React.FC = () => {
               className="space-y-5"
             >
               <div className="text-center space-y-1.5 mb-2">
+                <div className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 mb-1">
+                  <School className="h-5 w-5" />
+                </div>
+                <h2 className="font-display font-extrabold text-xl tracking-tight">Select Your Grade Level</h2>
+                <p className="text-xs text-slate-400">
+                  Our feed algorithm boosts content matching your current grade to the top. Choose from Grade 1 to College.
+                </p>
+              </div>
+
+              {/* Selected Grade Indicator */}
+              <div className="p-3 bg-blue-950/40 border border-blue-800/60 rounded-xl flex items-center justify-between text-xs">
+                <span className="text-slate-400">Currently selected grade:</span>
+                <span className="font-bold text-blue-400 bg-blue-500/20 px-3 py-1 rounded-lg border border-blue-500/30">
+                  🎓 {selectedGrade}
+                </span>
+              </div>
+
+              {/* Grade Categories & Badges */}
+              <div className="space-y-4 max-h-[300px] overflow-y-auto pr-1 scrollbar-thin">
+                {gradeCategories.map(cat => (
+                  <div key={cat.title} className="space-y-2">
+                    <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-blue-500" />
+                      {cat.title}
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      {cat.grades.map(grade => {
+                        const isSelected = selectedGrade === grade;
+                        return (
+                          <button
+                            key={grade}
+                            type="button"
+                            onClick={() => setSelectedGrade(grade)}
+                            className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-between transition-all cursor-pointer ${
+                              isSelected
+                                ? 'bg-blue-600 text-white border-blue-500 shadow-sm shadow-blue-500/30 ring-2 ring-blue-500/30'
+                                : 'bg-slate-950/40 border-slate-800/80 text-slate-300 hover:bg-slate-900/80 hover:border-slate-700'
+                            }`}
+                          >
+                            <span>{grade}</span>
+                            {isSelected && <Check className="h-3.5 w-3.5 text-white" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          )}
+
+          {/* Step 3: Preferred subjects */}
+          {step === 3 && (
+            <motion.div
+              key="step3"
+              initial={{ opacity: 0, x: 15 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -15 }}
+              transition={{ duration: 0.2 }}
+              className="space-y-5"
+            >
+              <div className="text-center space-y-1.5 mb-2">
                 <h2 className="font-display font-extrabold text-xl tracking-tight">Primary Focus Subjects</h2>
                 <p className="text-xs text-slate-400">
-                  Select the subjects you want to focus on in StudyBook (multiple selections allowed).
+                  Select the subjects you want prioritized in your personalized StudyBook feed.
                 </p>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[280px] overflow-y-auto scrollbar-thin p-1">
                 {[
-                  { key: 'Math' as const, label: 'Mathematics', sub: 'Algebra, Geometry, Calculus', desc: 'Algebra, Geometry, Calculus...' },
-                  { key: 'Physics' as const, label: 'Physics', sub: 'Mechanics, Electromagnetism', desc: 'Mechanics, Electromagnetism, Optics...' },
-                  { key: 'English' as const, label: 'English', sub: 'Grammar, Vocabulary, Communication', desc: 'Grammar, Vocabulary, Writing...' },
-                  { key: 'Chemistry' as const, label: 'Chemistry', sub: 'Organic & Inorganic', desc: 'Organic, Inorganic, Reactions...' }
+                  { key: 'Math' as const, label: 'Mathematics', sub: 'Algebra, Geometry, Calculus', desc: 'Algebra, Geometry, Calculus & problem solving' },
+                  { key: 'Physics' as const, label: 'Physics', sub: 'Mechanics, Optics, Waves', desc: 'Mechanics, Thermodynamics & experiments' },
+                  { key: 'English' as const, label: 'English', sub: 'Grammar, Essay Writing', desc: 'Grammar, Vocabulary & Academic Essays' },
+                  { key: 'Chemistry' as const, label: 'Chemistry', sub: 'Organic, Inorganic', desc: 'Atomic structure, Stoichiometry & Reactions' },
+                  { key: 'Other' as const, label: 'Other Subjects', sub: 'History, Biology, Computing', desc: 'Social sciences, biology, coding & extracurriculars' }
                 ].map(sub => {
                   const isSelected = selectedSubjects.includes(sub.key);
                   return (
@@ -262,8 +330,8 @@ export const OnboardingScreen: React.FC = () => {
             whileTap={{ scale: 0.98 }}
             className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-lg shadow-blue-500/20 transition-all cursor-pointer"
           >
-            {step === 2 ? 'Get Started' : 'Continue'}
-            {step === 2 ? <Check className="h-4 w-4" /> : <ArrowRight className="h-4 w-4" />}
+            {step === 3 ? 'Get Started' : 'Continue'}
+            {step === 3 ? <Check className="h-4 w-4" /> : <ArrowRight className="h-4 w-4" />}
           </motion.button>
         </div>
 
@@ -271,3 +339,4 @@ export const OnboardingScreen: React.FC = () => {
     </div>
   );
 };
+

@@ -46,11 +46,53 @@ export const GroupsView: React.FC = () => {
   const [showAddFileModal, setShowAddFileModal] = useState(false);
   const [newFileTitle, setNewFileTitle] = useState('');
   const [newFileType, setNewFileType] = useState('PDF');
+  const [countdownText, setCountdownText] = useState('');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const activeGroup = groups.find(g => g.id === selectedGroupId) || groups[0];
   const activeChat = groupChats.find(c => c.groupId === selectedGroupId);
+
+  // Auto scroll chat to bottom
+  useEffect(() => {
+    if (activeSubTab === 'chat') {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [activeSubTab, activeChat?.messages]);
+
+  // Exam Countdown Ticker logic
+  useEffect(() => {
+    if (!activeGroup?.countdownDate) {
+      setCountdownText('');
+      return;
+    }
+
+    const interval = setInterval(() => {
+      const target = new Date(activeGroup.countdownDate!).getTime();
+      if (isNaN(target)) {
+        setCountdownText('');
+        clearInterval(interval);
+        return;
+      }
+      const now = Date.now();
+      const diff = target - now;
+
+      if (diff <= 0) {
+        setCountdownText('Exam is currently ongoing or has finished!');
+        clearInterval(interval);
+        return;
+      }
+
+      const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+      const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+
+      setCountdownText(`${days}d ${hours}h ${minutes}m ${seconds}s`);
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [activeGroup?.countdownDate]);
 
   const handleCreateGroupSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -61,7 +103,7 @@ export const GroupsView: React.FC = () => {
       const createdId = await createStudyGroup(
         newGroupName.trim(),
         newGroupDescription.trim() || 'A new study group co-created by learners.',
-        newGroupCategory || 'General'
+        newGroupCategory.trim() || 'General'
       );
       setSelectedGroupId(createdId);
       setActiveSubTab('feed');
@@ -76,6 +118,16 @@ export const GroupsView: React.FC = () => {
 
   const renderCreateGroupModal = () => {
     if (!showCreateGroupModal) return null;
+
+    const suggestedCategories = [
+      'General / Study Lounge',
+      'Math & Science',
+      'Literature & Humanities',
+      'Computer Science & Tech',
+      'Exam Prep (SAT / AP / Graduation)',
+      'Physics & Engineering',
+      'Biology & Chemistry'
+    ];
 
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
@@ -113,20 +165,43 @@ export const GroupsView: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
-                Category / Subject
-              </label>
-              <select
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300">
+                  Category / Subject
+                </label>
+                <span className="text-[10px] text-gray-400">Typable custom category</span>
+              </div>
+              <input
+                type="text"
+                list="group-categories-datalist"
                 value={newGroupCategory}
                 onChange={e => setNewGroupCategory(e.target.value)}
+                placeholder="Type any subject, e.g. AP Calculus, Quantum Physics..."
                 className="w-full bg-gray-50 dark:bg-slate-750 border border-gray-200 dark:border-slate-650 rounded-xl px-3.5 py-2.5 text-xs text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/40"
-              >
-                <option value="General">General / Study Lounge</option>
-                <option value="Math & Science">Math & Science</option>
-                <option value="Literature & Humanities">Literature & Humanities</option>
-                <option value="Computer Science">Computer Science & Tech</option>
-                <option value="Exam Prep">Exam Prep (SAT / AP / Graduation)</option>
-              </select>
+              />
+              <datalist id="group-categories-datalist">
+                {suggestedCategories.map(cat => (
+                  <option key={cat} value={cat} />
+                ))}
+              </datalist>
+
+              {/* Quick-select pill suggestions */}
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {suggestedCategories.map(cat => (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => setNewGroupCategory(cat)}
+                    className={`text-[10px] px-2 py-0.5 rounded-md font-medium transition-colors border cursor-pointer ${
+                      newGroupCategory === cat
+                        ? 'bg-blue-600 text-white border-blue-600'
+                        : 'bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-slate-600 hover:border-blue-400'
+                    }`}
+                  >
+                    {cat.split(' ')[0]}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div>
@@ -163,6 +238,79 @@ export const GroupsView: React.FC = () => {
     );
   };
 
+  const handleSendMessage = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!chatInput.trim() || !activeGroup) return;
+
+    playSound('send');
+    sendGroupMessage(activeGroup.id, chatInput);
+    setChatInput('');
+  };
+
+  const handleCreateGroupPost = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!groupPostText.trim()) return;
+
+    playSound('send');
+    alert(anonToggle ? 'Anonymous question posted to group timeline successfully!' : 'Discussion posted to group timeline successfully!');
+    setGroupPostText('');
+  };
+
+  const handleAddFile = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newFileTitle.trim() || !activeGroup) return;
+
+    playSound('send');
+    const newFile = {
+      id: `f_${Date.now()}`,
+      title: newFileTitle.endsWith('.pdf') || newFileTitle.endsWith('.docx') ? newFileTitle : `${newFileTitle}.${newFileType.toLowerCase()}`,
+      uploader: user.name,
+      date: new Date().toISOString().split('T')[0],
+      size: `${(Math.random() * 5 + 1).toFixed(1)} MB`,
+      type: newFileType
+    };
+
+    setGroups(prev => prev.map(g => {
+      if (g.id !== activeGroup.id) return g;
+      return {
+        ...g,
+        files: [newFile, ...(g.files || [])]
+      };
+    }));
+
+    setNewFileTitle('');
+    setShowAddFileModal(false);
+    alert(`Document "${newFile.title}" uploaded to group successfully!`);
+  };
+
+  const handleGoingToggle = (eventId: string) => {
+    if (!activeGroup) return;
+    playSound('pop');
+    setGroups(prev => prev.map(g => {
+      if (g.id !== activeGroup.id) return g;
+      return {
+        ...g,
+        events: (g.events || []).map(ev => {
+          if (ev.id !== eventId) return ev;
+          const isGoing = !ev.isGoing;
+          if (isGoing) {
+            alert(`Scheduled successfully! Event "${ev.title}" has been added to your study calendar.`);
+          }
+          return {
+            ...ev,
+            isGoing,
+            attendees: isGoing ? ev.attendees + 1 : ev.attendees - 1
+          };
+        })
+      };
+    }));
+  };
+
+  const handleCreateGroupPrompt = () => {
+    playSound('pop');
+    setShowCreateGroupModal(true);
+  };
+
   if (!activeGroup || groups.length === 0) {
     return (
       <div className="flex-1 p-6 max-w-4xl mx-auto h-[calc(100vh-57px)] flex flex-col items-center justify-center text-center">
@@ -189,125 +337,6 @@ export const GroupsView: React.FC = () => {
       </div>
     );
   }
-
-  // Auto scroll chat to bottom
-  useEffect(() => {
-    if (activeSubTab === 'chat') {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [activeSubTab, activeChat?.messages]);
-
-  // Exam Countdown Ticker logic
-  const [countdownText, setCountdownText] = useState('');
-  useEffect(() => {
-    if (!activeGroup?.countdownDate) {
-      setCountdownText('');
-      return;
-    }
-
-    const interval = setInterval(() => {
-      const target = new Date(activeGroup.countdownDate!).getTime();
-      if (isNaN(target)) {
-        setCountdownText('');
-        clearInterval(interval);
-        return;
-      }
-      const now = Date.now();
-      const diff = target - now;
-
-      if (diff <= 0) {
-        setCountdownText('Exam is currently ongoing or has finished!');
-        clearInterval(interval);
-        return;
-      }
-
-      const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-      const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-      const seconds = Math.floor((diff % (1000 * 60)) / 1000);
-
-      setCountdownText(`${days}d ${hours}h ${minutes}m ${seconds}s`);
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [activeGroup]);
-
-  const handleSendMessage = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!chatInput.trim()) return;
-
-    playSound('send');
-    sendGroupMessage(activeGroup.id, chatInput);
-    setChatInput('');
-  };
-
-  const handleCreateGroupPost = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!groupPostText.trim()) return;
-
-    playSound('send');
-    // Simulate adding a file or post directly in group files
-    if (anonToggle) {
-      alert('Anonymous question posted to group timeline successfully!');
-    } else {
-      alert('Discussion posted to group timeline successfully!');
-    }
-    setGroupPostText('');
-  };
-
-  const handleAddFile = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newFileTitle.trim()) return;
-
-    playSound('send');
-    const newFile = {
-      id: `f_${Date.now()}`,
-      title: newFileTitle.endsWith('.pdf') || newFileTitle.endsWith('.docx') ? newFileTitle : `${newFileTitle}.${newFileType.toLowerCase()}`,
-      uploader: user.name,
-      date: new Date().toISOString().split('T')[0],
-      size: `${(Math.random() * 5 + 1).toFixed(1)} MB`,
-      type: newFileType
-    };
-
-    setGroups(prev => prev.map(g => {
-      if (g.id !== activeGroup.id) return g;
-      return {
-        ...g,
-        files: [newFile, ...g.files]
-      };
-    }));
-
-    setNewFileTitle('');
-    setShowAddFileModal(false);
-    alert(`Document "${newFile.title}" uploaded to group successfully!`);
-  };
-
-  const handleGoingToggle = (eventId: string) => {
-    playSound('pop');
-    setGroups(prev => prev.map(g => {
-      if (g.id !== activeGroup.id) return g;
-      return {
-        ...g,
-        events: g.events.map(ev => {
-          if (ev.id !== eventId) return ev;
-          const isGoing = !ev.isGoing;
-          if (isGoing) {
-            alert(`Scheduled successfully! Event "${ev.title}" has been added to your study calendar.`);
-          }
-          return {
-            ...ev,
-            isGoing,
-            attendees: isGoing ? ev.attendees + 1 : ev.attendees - 1
-          };
-        })
-      };
-    }));
-  };
-
-  const handleCreateGroupPrompt = () => {
-    playSound('pop');
-    setShowCreateGroupModal(true);
-  };
 
   return (
     <div className="flex-1 flex flex-col md:flex-row h-[calc(100vh-57px)] bg-slate-50 dark:bg-slate-900 transition-colors">
@@ -367,7 +396,7 @@ export const GroupsView: React.FC = () => {
           className="w-full mt-4 py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs flex items-center justify-center gap-2 shadow-md hover:shadow-lg transition-all border-none cursor-pointer transform hover:scale-[1.01] active:scale-[0.99]"
         >
           <Plus className="h-4.5 w-4.5" />
-          TẠO NHÓM MỚI / CREATE GROUP
+          CREATE NEW GROUP
         </button>
       </div>
 
@@ -516,7 +545,7 @@ export const GroupsView: React.FC = () => {
               </div>
 
               {/* Render dynamic directory listing */}
-              {activeGroup.files.length === 0 ? (
+              {(!activeGroup.files || activeGroup.files.length === 0) ? (
                 <div className="bg-white dark:bg-slate-800 rounded-2xl p-8 border border-gray-100 dark:border-slate-700 text-center text-gray-400 space-y-1">
                   <FileCode className="h-10 w-10 mx-auto text-gray-300 mb-2" />
                   <p className="text-xs font-semibold">No study resources have been uploaded yet.</p>
@@ -617,7 +646,7 @@ export const GroupsView: React.FC = () => {
                 className="max-w-2xl mx-auto space-y-4"
               >
               <h3 className="font-display font-bold text-sm text-gray-800 dark:text-white">Upcoming Virtual Cram Sessions & Study Livestreams</h3>
-              {activeGroup.events.length === 0 ? (
+              {(!activeGroup.events || activeGroup.events.length === 0) ? (
                 <div className="bg-white dark:bg-slate-800 rounded-2xl p-8 border border-gray-100 dark:border-slate-700 text-center text-gray-400">
                   No live cram sessions scheduled yet.
                 </div>

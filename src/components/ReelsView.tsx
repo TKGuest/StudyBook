@@ -221,8 +221,8 @@ export const ReelsView: React.FC = () => {
             <div className="h-16 w-16 rounded-full bg-neutral-900 flex items-center justify-center text-neutral-500 border border-neutral-800">
               <Film className="h-8 w-8" />
             </div>
-            <h3 className="text-base font-bold text-white">Chưa có Reels học tập nào</h3>
-            <p className="text-xs text-neutral-400 max-w-xs">Hãy đăng tải hoặc chia sẻ video bài giảng ngắn đầu tiên của bạn lên StudyBook!</p>
+            <h3 className="text-base font-bold text-white">No Educational Reels Yet</h3>
+            <p className="text-xs text-neutral-400 max-w-xs">Upload or share your first short educational video on StudyBook!</p>
           </div>
         ) : (
           reels.map((reel, index) => {
@@ -325,7 +325,7 @@ export const ReelsView: React.FC = () => {
                   <div className="p-3 rounded-full bg-black/40 hover:bg-black/60 text-white backdrop-blur-md transition-transform active:scale-110 border border-white/10 shadow-lg">
                     <Share2 className="h-5 w-5" />
                   </div>
-                  <span className="text-[11px] font-bold mt-1 text-white shadow-sm">Chia sẻ</span>
+                  <span className="text-[11px] font-bold mt-1 text-white shadow-sm">Share</span>
                 </button>
 
                 {/* Save / Bookmark Button */}
@@ -394,7 +394,7 @@ export const ReelsView: React.FC = () => {
                       onClick={(e) => { e.stopPropagation(); setExpandedCaptions(prev => ({ ...prev, [reel.id]: !prev[reel.id] })); }}
                       className="text-gray-300 font-semibold hover:underline mt-0.5 text-[10px]"
                     >
-                      {isCaptionExpanded ? 'Thu gọn' : 'Xem thêm'}
+                      {isCaptionExpanded ? 'Show less' : 'See more'}
                     </button>
                   )}
                 </div>
@@ -402,7 +402,7 @@ export const ReelsView: React.FC = () => {
                 {/* Audio Track Line */}
                 <div className="flex items-center gap-1.5 text-[11px] text-gray-300 font-medium">
                   <Music className="h-3 w-3 text-blue-400 shrink-0" />
-                  <span className="truncate">Âm thanh gốc - {reel.tutorName} • {reel.subject}</span>
+                  <span className="truncate">Original Audio - {reel.tutorName} • {reel.subject}</span>
                 </div>
 
                 {/* Download Worksheet Attached Button */}
@@ -412,7 +412,7 @@ export const ReelsView: React.FC = () => {
                     className="w-fit flex items-center gap-2 bg-blue-600/90 hover:bg-blue-600 text-white font-bold px-3 py-1.5 rounded-lg text-[11px] shadow-lg transition-all active:scale-95 border border-blue-400/30 cursor-pointer mt-0.5"
                   >
                     <Bookmark className="h-3.5 w-3.5 shrink-0 fill-white" />
-                    <span className="truncate">Tải bài học (PDF)</span>
+                    <span className="truncate">Download Worksheet (PDF)</span>
                   </button>
                 )}
               </div>
@@ -434,7 +434,7 @@ export const ReelsView: React.FC = () => {
                   <div className="p-3.5 border-b border-neutral-800 flex justify-between items-center bg-neutral-900/90">
                     <span className="font-bold text-sm text-white flex items-center gap-2">
                       <MessageSquare className="h-4 w-4 text-blue-400" />
-                      Bình luận ({totalComments})
+                      Comments ({totalComments})
                     </span>
                     <button 
                       onClick={() => setShowCommentPanel(null)}
@@ -448,7 +448,7 @@ export const ReelsView: React.FC = () => {
                   <div className="flex-1 p-4 overflow-y-auto space-y-4">
                     {reelComments.length === 0 ? (
                       <div className="text-center py-8 text-gray-500 text-xs">
-                        Chưa có bình luận nào. Hãy là người đầu tiên bình luận!
+                        No comments yet. Be the first to comment!
                       </div>
                     ) : (
                       reelComments.map((comment) => (
@@ -570,7 +570,7 @@ export const ReelsView: React.FC = () => {
           onClick={() => scrollToReel(activeReelIndex - 1)}
           disabled={activeReelIndex === 0}
           className="p-3 rounded-full bg-neutral-900 border border-neutral-800 text-white hover:bg-neutral-800 disabled:opacity-30 disabled:hover:bg-neutral-900 transition-colors shadow-lg"
-          title="Reel trước"
+          title="Previous Reel"
         >
           <ChevronUp className="h-5 w-5" />
         </button>
@@ -579,7 +579,7 @@ export const ReelsView: React.FC = () => {
           onClick={() => scrollToReel(activeReelIndex + 1)}
           disabled={activeReelIndex === reels.length - 1}
           className="p-3 rounded-full bg-neutral-900 border border-neutral-800 text-white hover:bg-neutral-800 disabled:opacity-30 disabled:hover:bg-neutral-900 transition-colors shadow-lg"
-          title="Reel tiếp theo"
+          title="Next Reel"
         >
           <ChevronDown className="h-5 w-5" />
         </button>

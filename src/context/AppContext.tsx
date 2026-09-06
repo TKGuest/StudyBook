@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { User, Post, StudyGroup, TutorPage, Reel, MarketplaceItem, GroupChat, AppSettings, AcademicReactionType, Comment, Message, BinderFolder, TutorRequest, RequestHistoryLog, Friend, FriendRequest, DirectMessage, DirectChat } from '../types';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { User, Post, StudyGroup, TutorPage, Reel, MarketplaceItem, GroupChat, AppSettings, AcademicReactionType, Comment, Message, BinderFolder, TutorRequest, RequestHistoryLog, Friend, FriendRequest, DirectMessage, DirectChat, BlockedUser } from '../types';
 import { currentUser, initialPosts, initialGroups, initialTutors, initialReels, initialMarketplaceItems, initialGroupChats, defaultSettings, SILHOUETTE_AVATAR, initialFriends, initialFriendRequests, initialDirectChats } from '../data/mockData';
 import { playSound } from '../utils/soundEffects';
 import { auth, db, isFirebaseConfigured } from '../lib/firebase';
@@ -15,6 +15,7 @@ import {
 import { 
   doc, 
   getDoc, 
+  getDocs,
   setDoc, 
   updateDoc,
   deleteDoc,
@@ -55,7 +56,8 @@ interface AppContextType {
   setActiveFolderId: (id: string | undefined) => void;
   
   // Custom interactive helper methods
-  addPost: (content: string, subject: string, attachmentType?: 'pdf'|'doc'|'link'|'youtube', attachmentTitle?: string, isAnonymous?: boolean, attachmentUrl?: string) => void;
+  setUserGrade: (grade: string) => Promise<void>;
+  addPost: (content: string, subject: string, attachmentType?: 'pdf'|'doc'|'link'|'youtube', attachmentTitle?: string, isAnonymous?: boolean, attachmentUrl?: string, grade?: string) => void;
   deletePost: (postId: string) => Promise<void>;
   reactToPost: (postId: string, reaction: AcademicReactionType) => void;
   addComment: (postId: string, content: string) => void;
@@ -73,6 +75,7 @@ interface AppContextType {
   speakText: (text: string) => void;
   stopSpeaking: () => void;
   isSpeaking: boolean;
+  isUserVerifiedTutor: (author?: Partial<User> | null, authorId?: string) => boolean;
   
   // Tutor Verification & Admin
   tutorRequests: TutorRequest[];
@@ -83,7 +86,7 @@ interface AppContextType {
   verifyUserAsTutor: (userId: string) => Promise<void>;
 
   // Focus Mode State
-  completeOnboarding: (name: string, role: 'student' | 'tutor' | 'creator', institution: string, subjectWeights: AppSettings['subjectWeights']) => Promise<void>;
+  completeOnboarding: (name: string, role: 'student' | 'tutor' | 'creator', institution: string, subjectWeights: AppSettings['subjectWeights'], grade?: string) => Promise<void>;
 
   // Firebase auth & connection details
   isFirebaseConnected: boolean;
@@ -113,10 +116,17 @@ interface AppContextType {
   removeFriend: (friendId: string) => Promise<void>;
   getFriendshipStatus: (targetUserId: string) => 'none' | 'pending_sent' | 'pending_received' | 'friends';
 
-  openDirectChat: (targetUser: { id: string; name: string; avatar: string; email?: string; role?: string }) => void;
+  openDirectChat: (targetUser: { id: string; name: string; avatar: string; email?: string; role?: string; allowDMsFromStrangers?: boolean }) => void;
   sendDirectMessage: (chatId: string, content: string) => Promise<void>;
   closeDirectChat: (chatId: string) => void;
   openDirectChatIds: string[];
+
+  // Blocking & Privacy Management
+  blockedUsers: BlockedUser[];
+  isUserBlocked: (userId?: string) => boolean;
+  blockUser: (targetId: string, targetName: string, targetAvatar?: string) => Promise<void>;
+  unblockUser: (targetId: string) => Promise<void>;
+  isBlockedByAuthor: (authorId?: string, postAuthorBlockedIds?: string[]) => boolean;
 }
 
 const safeGetTime = (ts?: string) => {
@@ -329,6 +339,7 @@ const normalizeGroupForUser = (g: StudyGroup, userId: string): StudyGroup => {
 
   return {
     ...g,
+    files: g.files || [],
     events: normalizedEvents
   };
 };
@@ -433,7 +444,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [posts, setPosts] = useState<Post[]>(() => {
     try {
       const saved = localStorage.getItem('sb_posts');
-      return saved ? JSON.parse(saved) : initialPosts;
+      const parsed = saved ? JSON.parse(saved) : null;
+      return (Array.isArray(parsed) && parsed.length > 0) ? parsed : initialPosts;
     } catch (_) { return initialPosts; }
   });
 
@@ -475,22 +487,58 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [friends, setFriends] = useState<Friend[]>(() => {
     try {
       const saved = localStorage.getItem('sb_friends');
-      return saved ? JSON.parse(saved) : initialFriends;
+      const loaded: Friend[] = saved ? JSON.parse(saved) : initialFriends;
+      // Strip test friends
+      const cleaned = (loaded || []).filter(f => f.id !== 'tut_phunggiabinh' && f.id !== 'std_sarah');
+      return cleaned;
     } catch (_) { return initialFriends; }
   });
 
   const [friendRequests, setFriendRequests] = useState<FriendRequest[]>(() => {
     try {
       const saved = localStorage.getItem('sb_friend_requests');
-      return saved ? JSON.parse(saved) : initialFriendRequests;
+      const loaded: FriendRequest[] = saved ? JSON.parse(saved) : initialFriendRequests;
+      const cleaned = (loaded || []).filter(r => r.senderId !== 'tut_phunggiabinh' && r.senderId !== 'std_sarah');
+      return cleaned;
     } catch (_) { return initialFriendRequests; }
   });
 
   const [directChats, setDirectChats] = useState<DirectChat[]>(() => {
     try {
       const saved = localStorage.getItem('sb_direct_chats');
-      return saved ? JSON.parse(saved) : initialDirectChats;
+      const loaded: DirectChat[] = saved ? JSON.parse(saved) : initialDirectChats;
+      // Strip test chats and deduplicate
+      const filtered = (loaded || []).filter(c => 
+        c.id !== 'dm_tut_phunggiabinh' && 
+        !c.participants.some(p => p.id === 'tut_phunggiabinh' || p.id === 'std_sarah')
+      );
+      // Deduplicate by recipient to ensure zero duplicate chat windows
+      const uniqueMap = new Map<string, DirectChat>();
+      for (const chat of filtered) {
+        const otherP = chat.participants.find(p => p.id !== 'u_current' && p.id !== 'guest');
+        const key = otherP?.name?.trim().toLowerCase() || otherP?.id || chat.id;
+        if (!uniqueMap.has(key)) {
+          uniqueMap.set(key, chat);
+        } else {
+          const existing = uniqueMap.get(key)!;
+          const msgIds = new Set(existing.messages.map(m => m.id));
+          for (const m of chat.messages) {
+            if (!msgIds.has(m.id)) {
+              existing.messages.push(m);
+              msgIds.add(m.id);
+            }
+          }
+        }
+      }
+      return Array.from(uniqueMap.values());
     } catch (_) { return initialDirectChats; }
+  });
+
+  const [blockedUsers, setBlockedUsers] = useState<BlockedUser[]>(() => {
+    try {
+      const saved = localStorage.getItem('sb_blocked_users');
+      return saved ? JSON.parse(saved) : [];
+    } catch (_) { return []; }
   });
 
   const [openDirectChatIds, setOpenDirectChatIds] = useState<string[]>([]);
@@ -613,7 +661,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               const isAdmin = firebaseUser.email?.toLowerCase() === 'billkute030709@gmail.com';
               const baseUser: User = {
                 id: firebaseUser.uid,
-                name: firebaseUser.displayName || user.name || (isAdmin ? 'Bill Kute (Admin)' : 'Học viên StudyBook'),
+                name: firebaseUser.displayName || user.name || (isAdmin ? 'Bill Kute (Admin)' : 'StudyBook Student'),
                 email: firebaseUser.email || (isAdmin ? 'billkute030709@gmail.com' : undefined),
                 avatar: firebaseUser.photoURL || SILHOUETTE_AVATAR,
                 role: isAdmin ? 'admin' : (user.role || 'student'),
@@ -667,7 +715,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             } catch (_) {}
           }
           // Reset user state to guest when unauthenticated or signed out
-          setUser({ ...currentUser, id: 'guest', name: 'Khách', hasCompletedOnboarding: false });
+          setUser({ ...currentUser, id: 'guest', name: 'Guest', hasCompletedOnboarding: false });
         }
       } catch (err) {
         console.error('onAuthStateChanged main error handler:', err);
@@ -994,7 +1042,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         localStorage.setItem('sb_local_logged_in', 'true');
         localStorage.setItem('sb_user', JSON.stringify(updatedUser));
       } else {
-        throw new Error('Email hoặc mật khẩu không chính xác hoặc tài khoản chưa được đăng ký!');
+        throw new Error('Incorrect email or password, or account is not registered yet!');
       }
     }
   };
@@ -1003,7 +1051,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const isAdmin = email.toLowerCase() === 'billkute030709@gmail.com';
     const baseUser: User = {
       id: 'u_' + Date.now(),
-      name: name.trim() || (isAdmin ? 'Bill Kute (Admin)' : 'Học viên StudyBook'),
+      name: name.trim() || (isAdmin ? 'Bill Kute (Admin)' : 'StudyBook Student'),
       email: email.toLowerCase(),
       avatar: SILHOUETTE_AVATAR,
       role: isAdmin ? 'admin' : role,
@@ -1019,7 +1067,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const localUsers = localUsersStr ? JSON.parse(localUsersStr) : [];
     
     if (localUsers.some((u: any) => u.email?.toLowerCase() === email.toLowerCase())) {
-      throw new Error('Email này đã được sử dụng bởi tài khoản khác!');
+      throw new Error('This email is already in use by another account!');
     }
 
     localUsers.push({ email, password: pass, user: newUser });
@@ -1036,7 +1084,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const isAdmin = currentEmail.toLowerCase() === 'billkute030709@gmail.com';
     const googleUser: User = processUserStreak({
       id: 'u_google_' + Date.now(),
-      name: isAdmin ? 'Bill Kute (Admin)' : 'Học viên StudyBook',
+      name: isAdmin ? 'Bill Kute (Admin)' : 'StudyBook Student',
       email: currentEmail || undefined,
       avatar: SILHOUETTE_AVATAR,
       role: isAdmin ? 'admin' : 'student',
@@ -1078,7 +1126,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const isAdmin = email.toLowerCase() === 'billkute030709@gmail.com';
         const baseUser: User = {
           id: cred.user.uid,
-          name: name.trim() || (isAdmin ? 'Bill Kute (Admin)' : 'Học viên StudyBook'),
+          name: name.trim() || (isAdmin ? 'Bill Kute (Admin)' : 'StudyBook Student'),
           email: email.toLowerCase(),
           avatar: SILHOUETTE_AVATAR,
           role: isAdmin ? 'admin' : role,
@@ -1142,7 +1190,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         console.warn('Firebase signOut error:', err);
       }
     }
-    setUser({ ...currentUser, id: 'guest', name: 'Khách', hasCompletedOnboarding: false });
+    setUser({ ...currentUser, id: 'guest', name: 'Guest', hasCompletedOnboarding: false });
   };
 
   // Persistence Effects (Always sync to local storage as high-resilience cache)
@@ -1196,22 +1244,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [settings]);
 
   // Interactive functions
+  const setUserGrade = async (grade: string) => {
+    const nextUser: User = { ...user, grade };
+    setUser(nextUser);
+    try {
+      localStorage.setItem('sb_user', JSON.stringify(nextUser));
+    } catch (_) {}
+    if (isFirebaseConfigured && nextUser.id) {
+      try {
+        await updateDoc(doc(db, 'users', nextUser.id), { grade });
+      } catch (err) {
+        console.warn('Could not update grade in Firestore:', err);
+      }
+    }
+  };
+
   const addPost = async (
     content: string, 
     subject: string, 
     attachmentType?: 'pdf'|'doc'|'link'|'youtube', 
     attachmentTitle?: string,
     isAnonymous?: boolean,
-    attachmentUrl?: string
+    attachmentUrl?: string,
+    grade?: string
   ) => {
     const currentUserId = user.id || auth.currentUser?.uid || 'guest';
     const authorName = isAnonymous ? 'Anonymous Scholar' : (user.name || 'User');
+    const postGrade = grade || user.grade || 'Grade 10';
 
     const authorUser: User = isAnonymous ? {
       id: currentUserId,
       name: authorName,
       avatar: SILHOUETTE_AVATAR,
       role: 'student',
+      grade: postGrade,
       streak: 0,
       streakLevel: 'none',
       badges: []
@@ -1220,6 +1286,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const newPostData = {
       content,
       subject,
+      grade: postGrade,
       authorId: currentUserId,
       authorName,
       user: authorUser,
@@ -1232,6 +1299,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       shares: 0,
       isSaved: false,
       isAnonymous,
+      blockedUserIds: user.blockedUserIds || [],
+      authorBlockedUserIds: user.blockedUserIds || [],
       ...(attachmentType && attachmentTitle ? {
         attachment: {
           type: attachmentType,
@@ -1384,7 +1453,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         badges: user.badges
       },
       content,
-      timestamp: 'Vừa xong',
+      timestamp: 'Just now',
       helpfulCount: 0,
       hasHelped: false,
       helpedUserIds: []
@@ -1816,15 +1885,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           id: `msg_init_${Date.now()}`,
           sender: {
             id: 'system',
-            name: 'Ban Quản Lý StudyBook',
+            name: 'StudyBook Community Team',
             avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=150',
             role: 'creator',
             streak: 0,
             streakLevel: 'none',
             badges: []
           },
-          content: `Chào mừng bạn đến với nhóm học tập "${name}"! Hãy bắt đầu thảo luận, chia sẻ tài liệu và lên lịch học nhóm ngay nhé!`,
-          timestamp: 'Vừa xong'
+          content: `Welcome to the study group "${name}"! Feel free to discuss topics, share academic resources, and schedule group study sessions!`,
+          timestamp: 'Just now'
         }
       ]
     };
@@ -1906,13 +1975,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     name: string,
     role: 'student' | 'tutor' | 'creator',
     institution: string,
-    subjectWeights: AppSettings['subjectWeights']
+    subjectWeights: AppSettings['subjectWeights'],
+    grade?: string
   ) => {
     const nextUser: User = {
       ...user,
-      name: name.trim() || user.name || 'Học viên StudyBook',
+      name: name.trim() || user.name || 'StudyBook Student',
       role,
       institution,
+      grade: grade || user.grade || 'Grade 10',
       hasCompletedOnboarding: true
     };
     
@@ -1969,22 +2040,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 ========================================
    STUDYBOOK ACADEMIC PROFILE PORTFOLIO
 ========================================
-Học viên: ${user.name}
-Chuỗi ngày học tập (Streak): ${user.streak} ngày
-Xếp hạng danh hiệu: ${user.streakLevel.toUpperCase()}
-Danh hiệu đạt được: ${user.badges.join(', ') || 'Chưa có'}
+Student: ${user.name}
+Consecutive Study Streak: ${user.streak} days
+Streak Rank: ${user.streakLevel.toUpperCase()}
+Badges Earned: ${user.badges.join(', ') || 'None'}
 
-HOẠT ĐỘNG TRÊN NỀN TẢNG:
+PLATFORM ACTIVITY & CONTRIBUTIONS:
 ----------------------------------------
-- Tài liệu học tập đã lưu: ${savedCount} tài liệu
-- Bài viết học thuật đóng góp: ${contributedPosts} bài viết
-- Số lượt upvote nhận được (Tương đương điểm hữu ích): ${posts.filter(p => p.user.id === user.id).reduce((acc, curr) => acc + curr.reactions.helpful + curr.reactions.insightful, 0)} points
+- Saved Study Materials: ${savedCount} items
+- Academic Posts Contributed: ${contributedPosts} posts
+- Helpful Upvotes Received: ${posts.filter(p => p.user.id === user.id).reduce((acc, curr) => acc + curr.reactions.helpful + curr.reactions.insightful, 0)} points
 
-MÔN HỌC QUAN TÂM (Subjects of Interest):
-${settings.subjectWeights.Math > 0 ? '- Toán Học\n' : ''}${settings.subjectWeights.Physics > 0 ? '- Vật Lý\n' : ''}${settings.subjectWeights.English > 0 ? '- Tiếng Anh\n' : ''}${settings.subjectWeights.Chemistry > 0 ? '- Hóa Học\n' : ''}
+SUBJECTS OF INTEREST:
+${settings.subjectWeights.Math > 0 ? '- Mathematics\n' : ''}${settings.subjectWeights.Physics > 0 ? '- Physics\n' : ''}${settings.subjectWeights.English > 0 ? '- English\n' : ''}${settings.subjectWeights.Chemistry > 0 ? '- Chemistry\n' : ''}
 
-StudyBook - Mạng xã hội học tập dẫn đầu Việt Nam.
-Báo cáo được trích xuất tự động vào ngày ${new Date().toLocaleDateString('vi-VN')}.
+StudyBook - Leading Academic Social Network.
+Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
     `;
     
     const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
@@ -2003,7 +2074,7 @@ Báo cáo được trích xuất tự động vào ngày ${new Date().toLocaleDa
         !('speechSynthesis' in window) ||
         typeof window.SpeechSynthesisUtterance === 'undefined'
       ) {
-        alert('Trình duyệt hoặc môi trường iframe này không hỗ trợ tính năng Đọc Văn Bản (Text-to-Speech).');
+        alert('Your browser or this iframe environment does not support Text-to-Speech.');
         return;
       }
       
@@ -2020,7 +2091,7 @@ Báo cáo được trích xuất tự động vào ngày ${new Date().toLocaleDa
       }
 
       if (!utterance) {
-        alert('Tính năng Đọc Văn Bản (Text-to-Speech) không hỗ trợ khởi tạo trong môi trường iframe hiện tại.');
+        alert('Text-to-Speech cannot be initialized in the current iframe environment.');
         return;
       }
 
@@ -2131,6 +2202,289 @@ Báo cáo được trích xuất tự động vào ngày ${new Date().toLocaleDa
     return () => unsubscribe();
   }, [isFirebaseConfigured]);
 
+  const isUserVerifiedTutor = useCallback((author?: Partial<User> | null, authorId?: string): boolean => {
+    if (!author && !authorId) return false;
+    const resolvedId = authorId || author?.id;
+    const authorName = author?.name;
+    const authorEmail = author?.email;
+
+    // 1. If this post/comment belongs to current active logged-in user
+    const hasValidUserName = Boolean(user.name && user.name.trim().length > 1 && user.name !== 'User' && user.name !== 'Anonymous Scholar');
+    const isCurrentActiveUser =
+      Boolean((resolvedId && (resolvedId === user.id || (auth.currentUser?.uid && resolvedId === auth.currentUser.uid)))) ||
+      Boolean((authorEmail && user.email && authorEmail.toLowerCase() === user.email.toLowerCase())) ||
+      Boolean((authorName && hasValidUserName && authorName.trim().toLowerCase() === user.name.trim().toLowerCase()));
+
+    if (isCurrentActiveUser) {
+      if (user.role === 'admin') return true;
+      if (user.role === 'tutor' || (user.badges || []).includes('Verified Tutor')) return true;
+      return false;
+    }
+
+    // 2. Check tutor requests history for explicit approval or rejection/revocation
+    if (tutorRequests && tutorRequests.length > 0) {
+      const matchReq = tutorRequests.find(r =>
+        Boolean((resolvedId && (r.userId === resolvedId || r.id === resolvedId || r.id === `tr_${resolvedId}`))) ||
+        Boolean((authorEmail && r.userEmail && r.userEmail.toLowerCase() === authorEmail.toLowerCase())) ||
+        Boolean((authorName && ((r.realName && r.realName.trim().toLowerCase() === authorName.trim().toLowerCase()) || (r.userName && r.userName.trim().toLowerCase() === authorName.trim().toLowerCase()))))
+      );
+      if (matchReq) {
+        if (matchReq.status === 'approved') return true;
+        if (matchReq.status === 'rejected' || matchReq.status === 'pending') return false;
+      }
+    }
+
+    // 3. Check official verified tutors list
+    if (tutors && tutors.length > 0) {
+      const matchTutor = tutors.find(t =>
+        Boolean((resolvedId && t.id === resolvedId)) ||
+        Boolean((authorName && t.name.trim().toLowerCase() === authorName.trim().toLowerCase()))
+      );
+      if (matchTutor) {
+        return matchTutor.verified === true;
+      }
+    }
+
+    // 4. Fallback to author's user object properties
+    if (author?.role === 'admin') return true;
+    if (author?.role === 'tutor' || (author?.badges || []).includes('Verified Tutor')) return true;
+
+    return false;
+  }, [user.id, user.name, user.email, user.role, user.badges, tutorRequests, tutors]);
+
+  const syncUserTutorStatusAcrossPosts = async (
+    targetUserId: string,
+    targetName?: string,
+    targetEmail?: string,
+    isTutor: boolean = true
+  ) => {
+    const cleanTargetName = targetName?.trim().toLowerCase();
+    const cleanTargetEmail = targetEmail?.trim().toLowerCase();
+
+    // 1. Update local state for all posts and their comments
+    setPosts(prev => {
+      const updated = prev.map(p => {
+        const matchesAuthor =
+          (p.user?.id && (p.user.id === targetUserId || p.user.id === `u_${targetUserId}`)) ||
+          (p.authorId && (p.authorId === targetUserId || p.authorId === `u_${targetUserId}`)) ||
+          (cleanTargetEmail && p.user?.email && p.user.email.toLowerCase() === cleanTargetEmail) ||
+          (cleanTargetName && p.authorName && p.authorName.trim().toLowerCase() === cleanTargetName) ||
+          (cleanTargetName && p.user?.name && p.user.name.trim().toLowerCase() === cleanTargetName);
+
+        let updatedPost = p;
+        if (matchesAuthor) {
+          const currentBadges = p.user?.badges || [];
+          const newBadges = isTutor
+            ? Array.from(new Set([...currentBadges, 'Verified Tutor']))
+            : currentBadges.filter(b => b !== 'Verified Tutor');
+          const newRole: User['role'] = isTutor ? 'tutor' : (p.user?.role === 'admin' ? 'admin' : 'student');
+          
+          updatedPost = {
+            ...updatedPost,
+            user: {
+              ...updatedPost.user,
+              role: newRole,
+              badges: newBadges
+            }
+          };
+        }
+
+        if (updatedPost.comments && updatedPost.comments.length > 0) {
+          const updatedComments = updatedPost.comments.map(c => {
+            const matchesCommentAuthor =
+              (c.user?.id && (c.user.id === targetUserId || c.user.id === `u_${targetUserId}`)) ||
+              (cleanTargetEmail && c.user?.email && c.user.email.toLowerCase() === cleanTargetEmail) ||
+              (cleanTargetName && c.user?.name && c.user.name.trim().toLowerCase() === cleanTargetName);
+
+            if (matchesCommentAuthor) {
+              const currentBadges = c.user?.badges || [];
+              const newBadges = isTutor
+                ? Array.from(new Set([...currentBadges, 'Verified Tutor']))
+                : currentBadges.filter(b => b !== 'Verified Tutor');
+              const newRole: User['role'] = isTutor ? 'tutor' : (c.user?.role === 'admin' ? 'admin' : 'student');
+              return {
+                ...c,
+                user: {
+                  ...c.user,
+                  role: newRole,
+                  badges: newBadges
+                }
+              };
+            }
+            return c;
+          });
+          updatedPost = { ...updatedPost, comments: updatedComments };
+        }
+
+        return updatedPost;
+      });
+
+      try {
+        localStorage.setItem('sb_posts', JSON.stringify(updated));
+      } catch (_) {}
+      return updated;
+    });
+
+    // 2. Propagate to Firestore posts collection
+    if (isFirebaseConfigured) {
+      try {
+        const postsRef = collection(db, 'posts');
+        const snap = await getDocs(postsRef);
+        const updates: Promise<any>[] = [];
+
+        snap.forEach(docSnap => {
+          const data = docSnap.data() as Post;
+          const matchesAuthor =
+            (data.user?.id && (data.user.id === targetUserId || data.user.id === `u_${targetUserId}`)) ||
+            (data.authorId && (data.authorId === targetUserId || data.authorId === `u_${targetUserId}`)) ||
+            (cleanTargetEmail && data.user?.email && data.user.email.toLowerCase() === cleanTargetEmail) ||
+            (cleanTargetName && data.authorName && data.authorName.trim().toLowerCase() === cleanTargetName) ||
+            (cleanTargetName && data.user?.name && data.user.name.trim().toLowerCase() === cleanTargetName);
+
+          let hasCommentMatch = false;
+          const updatedComments = (data.comments || []).map(c => {
+            const matchesCommentAuthor =
+              (c.user?.id && (c.user.id === targetUserId || c.user.id === `u_${targetUserId}`)) ||
+              (cleanTargetEmail && c.user?.email && c.user.email.toLowerCase() === cleanTargetEmail) ||
+              (cleanTargetName && c.user?.name && c.user.name.trim().toLowerCase() === cleanTargetName);
+            if (matchesCommentAuthor) {
+              hasCommentMatch = true;
+              const currentBadges = c.user?.badges || [];
+              const newBadges = isTutor
+                ? Array.from(new Set([...currentBadges, 'Verified Tutor']))
+                : currentBadges.filter(b => b !== 'Verified Tutor');
+              const newRole = isTutor ? 'tutor' : (c.user?.role === 'admin' ? 'admin' : 'student');
+              return {
+                ...c,
+                user: {
+                  ...c.user,
+                  role: newRole,
+                  badges: newBadges
+                }
+              };
+            }
+            return c;
+          });
+
+          if (matchesAuthor || hasCommentMatch) {
+            const currentBadges = data.user?.badges || [];
+            const newBadges = matchesAuthor
+              ? (isTutor ? Array.from(new Set([...currentBadges, 'Verified Tutor'])) : currentBadges.filter(b => b !== 'Verified Tutor'))
+              : currentBadges;
+            const newRole = matchesAuthor
+              ? (isTutor ? 'tutor' : (data.user?.role === 'admin' ? 'admin' : 'student'))
+              : (data.user?.role || 'student');
+
+            const postDocRef = doc(db, 'posts', docSnap.id);
+            updates.push(
+              setDoc(postDocRef, {
+                user: {
+                  ...data.user,
+                  role: newRole,
+                  badges: newBadges
+                },
+                comments: updatedComments
+              }, { merge: true }).catch(err => {
+                console.warn(`Failed to update post ${docSnap.id} in Firestore:`, err);
+              })
+            );
+          }
+        });
+
+        if (updates.length > 0) {
+          await Promise.all(updates);
+        }
+      } catch (err) {
+        console.warn('Failed to propagate tutor status update across Firestore posts:', err);
+      }
+    }
+  };
+
+  // 3. Automated real-time synchronization for past posts and comments when tutor privileges change
+  useEffect(() => {
+    setPosts(prevPosts => {
+      let changed = false;
+      const updated = prevPosts.map(p => {
+        let postChanged = false;
+        const authorIsTutor = !p.isAnonymous && isUserVerifiedTutor(p.user, p.authorId);
+        const currentBadges = p.user?.badges || [];
+        const hasBadge = currentBadges.includes('Verified Tutor');
+
+        let updatedUser = p.user;
+        if (authorIsTutor && !hasBadge) {
+          updatedUser = {
+            ...p.user,
+            role: p.user?.role === 'admin' ? 'admin' : 'tutor',
+            badges: Array.from(new Set([...currentBadges, 'Verified Tutor']))
+          };
+          postChanged = true;
+        } else if (!authorIsTutor && hasBadge && p.user?.role !== 'admin') {
+          updatedUser = {
+            ...p.user,
+            role: 'student',
+            badges: currentBadges.filter(b => b !== 'Verified Tutor')
+          };
+          postChanged = true;
+        }
+
+        let updatedComments = p.comments;
+        if (p.comments && p.comments.length > 0) {
+          const newComments = p.comments.map(c => {
+            const commentAuthorIsTutor = isUserVerifiedTutor(c.user, c.user?.id);
+            const cBadges = c.user?.badges || [];
+            const cHasBadge = cBadges.includes('Verified Tutor');
+
+            if (commentAuthorIsTutor && !cHasBadge) {
+              postChanged = true;
+              const nextRole: User['role'] = c.user?.role === 'admin' ? 'admin' : 'tutor';
+              return {
+                ...c,
+                user: {
+                  ...c.user,
+                  role: nextRole,
+                  badges: Array.from(new Set([...cBadges, 'Verified Tutor']))
+                }
+              };
+            } else if (!commentAuthorIsTutor && cHasBadge && c.user?.role !== 'admin') {
+              postChanged = true;
+              const nextRole: User['role'] = 'student';
+              return {
+                ...c,
+                user: {
+                  ...c.user,
+                  role: nextRole,
+                  badges: cBadges.filter(b => b !== 'Verified Tutor')
+                }
+              };
+            }
+            return c;
+          });
+          if (postChanged) {
+            updatedComments = newComments;
+          }
+        }
+
+        if (postChanged) {
+          changed = true;
+          return {
+            ...p,
+            user: updatedUser,
+            comments: updatedComments
+          };
+        }
+        return p;
+      });
+
+      if (changed) {
+        try {
+          localStorage.setItem('sb_posts', JSON.stringify(updated));
+        } catch (_) {}
+        return updated;
+      }
+      return prevPosts;
+    });
+  }, [user.role, user.badges, tutorRequests, tutors, isUserVerifiedTutor]);
+
   const requestTutorVerification = async (details?: { realName?: string; school?: string; description?: string; requestedSubjects?: string[] }) => {
     const currentEmail = user.email || localStorage.getItem('sb_current_email') || auth.currentUser?.email || '';
     const isAdmin = user.role === 'admin' || currentEmail.toLowerCase() === 'billkute030709@gmail.com';
@@ -2148,6 +2502,7 @@ Báo cáo được trích xuất tự động vào ngày ${new Date().toLocaleDa
       };
       setUser(updatedUser);
       localStorage.setItem('sb_user', JSON.stringify(updatedUser));
+      await syncUserTutorStatusAcrossPosts(user.id, user.name, user.email, true);
       playSound('success');
       return;
     }
@@ -2231,20 +2586,8 @@ Báo cáo được trích xuất tự động vào ngày ${new Date().toLocaleDa
       localStorage.setItem('sb_user', JSON.stringify(updatedUser));
     }
 
-    // Update posts authored by this user to reflect verified tutor status
-    setPosts(prev => prev.map(p => {
-      if (p.user?.id === req.userId || p.authorId === req.userId) {
-        return {
-          ...p,
-          user: {
-            ...p.user,
-            role: 'tutor',
-            badges: Array.from(new Set([...(p.user?.badges || []), 'Verified Tutor']))
-          }
-        };
-      }
-      return p;
-    }));
+    // Sync all posts and comments authored by this user across state and Firestore
+    await syncUserTutorStatusAcrossPosts(req.userId, req.realName || req.userName, req.userEmail, true);
 
     setTutors(prev => {
       if (prev.some(t => t.id === req.userId)) {
@@ -2303,6 +2646,12 @@ Báo cáo được trích xuất tự động vào ngày ${new Date().toLocaleDa
       setUser(updatedUser);
       localStorage.setItem('sb_user', JSON.stringify(updatedUser));
     }
+
+    // Set tutor page verified to false if exists
+    setTutors(prev => prev.map(t => (t.id === req.userId || (req.userEmail && t.id === req.userEmail)) ? { ...t, verified: false } : t));
+
+    // Sync all past posts & comments authored by this user to remove Verified Tutor badge
+    await syncUserTutorStatusAcrossPosts(req.userId, req.realName || req.userName, req.userEmail, false);
   };
 
   const deleteTutorRequest = async (requestId: string) => {
@@ -2318,6 +2667,21 @@ Báo cáo được trích xuất tự động vào ngày ${new Date().toLocaleDa
       } catch (err) {
         console.warn('Failed to delete tutor request in Firestore:', err);
       }
+    }
+
+    // If deleting an approved request, revoke tutor status and update posts
+    if (req.status === 'approved') {
+      if (user.id === req.userId && user.role !== 'admin') {
+        const updatedUser: User = { 
+          ...user, 
+          role: 'student', 
+          badges: user.badges.filter(b => b !== 'Verified Tutor')
+        };
+        setUser(updatedUser);
+        localStorage.setItem('sb_user', JSON.stringify(updatedUser));
+      }
+      setTutors(prev => prev.map(t => (t.id === req.userId || (req.userEmail && t.id === req.userEmail)) ? { ...t, verified: false } : t));
+      await syncUserTutorStatusAcrossPosts(req.userId, req.realName || req.userName, req.userEmail, false);
     }
   };
 
@@ -2335,7 +2699,11 @@ Báo cáo được trích xuất tự động vào ngày ${new Date().toLocaleDa
       setUser(updatedUser);
       localStorage.setItem('sb_user', JSON.stringify(updatedUser));
     }
-    alert(`Đã xác minh người dùng làm Gia sư thành công!`);
+
+    // Sync all posts authored by this user
+    await syncUserTutorStatusAcrossPosts(userId, undefined, undefined, true);
+
+    alert(`User verified as Tutor successfully!`);
   };
 
   // Friending Actions
@@ -2459,17 +2827,152 @@ Báo cáo được trích xuất tự động vào ngày ${new Date().toLocaleDa
     return 'none';
   };
 
+  // Blocking & Privacy Management
+  const isUserBlocked = (userId?: string): boolean => {
+    if (!userId) return false;
+    return blockedUsers.some(b => b.id === userId);
+  };
+
+  const isBlockedByAuthor = (authorId?: string, postAuthorBlockedIds?: string[]): boolean => {
+    if (!authorId) return false;
+    if (Array.isArray(postAuthorBlockedIds) && postAuthorBlockedIds.includes(user.id)) return true;
+    return false;
+  };
+
+  const blockUser = async (targetId: string, targetName: string, targetAvatar?: string) => {
+    if (!targetId || targetId === user.id) return;
+
+    const newBlocked: BlockedUser = {
+      id: targetId,
+      name: targetName || 'User',
+      avatar: targetAvatar || SILHOUETTE_AVATAR,
+      blockedAt: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    };
+
+    const next = [...blockedUsers.filter(b => b.id !== targetId), newBlocked];
+    setBlockedUsers(next);
+    localStorage.setItem('sb_blocked_users', JSON.stringify(next));
+
+    // Remove from friends
+    setFriends(prev => {
+      const nextFriends = prev.filter(f => f.id !== targetId);
+      localStorage.setItem('sb_friends', JSON.stringify(nextFriends));
+      return nextFriends;
+    });
+
+    // Close any open chat with this user
+    setOpenChatIds(prev => prev.filter(id => !id.includes(targetId)));
+    setOpenDirectChatIds(prev => prev.filter(id => !id.includes(targetId)));
+
+    // Update local user state
+    setUser(prev => {
+      const updated = {
+        ...prev,
+        blockedUserIds: next.map(b => b.id)
+      };
+      localStorage.setItem('sb_user', JSON.stringify(updated));
+      return updated;
+    });
+
+    // Update posts authored by this user to include the blocked ID so target cannot view them
+    setPosts(prev => prev.map(p => {
+      if (p.authorId === user.id || p.user?.id === user.id) {
+        return {
+          ...p,
+          blockedUserIds: Array.from(new Set([...(p.blockedUserIds || []), targetId])),
+          authorBlockedUserIds: Array.from(new Set([...(p.authorBlockedUserIds || []), targetId]))
+        };
+      }
+      return p;
+    }));
+
+    if (isFirebaseConfigured && user.id) {
+      try {
+        await setDoc(doc(db, 'users', user.id), {
+          blockedUserIds: next.map(b => b.id)
+        }, { merge: true });
+      } catch (e) {
+        console.warn('Failed to sync blocked user to Firestore:', e);
+      }
+    }
+
+    playSound('delete');
+  };
+
+  const unblockUser = async (targetId: string) => {
+    const next = blockedUsers.filter(b => b.id !== targetId);
+    setBlockedUsers(next);
+    localStorage.setItem('sb_blocked_users', JSON.stringify(next));
+
+    setUser(prev => {
+      const updated = {
+        ...prev,
+        blockedUserIds: next.map(b => b.id)
+      };
+      localStorage.setItem('sb_user', JSON.stringify(updated));
+      return updated;
+    });
+
+    // Also remove from authored posts
+    setPosts(prev => prev.map(p => {
+      if (p.authorId === user.id || p.user?.id === user.id) {
+        return {
+          ...p,
+          blockedUserIds: (p.blockedUserIds || []).filter(id => id !== targetId),
+          authorBlockedUserIds: (p.authorBlockedUserIds || []).filter(id => id !== targetId)
+        };
+      }
+      return p;
+    }));
+
+    if (isFirebaseConfigured && user.id) {
+      try {
+        await setDoc(doc(db, 'users', user.id), {
+          blockedUserIds: next.map(b => b.id)
+        }, { merge: true });
+      } catch (e) {
+        console.warn('Failed to sync unblock to Firestore:', e);
+      }
+    }
+
+    playSound('pop');
+  };
+
   // Direct Messaging Actions across accounts
-  const openDirectChat = (targetUser: { id: string; name: string; avatar: string; email?: string; role?: string }) => {
+  const openDirectChat = (targetUser: { id: string; name: string; avatar: string; email?: string; role?: string; allowDMsFromStrangers?: boolean }) => {
     if (!targetUser.id) return;
 
-    const sortedIds = [user.id || 'guest', targetUser.id].sort();
-    const chatId = `dm_${sortedIds.join('_')}`;
+    // Check if blocked
+    if (isUserBlocked(targetUser.id)) {
+      alert(`You have blocked ${targetUser.name}. To direct message them, please unblock them in Settings.`);
+      return;
+    }
 
-    setDirectChats(prev => {
-      const existing = prev.find(c => c.id === chatId || c.id === `dm_${targetUser.id}`);
-      if (existing) return prev;
+    const isFriend = friends.some(f => 
+      f.id === targetUser.id || 
+      (targetUser.email && f.email && f.email.toLowerCase() === targetUser.email.toLowerCase()) ||
+      (f.name.toLowerCase() === targetUser.name.toLowerCase())
+    );
 
+    // Check stranger DM permission
+    if (targetUser.allowDMsFromStrangers === false && !isFriend && user.role !== 'admin') {
+      alert(`${targetUser.name} only accepts direct messages from approved friends. Please send them a friend request first!`);
+      return;
+    }
+
+    // Check if target user has already created a chat with current user
+    const existing = directChats.find(c => {
+      if (c.id === `dm_${targetUser.id}`) return true;
+      return c.participants.some(p => 
+        (targetUser.id && p.id === targetUser.id) ||
+        (targetUser.email && p.email && p.email.toLowerCase() === targetUser.email.toLowerCase()) ||
+        (targetUser.name && p.name && p.name.trim().toLowerCase() === targetUser.name.trim().toLowerCase())
+      );
+    });
+
+    const chatId = existing ? existing.id : `dm_${[user.id || 'guest', targetUser.id].sort().join('_')}`;
+
+    if (!existing) {
       const newChat: DirectChat = {
         id: chatId,
         participants: [
@@ -2480,19 +2983,33 @@ Báo cáo được trích xuất tự động vào ngày ${new Date().toLocaleDa
         lastUpdated: new Date().toISOString()
       };
 
-      const next = [...prev, newChat];
-      localStorage.setItem('sb_direct_chats', JSON.stringify(next));
+      setDirectChats(prev => {
+        const next = [...prev, newChat];
+        localStorage.setItem('sb_direct_chats', JSON.stringify(next));
+        return next;
+      });
 
       if (isFirebaseConfigured) {
         setDoc(doc(db, 'directChats', chatId), cleanForFirestore(newChat)).catch(e => console.warn('Firebase create direct chat failed:', e));
       }
+    }
 
-      return next;
-    });
-
+    // Open chat window and ensure no duplicate window for the same person
     setOpenChatIds(prev => {
-      if (prev.includes(chatId)) return prev;
-      return [...prev, chatId].slice(-3);
+      const cleaned = prev.filter(id => {
+        if (id === chatId) return true;
+        if (id.startsWith('dm_')) {
+          const chat = directChats.find(c => c.id === id);
+          const isSame = chat?.participants.some(p => 
+            (targetUser.id && p.id === targetUser.id) ||
+            (targetUser.name && p.name && p.name.trim().toLowerCase() === targetUser.name.trim().toLowerCase())
+          );
+          if (isSame) return false;
+        }
+        return true;
+      });
+      if (cleaned.includes(chatId)) return cleaned;
+      return [...cleaned, chatId].slice(-3);
     });
 
     setOpenDirectChatIds(prev => {
@@ -2505,6 +3022,14 @@ Báo cáo được trích xuất tự động vào ngày ${new Date().toLocaleDa
 
   const sendDirectMessage = async (chatId: string, content: string) => {
     if (!content.trim()) return;
+
+    // Check if target recipient is blocked
+    const chat = directChats.find(c => c.id === chatId);
+    const otherP = chat?.participants.find(p => p.id !== user.id);
+    if (otherP && isUserBlocked(otherP.id)) {
+      alert('You have blocked this user. Unblock them in Settings to send messages.');
+      return;
+    }
 
     const newMsg: DirectMessage = {
       id: `dm_msg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
@@ -2594,6 +3119,12 @@ Báo cáo được trích xuất tự động vào ngày ${new Date().toLocaleDa
       sendDirectMessage,
       closeDirectChat,
       openDirectChatIds,
+
+      blockedUsers,
+      isUserBlocked,
+      blockUser,
+      unblockUser,
+      isBlockedByAuthor,
       
       tutorRequests,
       requestTutorVerification,
@@ -2607,6 +3138,7 @@ Báo cáo được trích xuất tự động vào ngày ${new Date().toLocaleDa
       activeFolderId,
       setActiveFolderId,
       
+      setUserGrade,
       addPost,
       deletePost,
       reactToPost,
@@ -2625,6 +3157,7 @@ Báo cáo được trích xuất tự động vào ngày ${new Date().toLocaleDa
       speakText,
       stopSpeaking,
       isSpeaking,
+      isUserVerifiedTutor,
       
       completeOnboarding,
 
