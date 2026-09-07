@@ -106,17 +106,17 @@ const AppContent: React.FC = () => {
   ];
 
   return (
-    <div className={`min-h-screen flex flex-col font-sans transition-colors duration-200 ${settings?.darkMode ? 'dark bg-slate-900 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
+    <div className={`h-screen w-screen overflow-hidden flex flex-col font-sans transition-colors duration-200 ${settings?.darkMode ? 'dark bg-slate-900 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
       
       {/* Top Header Panel */}
       <Header onSearchQuery={setSearchQuery} />
 
-      <div className="flex flex-1 overflow-hidden">
-        {/* Left Side Navigation Panel for Desktop */}
-        <Sidebar />
+      <div className="flex flex-1 w-full overflow-hidden min-h-0">
+        {/* Left Side Navigation Panel for Desktop (hidden when full screen chat is open) */}
+        {activeTab !== 'friends' && <Sidebar />}
 
         {/* Main Feed/Interaction Area */}
-        <main className="flex-1 overflow-hidden relative bg-[#F0F2F5] dark:bg-slate-900">
+        <main className={`flex-1 w-full overflow-hidden relative flex flex-col min-h-0 ${activeTab === 'friends' ? 'h-full bg-white dark:bg-[#18191a]' : 'bg-[#F0F2F5] dark:bg-slate-900'}`}>
           <AnimatePresence mode="wait">
             <motion.div
               key={activeTab}
@@ -124,37 +124,39 @@ const AppContent: React.FC = () => {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.18, ease: 'easeOut' }}
-              className="h-full w-full"
+              className="h-full w-full flex-1 flex flex-col min-h-0"
             >
               {renderActiveView()}
             </motion.div>
           </AnimatePresence>
         </main>
 
-        {/* Right Sidebar Contacts / Ads for Desktop */}
-        {(activeTab === 'feed' || activeTab === 'groups' || activeTab === 'friends') && <RightSidebar />}
+        {/* Right Sidebar Contacts / Ads for Desktop (hidden when full screen chat is open) */}
+        {activeTab !== 'friends' && (activeTab === 'feed' || activeTab === 'groups') && <RightSidebar />}
       </div>
 
-      {/* Floating Messenger Chats popup stack */}
-      <FloatingChats />
+      {/* Floating Messenger Chats popup stack (hidden when already in full-screen Messenger) */}
+      {activeTab !== 'friends' && <FloatingChats />}
 
-      {/* Mobile Sticky Tab bar */}
-      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white dark:bg-slate-900 border-t border-gray-100 dark:border-slate-800 flex justify-around py-1.5 lg:hidden shadow-lg transition-colors">
-        {mobileNavItems.map(item => {
-          const Icon = item.icon;
-          const isSel = activeTab === item.id;
-          return (
-            <button
-              key={item.id}
-              onClick={() => setActiveTab(item.id)}
-              className={`flex flex-col items-center gap-0.5 focus:outline-none cursor-pointer ${isSel ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 hover:text-gray-600'}`}
-            >
-              <Icon className="h-4.5 w-4.5 shrink-0" />
-              <span className="text-[9px] font-bold leading-none">{item.label}</span>
-            </button>
-          );
-        })}
-      </nav>
+      {/* Mobile Sticky Tab bar (hidden when full-screen chat is open) */}
+      {activeTab !== 'friends' && (
+        <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white dark:bg-slate-900 border-t border-gray-100 dark:border-slate-800 flex justify-around py-1.5 lg:hidden shadow-lg transition-colors">
+          {mobileNavItems.map(item => {
+            const Icon = item.icon;
+            const isSel = activeTab === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => setActiveTab(item.id)}
+                className={`flex flex-col items-center gap-0.5 focus:outline-none cursor-pointer ${isSel ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 hover:text-gray-600'}`}
+              >
+                <Icon className="h-4.5 w-4.5 shrink-0" />
+                <span className="text-[9px] font-bold leading-none">{item.label}</span>
+              </button>
+            );
+          })}
+        </nav>
+      )}
 
     </div>
   );

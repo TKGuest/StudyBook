@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
-import { MessageSquare, Minimize2, Maximize2, X, Send, Sparkles, User as UserIcon, UserX, ShieldAlert } from 'lucide-react';
+import { MessageSquare, Minimize2, Maximize2, X, Send, Sparkles, User as UserIcon, UserX, ShieldAlert, Phone, Video, ThumbsUp } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 export const FloatingChats: React.FC = () => {
@@ -113,13 +113,13 @@ export const FloatingChats: React.FC = () => {
               }`}
               style={{ zIndex: 100 + index }}
             >
-              {/* Chat Window Header */}
+              {/* Chat Window Header - Messenger Style */}
               <div 
                 onClick={() => toggleMinimize(chatId)}
                 className={`h-11 px-3 flex items-center justify-between text-white cursor-pointer select-none shrink-0 ${
                   isDirect 
-                    ? 'bg-gradient-to-r from-purple-600 to-indigo-600 dark:from-purple-900 dark:to-slate-900' 
-                    : 'bg-blue-600 hover:bg-blue-700 dark:bg-slate-900 dark:hover:bg-slate-950'
+                    ? 'bg-[#0084ff] hover:bg-[#0073e6]' 
+                    : 'bg-[#0084ff] hover:bg-[#0073e6]'
                 }`}
               >
                 <div className="flex items-center gap-2 min-w-0">
@@ -127,47 +127,47 @@ export const FloatingChats: React.FC = () => {
                     {isDirect && avatarSrc ? (
                       <img src={avatarSrc} alt={chatTitle} className="h-7 w-7 rounded-full object-cover border border-white/30" />
                     ) : (
-                      <div className="h-7 w-7 rounded-full bg-white/10 flex items-center justify-center text-[10px] font-bold text-white border border-white/20">
+                      <div className="h-7 w-7 rounded-full bg-white/15 flex items-center justify-center text-[10px] font-bold text-white border border-white/20">
                         {chatTitle.substring(0, 2).toUpperCase()}
                       </div>
                     )}
-                    <span className="absolute bottom-0 right-0 h-2 w-2 rounded-full bg-green-400 border border-blue-600 dark:border-slate-900 animate-pulse"></span>
+                    <span className="absolute bottom-0 right-0 h-2 w-2 rounded-full bg-green-400 border border-[#0084ff] animate-pulse"></span>
                   </div>
                   <div className="min-w-0">
                     <p className="text-xs font-bold leading-tight truncate">{chatTitle}</p>
-                    <p className="text-[9px] text-blue-100 dark:text-gray-300 truncate leading-none">{chatSubtitle}</p>
+                    <p className="text-[9px] text-blue-100 truncate leading-none">{isBlocked ? 'Blocked' : 'Active now'}</p>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-1.5 pointer-events-auto" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center gap-1 pointer-events-auto" onClick={e => e.stopPropagation()}>
                   {isDirect && otherParticipant && (
                     <button
                       onClick={() => {
                         if (isBlocked) {
                           unblockUser(otherParticipant.id);
-                        } else if (confirm(`Block ${otherParticipant.name}? They will no longer be able to message you or view your posts.`)) {
+                        } else if (confirm(`Block ${otherParticipant.name}?`)) {
                           blockUser(otherParticipant.id, otherParticipant.name, otherParticipant.avatar);
                         }
                       }}
-                      className="p-1 rounded-md hover:bg-white/15 dark:hover:bg-slate-800 transition-colors text-white/80 hover:text-white cursor-pointer"
-                      title={isBlocked ? 'Unblock User' : 'Block User'}
+                      className="p-1 rounded-md hover:bg-white/15 transition-colors text-white/80 hover:text-white cursor-pointer"
+                      title={isBlocked ? 'Unblock' : 'Block user'}
                     >
-                      <UserX className="h-3 w-3" />
+                      <UserX className="h-3.5 w-3.5" />
                     </button>
                   )}
                   <button 
                     onClick={() => toggleMinimize(chatId)}
-                    className="p-1 rounded-md hover:bg-white/15 dark:hover:bg-slate-800 transition-colors text-white/80 hover:text-white"
-                    title={isMinimized ? 'Expand Chat' : 'Minimize Chat'}
+                    className="p-1 rounded-md hover:bg-white/15 transition-colors text-white/80 hover:text-white"
+                    title={isMinimized ? 'Expand' : 'Minimize'}
                   >
-                    {isMinimized ? <Maximize2 className="h-3 w-3" /> : <Minimize2 className="h-3 w-3" />}
+                    {isMinimized ? <Maximize2 className="h-3.5 w-3.5" /> : <Minimize2 className="h-3.5 w-3.5" />}
                   </button>
                   <button 
                     onClick={() => handleClose(chatId, isDirect)}
-                    className="p-1 rounded-md hover:bg-white/15 dark:hover:bg-slate-800 transition-colors text-white/80 hover:text-white"
-                    title="Close Chat"
+                    className="p-1 rounded-md hover:bg-white/15 transition-colors text-white/80 hover:text-white"
+                    title="Close"
                   >
-                    <X className="h-3 w-3" />
+                    <X className="h-3.5 w-3.5" />
                   </button>
                 </div>
               </div>
@@ -231,15 +231,21 @@ export const FloatingChats: React.FC = () => {
                                     {msg.senderName.split(' ')[0]}
                                   </span>
                                 )}
-                                <div 
-                                  className={`rounded-2xl px-3 py-1.5 text-xs shadow-sm leading-relaxed break-words ${
-                                    isMe 
-                                      ? 'bg-purple-600 text-white rounded-tr-sm' 
-                                      : 'bg-white dark:bg-slate-800 text-gray-800 dark:text-gray-150 border border-gray-100 dark:border-slate-700 rounded-tl-sm'
-                                  }`}
-                                >
-                                  {msg.content}
-                                </div>
+                                {msg.content === '👍' ? (
+                                  <div className="p-0.5 my-0.5">
+                                    <ThumbsUp className="h-7 w-7 text-[#0084ff] fill-[#0084ff]" />
+                                  </div>
+                                ) : (
+                                  <div 
+                                    className={`rounded-[16px] px-3 py-1.5 text-xs leading-relaxed break-words shadow-2xs ${
+                                      isMe 
+                                        ? 'bg-[#0084ff] text-white' 
+                                        : 'bg-[#e4e6eb] dark:bg-[#3a3b3c] text-gray-900 dark:text-gray-100'
+                                    }`}
+                                  >
+                                    {msg.content}
+                                  </div>
+                                )}
                                 <span className={`text-[8px] text-gray-400 mt-0.5 ${isMe ? 'text-right mr-1' : 'ml-1'}`}>
                                   {msg.timestamp}
                                 </span>
@@ -260,7 +266,7 @@ export const FloatingChats: React.FC = () => {
                               <img 
                                 src={msg.sender.avatar} 
                                 alt={msg.sender.name} 
-                                className="h-6.5 w-6.5 rounded-full object-cover shrink-0 border border-gray-100 dark:border-slate-700" 
+                                className="h-6.5 w-6.5 rounded-full object-cover shrink-0 border border-gray-150 dark:border-slate-700" 
                               />
                             )}
                             <div className="flex flex-col">
@@ -269,15 +275,21 @@ export const FloatingChats: React.FC = () => {
                                   {msg.sender.name.split(' ')[0]}
                                 </span>
                               )}
-                              <div 
-                                className={`rounded-2xl px-3 py-1.5 text-xs shadow-sm leading-relaxed break-words ${
-                                  isMe 
-                                    ? 'bg-blue-600 text-white rounded-tr-sm' 
-                                    : 'bg-white dark:bg-slate-800 text-gray-800 dark:text-gray-150 border border-gray-100 dark:border-slate-700 rounded-tl-sm'
-                                }`}
-                              >
-                                {msg.content}
-                              </div>
+                              {msg.content === '👍' ? (
+                                <div className="p-0.5 my-0.5">
+                                  <ThumbsUp className="h-7 w-7 text-[#0084ff] fill-[#0084ff]" />
+                                </div>
+                              ) : (
+                                <div 
+                                  className={`rounded-[16px] px-3 py-1.5 text-xs leading-relaxed break-words shadow-2xs ${
+                                    isMe 
+                                      ? 'bg-[#0084ff] text-white' 
+                                      : 'bg-[#e4e6eb] dark:bg-[#3a3b3c] text-gray-900 dark:text-gray-100'
+                                  }`}
+                                >
+                                  {msg.content}
+                                </div>
+                              )}
                               <span className={`text-[8px] text-gray-400 mt-0.5 ${isMe ? 'text-right mr-1' : 'ml-1'}`}>
                                 {msg.timestamp}
                               </span>
@@ -290,15 +302,15 @@ export const FloatingChats: React.FC = () => {
                     )}
                   </div>
 
-                  {/* Chat Message Input Footer */}
+                  {/* Chat Message Input Footer - Messenger Style */}
                   {isBlocked ? (
-                    <div className="p-2.5 border-t border-gray-100 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 text-center text-[11px] text-gray-400 font-medium">
+                    <div className="p-2.5 border-t border-gray-150 dark:border-slate-700 bg-gray-50 dark:bg-slate-850 text-center text-[11px] text-gray-400 font-medium">
                       Messaging is disabled for blocked accounts.
                     </div>
                   ) : (
                     <form 
                       onSubmit={e => handleSendMessage(chatId, isDirect, e)}
-                      className="p-2 border-t border-gray-100 dark:border-slate-700 bg-white dark:bg-slate-800 flex gap-1.5 items-center shrink-0"
+                      className="p-2 border-t border-gray-150 dark:border-slate-700 bg-white dark:bg-slate-800 flex gap-1.5 items-center shrink-0"
                     >
                       <input
                         type="text"
@@ -307,18 +319,33 @@ export const FloatingChats: React.FC = () => {
                           const val = e.target.value;
                           setChatInputs(prev => ({ ...prev, [chatId]: val }));
                         }}
-                        placeholder="Type a message..."
-                        className="flex-1 bg-gray-100 dark:bg-slate-900/60 text-xs text-gray-900 dark:text-white rounded-full px-3 py-2 border-none focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder-gray-400"
+                        placeholder="Aa"
+                        className="flex-1 bg-[#f0f2f5] dark:bg-[#3a3b3c] text-xs text-gray-900 dark:text-white rounded-full px-3 py-1.5 border-none focus:outline-none focus:ring-1 focus:ring-[#0084ff] placeholder-gray-500"
                       />
-                      <button 
-                        type="submit"
-                        disabled={!inputVal.trim()}
-                        className={`h-8 w-8 rounded-full text-white flex items-center justify-center shrink-0 transition-colors disabled:opacity-40 cursor-pointer ${
-                          isDirect ? 'bg-purple-600 hover:bg-purple-700' : 'bg-blue-600 hover:bg-blue-700'
-                        }`}
-                      >
-                        <Send className="h-3.5 w-3.5" />
-                      </button>
+                      {inputVal.trim() ? (
+                        <button 
+                          type="submit"
+                          className="h-7 w-7 rounded-full text-[#0084ff] hover:bg-gray-100 dark:hover:bg-slate-700 flex items-center justify-center shrink-0 transition-colors cursor-pointer"
+                          title="Send message"
+                        >
+                          <Send className="h-3.5 w-3.5 fill-[#0084ff]" />
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (isDirect) {
+                              sendDirectMessage(chatId, '👍');
+                            } else {
+                              sendGroupMessage(chatId, '👍');
+                            }
+                          }}
+                          className="h-7 w-7 rounded-full text-[#0084ff] hover:bg-gray-100 dark:hover:bg-slate-700 flex items-center justify-center shrink-0 transition-transform hover:scale-115 cursor-pointer"
+                          title="Send thumbs up"
+                        >
+                          <ThumbsUp className="h-4 w-4 fill-[#0084ff]" />
+                        </button>
+                      )}
                     </form>
                   )}
                 </>

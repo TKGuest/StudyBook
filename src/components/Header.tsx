@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { SILHOUETTE_AVATAR } from '../data/mockData';
 import { playSound } from '../utils/soundEffects';
+import { consolidateDirectChats, formatMessengerTimestamp } from '../utils/chatUtils';
 import { 
   Search, 
   Flame, 
@@ -19,7 +20,8 @@ import {
   ShoppingBag,
   Users,
   Gamepad2,
-  GraduationCap
+  GraduationCap,
+  UserCheck
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -33,6 +35,8 @@ export const Header: React.FC<HeaderProps> = ({ onSearchQuery }) => {
     settings, 
     setSettings, 
     groupChats, 
+    directChats,
+    openDirectChat,
     setActiveTab, 
     isSpeaking, 
     stopSpeaking,
@@ -153,15 +157,16 @@ export const Header: React.FC<HeaderProps> = ({ onSearchQuery }) => {
         </div>
       </div>
 
-      {/* Center Navigation Icons (Facebook style) */}
-      <div className="hidden lg:flex items-center justify-center flex-1 max-w-xl px-4 h-12">
+      {/* Center Navigation Icons (Facebook style) - matches side navigation order */}
+      <div className="hidden lg:flex items-center justify-center flex-1 max-w-2xl px-4 h-12">
         {[
-          { id: 'feed', icon: Home, label: 'Feed' },
-          { id: 'reels', icon: Film, label: 'Reels' },
-          { id: 'marketplace', icon: ShoppingBag, label: 'Marketplace' },
-          { id: 'groups', icon: Users, label: 'Groups' },
-          { id: 'games', icon: Gamepad2, label: 'Brain Battle' },
-          { id: 'tutors', icon: GraduationCap, label: 'Tutors' }
+          { id: 'feed', icon: Home, label: 'Academic Feed' },
+          { id: 'groups', icon: Users, label: 'Study Groups' },
+          { id: 'friends', icon: UserCheck, label: 'Friends & Chat' },
+          { id: 'tutors', icon: GraduationCap, label: 'Tutors & Channels' },
+          { id: 'reels', icon: Film, label: 'Educational Reels' },
+          { id: 'marketplace', icon: ShoppingBag, label: 'Bazaar Marketplace' },
+          { id: 'games', icon: Gamepad2, label: 'Quizz & Flashcards' }
         ].map(item => {
           const Icon = item.icon;
           const isSelected = activeTab === item.id;
@@ -245,32 +250,117 @@ export const Header: React.FC<HeaderProps> = ({ onSearchQuery }) => {
           
           {/* Messenger dropdown */}
           {showMessenger && (
-            <div className="absolute right-0 mt-2 w-80 rounded-2xl bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700 shadow-xl z-50 overflow-hidden">
-              <div className="p-3 border-b border-gray-100 dark:border-slate-700 flex justify-between items-center bg-gray-50 dark:bg-slate-850">
-                <span className="font-semibold text-sm text-gray-800 dark:text-gray-100">Study Group Chats</span>
-                <span className="text-xs text-blue-500 font-medium cursor-pointer" onClick={() => { setActiveTab('groups'); setShowMessenger(false); }}>See All</span>
+            <div className="absolute right-0 mt-2 w-88 rounded-2xl bg-white dark:bg-slate-800 border border-gray-150 dark:border-slate-700 shadow-xl z-50 overflow-hidden">
+              <div className="p-3 border-b border-gray-100 dark:border-slate-700 flex justify-between items-center bg-gray-50 dark:bg-slate-855">
+                <div className="flex items-center gap-1.5">
+                  <span className="font-bold text-sm text-gray-900 dark:text-gray-100">Chats</span>
+                  <span className="px-1.5 py-0.2 rounded-full text-[10px] font-semibold bg-[#0084ff]/10 text-[#0084ff]">Messenger</span>
+                </div>
+                <button 
+                  onClick={() => { 
+                    playSound('tab');
+                    setActiveTab('friends'); 
+                    setShowMessenger(false); 
+                  }}
+                  className="text-xs text-[#0084ff] hover:underline font-semibold cursor-pointer"
+                >
+                  See all
+                </button>
               </div>
-              <div className="max-h-72 overflow-y-auto divide-y divide-gray-50 dark:divide-slate-700">
-                {groupChats.map(chat => (
-                  <div 
-                    key={chat.groupId} 
-                    onClick={() => {
-                      setActiveTab('groups');
-                      setShowMessenger(false);
-                    }}
-                    className="p-3 hover:bg-gray-50 dark:hover:bg-slate-750 cursor-pointer flex gap-3 items-center transition-colors"
-                  >
-                    <div className="h-10 w-10 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center font-bold text-blue-600 dark:text-blue-300 text-sm">
-                      {chat.groupName.substring(0, 2)}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-gray-800 dark:text-gray-150 truncate">{chat.groupName}</p>
-                      <p className="text-xs text-gray-500 truncate">
-                        {chat.messages.length > 0 ? `${chat.messages[chat.messages.length - 1].sender.name}: ${chat.messages[chat.messages.length - 1].content}` : 'Start study groups chat!'}
-                      </p>
-                    </div>
-                  </div>
-                ))}
+              <div className="max-h-80 overflow-y-auto divide-y divide-gray-50 dark:divide-slate-700">
+                {(() => {
+                  const cleanDms = consolidateDirectChats(directChats, user.id || 'u_current', user.name || '');
+                  return (
+                    <>
+                      {cleanDms.length > 0 && (
+                        <div className="p-1">
+                          <div className="px-2 py-1 text-[10px] font-bold text-gray-400 dark:text-slate-400 uppercase tracking-wider">
+                            Direct Messages
+                          </div>
+                          {cleanDms.slice(0, 4).map(chat => {
+                            const other = chat.participants.find(p => p.id !== user.id && p.id !== 'u_current' && p.id !== 'guest') || 
+                                          chat.participants.find(p => p.id !== user.id) || 
+                                          chat.participants[0];
+                            const lastMsg = chat.messages.length > 0 ? chat.messages[chat.messages.length - 1] : null;
+                            const timeText = lastMsg ? formatMessengerTimestamp(lastMsg.timestamp) : '';
+
+                            return (
+                              <div
+                                key={chat.id}
+                                onClick={() => {
+                                  playSound('pop');
+                                  if (other) {
+                                    openDirectChat({
+                                      id: other.id,
+                                      name: other.name,
+                                      avatar: other.avatar || SILHOUETTE_AVATAR,
+                                      email: other.email,
+                                      role: other.role
+                                    });
+                                  }
+                                  setShowMessenger(false);
+                                }}
+                                className="p-2 hover:bg-gray-100 dark:hover:bg-slate-700/60 rounded-xl cursor-pointer flex gap-2.5 items-center transition-colors"
+                              >
+                                <div className="relative shrink-0">
+                                  <img 
+                                    src={other?.avatar || SILHOUETTE_AVATAR} 
+                                    alt={other?.name || 'User'} 
+                                    className="h-10 w-10 rounded-full object-cover border border-gray-100 dark:border-slate-700"
+                                  />
+                                  <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-green-500 border border-white dark:border-slate-800"></span>
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center justify-between gap-1">
+                                    <p className="text-xs font-bold text-gray-800 dark:text-gray-150 truncate">{other?.name || 'Study Colleague'}</p>
+                                    {timeText && <span className="text-[10px] text-gray-400">{timeText}</span>}
+                                  </div>
+                                  <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                                    {lastMsg ? (lastMsg.content === '👍' ? '👍 Sent a thumbs up' : lastMsg.content) : 'Start conversation'}
+                                  </p>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {groupChats.length > 0 && (
+                        <div className="p-1">
+                          <div className="px-2 py-1 text-[10px] font-bold text-gray-400 dark:text-slate-400 uppercase tracking-wider">
+                            Study Groups
+                          </div>
+                          {groupChats.slice(0, 3).map(chat => (
+                            <div 
+                              key={chat.groupId} 
+                              onClick={() => {
+                                setActiveTab('groups');
+                                setShowMessenger(false);
+                              }}
+                              className="p-2 hover:bg-gray-100 dark:hover:bg-slate-700/60 rounded-xl cursor-pointer flex gap-2.5 items-center transition-colors"
+                            >
+                              <div className="h-9 w-9 rounded-full bg-[#0084ff]/10 dark:bg-[#0084ff]/20 flex items-center justify-center font-bold text-[#0084ff] text-xs shrink-0">
+                                {chat.groupName.substring(0, 2).toUpperCase()}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-bold text-gray-800 dark:text-gray-150 truncate">{chat.groupName}</p>
+                                <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                                  {chat.messages.length > 0 ? `${chat.messages[chat.messages.length - 1].sender.name}: ${chat.messages[chat.messages.length - 1].content}` : 'Start group discussion!'}
+                                </p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {cleanDms.length === 0 && groupChats.length === 0 && (
+                        <div className="p-6 text-center text-xs text-gray-400">
+                          No messages yet.
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             </div>
           )}

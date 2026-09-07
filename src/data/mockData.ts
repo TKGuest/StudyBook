@@ -18,17 +18,6 @@ export const currentUser: User = {
 };
 
 export const sampleUsers: Record<string, User> = {
-  u_sarah: {
-    id: 'u_sarah',
-    name: 'Sarah Jenkins',
-    avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&q=80&w=150',
-    role: 'student',
-    grade: 'Grade 10',
-    streak: 14,
-    streakLevel: 'bronze',
-    badges: ['Honor Roll', 'Math Whiz'],
-    institution: 'Oakridge High School'
-  },
   u_marcus: {
     id: 'u_marcus',
     name: 'Marcus Chen',
@@ -51,17 +40,6 @@ export const sampleUsers: Record<string, User> = {
     badges: ['Verified Tutor', 'STEM Educator'],
     institution: 'Metro State University'
   },
-  u_david: {
-    id: 'u_david',
-    name: 'David Kim',
-    avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&q=80&w=150',
-    role: 'student',
-    grade: 'Grade 10',
-    streak: 7,
-    streakLevel: 'bronze',
-    badges: ['Chemistry Explorer'],
-    institution: 'Lincoln Science High'
-  },
   u_maya: {
     id: 'u_maya',
     name: 'Maya Patel',
@@ -78,9 +56,9 @@ export const sampleUsers: Record<string, User> = {
 export const initialPosts: Post[] = [
   {
     id: 'p_fresh_1',
-    user: sampleUsers.u_sarah,
-    authorId: sampleUsers.u_sarah.id,
-    authorName: sampleUsers.u_sarah.name,
+    user: sampleUsers.u_maya,
+    authorId: sampleUsers.u_maya.id,
+    authorName: sampleUsers.u_maya.name,
     content: 'Just finished writing a clean summary sheet for Quadratic Formula & Parabola Graphing with step-by-step vertex shortcuts! Let me know if you want the PDF worksheet.',
     subject: 'Math',
     grade: 'Grade 10',
@@ -90,7 +68,7 @@ export const initialPosts: Post[] = [
       {
         id: 'c_1',
         postId: 'p_fresh_1',
-        user: sampleUsers.u_david,
+        user: sampleUsers.u_marcus,
         content: 'This vertex shortcut saved me so much time on practice test #3! Thank you!',
         timestamp: '10 mins ago',
         helpfulCount: 3
@@ -106,24 +84,15 @@ export const initialPosts: Post[] = [
   },
   {
     id: 'p_fresh_2',
-    user: sampleUsers.u_david,
-    authorId: sampleUsers.u_david.id,
-    authorName: sampleUsers.u_david.name,
+    user: sampleUsers.u_marcus,
+    authorId: sampleUsers.u_marcus.id,
+    authorName: sampleUsers.u_marcus.name,
     content: 'Quick quiz question for Grade 10 Chem: Why does electronegativity increase across a period from left to right on the periodic table? Drop your reasoning below without looking it up!',
     subject: 'Chemistry',
     grade: 'Grade 10',
     timestamp: new Date(Date.now() - 2 * 3600 * 1000).toISOString(), // 2 hours ago -> Freshness = 50 - 2.5*2 = 45.0 pts
     reactions: { helpful: 14, insightful: 9, confused: 2, verified: 0 },
-    comments: [
-      {
-        id: 'c_2',
-        postId: 'p_fresh_2',
-        user: sampleUsers.u_sarah,
-        content: 'Effective nuclear charge increases while energy levels remain identical, pulling valence electrons tighter!',
-        timestamp: '1 hour ago',
-        helpfulCount: 6
-      }
-    ],
+    comments: [],
     shares: 2
   },
   {
@@ -179,9 +148,9 @@ export const initialPosts: Post[] = [
   },
   {
     id: 'p_middle_g8',
-    user: sampleUsers.u_david,
-    authorId: sampleUsers.u_david.id,
-    authorName: sampleUsers.u_david.name,
+    user: sampleUsers.u_elena,
+    authorId: sampleUsers.u_elena.id,
+    authorName: sampleUsers.u_elena.name,
     content: 'Grade 8 Science: Cell Division (Mitosis vs Meiosis) visual diagram chart. Explaining chromosomes, interphase, and cytokinesis in simple terms.',
     subject: 'Biology',
     grade: 'Grade 8',
@@ -192,9 +161,9 @@ export const initialPosts: Post[] = [
   },
   {
     id: 'p_elementary_g5',
-    user: sampleUsers.u_sarah,
-    authorId: sampleUsers.u_sarah.id,
-    authorName: sampleUsers.u_sarah.name,
+    user: sampleUsers.u_maya,
+    authorId: sampleUsers.u_maya.id,
+    authorName: sampleUsers.u_maya.name,
     content: 'Grade 5 Math: Master fraction addition & subtraction with visual pizza slice models! Great for beginners learning common denominators.',
     subject: 'Math',
     grade: 'Grade 5',

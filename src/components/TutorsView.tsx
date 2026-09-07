@@ -1,18 +1,25 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import { Award, Star, MessageSquare, Plus, CheckCircle, ChevronLeft, ChevronRight, ThumbsUp, BadgeCheck } from 'lucide-react';
 import { playSound } from '../utils/soundEffects';
+import { isFakeOrBotTutor } from '../utils/chatUtils';
 
 export const TutorsView: React.FC = () => {
   const { tutors, toggleFollowTutor, addTutorReview, openDirectChat, user } = useApp();
-  const [activeTutorId, setActiveTutorId] = useState<string>(tutors[0]?.id || '');
+  
+  // Filter out any fake tutors or bot test accounts
+  const validTutors = useMemo(() => {
+    return tutors.filter(t => !isFakeOrBotTutor(t));
+  }, [tutors]);
+
+  const [activeTutorId, setActiveTutorId] = useState<string>(validTutors[0]?.id || '');
   
   // Custom states for writing reviews
   const [rating, setRating] = useState(5);
   const [reviewText, setReviewText] = useState('');
   const [showReviewForm, setShowReviewForm] = useState(false);
 
-  if (tutors.length === 0) {
+  if (validTutors.length === 0) {
     return (
       <div className="flex-1 p-6 max-w-4xl mx-auto h-[calc(100vh-57px)] flex flex-col items-center justify-center text-center">
         <div className="p-4 rounded-full bg-blue-50 dark:bg-slate-800 text-blue-500 mb-4">
@@ -24,7 +31,7 @@ export const TutorsView: React.FC = () => {
     );
   }
 
-  const activeTutor = tutors.find(t => t.id === activeTutorId) || tutors[0];
+  const activeTutor = validTutors.find(t => t.id === activeTutorId) || validTutors[0];
 
   const handleReviewSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -42,7 +49,7 @@ export const TutorsView: React.FC = () => {
       
       {/* Horizontal grid list of tutors */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {tutors.map(t => {
+        {validTutors.map(t => {
           const isSelected = t.id === activeTutor.id;
           return (
             <div

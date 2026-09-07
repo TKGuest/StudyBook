@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { User, Post, StudyGroup, TutorPage, Reel, MarketplaceItem, GroupChat, AppSettings, AcademicReactionType, Comment, Message, BinderFolder, TutorRequest, RequestHistoryLog, Friend, FriendRequest, DirectMessage, DirectChat, BlockedUser } from '../types';
 import { currentUser, initialPosts, initialGroups, initialTutors, initialReels, initialMarketplaceItems, initialGroupChats, defaultSettings, SILHOUETTE_AVATAR, initialFriends, initialFriendRequests, initialDirectChats } from '../data/mockData';
 import { playSound } from '../utils/soundEffects';
+import { isPlaceholderBinhChat, consolidateDirectChats, isFakeOrBotTutor } from '../utils/chatUtils';
 import { auth, db, isFirebaseConfigured } from '../lib/firebase';
 import { 
   onAuthStateChanged, 
@@ -459,8 +460,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [tutors, setTutors] = useState<TutorPage[]>(() => {
     try {
       const saved = localStorage.getItem('sb_tutors');
-      return saved ? JSON.parse(saved) : initialTutors;
-    } catch (_) { return initialTutors; }
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          const valid = parsed.filter(t => !isFakeOrBotTutor(t));
+          try { localStorage.setItem('sb_tutors', JSON.stringify(valid)); } catch (_) {}
+          return valid;
+        }
+      }
+      return initialTutors.filter(t => !isFakeOrBotTutor(t));
+    } catch (_) { return []; }
   });
 
   const [reels, setReels] = useState<Reel[]>(() => {
@@ -488,8 +497,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       const saved = localStorage.getItem('sb_friends');
       const loaded: Friend[] = saved ? JSON.parse(saved) : initialFriends;
-      // Strip test friends
-      const cleaned = (loaded || []).filter(f => f.id !== 'tut_phunggiabinh' && f.id !== 'std_sarah');
+      // Strip test friends and bots
+      const cleaned = (loaded || []).filter(f => {
+        const idLower = String(f.id || '').toLowerCase();
+        const nameLower = String(f.name || '').toLowerCase();
+        return (
+          idLower !== 'tut_phunggiabinh' && 
+          idLower !== 'std_sarah' && 
+          idLower !== 'u_sarah' &&
+          idLower !== 'u_david' &&
+          idLower !== 'bot_4' &&
+          idLower !== 'bot4' &&
+          !nameLower.includes('sarah') &&
+          !nameLower.includes('bot 4') &&
+          !nameLower.includes('bot4') &&
+          !nameLower.includes('david kim')
+        );
+      });
       return cleaned;
     } catch (_) { return initialFriends; }
   });
@@ -498,7 +522,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       const saved = localStorage.getItem('sb_friend_requests');
       const loaded: FriendRequest[] = saved ? JSON.parse(saved) : initialFriendRequests;
-      const cleaned = (loaded || []).filter(r => r.senderId !== 'tut_phunggiabinh' && r.senderId !== 'std_sarah');
+      const cleaned = (loaded || []).filter(r => {
+        const idLower = String(r.senderId || '').toLowerCase();
+        const nameLower = String(r.senderName || '').toLowerCase();
+        return (
+          idLower !== 'tut_phunggiabinh' && 
+          idLower !== 'std_sarah' && 
+          idLower !== 'u_sarah' &&
+          idLower !== 'u_david' &&
+          idLower !== 'bot_4' &&
+          idLower !== 'bot4' &&
+          !nameLower.includes('sarah') &&
+          !nameLower.includes('bot 4') &&
+          !nameLower.includes('bot4') &&
+          !nameLower.includes('david kim')
+        );
+      });
       return cleaned;
     } catch (_) { return initialFriendRequests; }
   });
@@ -507,31 +546,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       const saved = localStorage.getItem('sb_direct_chats');
       const loaded: DirectChat[] = saved ? JSON.parse(saved) : initialDirectChats;
-      // Strip test chats and deduplicate
-      const filtered = (loaded || []).filter(c => 
-        c.id !== 'dm_tut_phunggiabinh' && 
-        !c.participants.some(p => p.id === 'tut_phunggiabinh' || p.id === 'std_sarah')
-      );
-      // Deduplicate by recipient to ensure zero duplicate chat windows
-      const uniqueMap = new Map<string, DirectChat>();
-      for (const chat of filtered) {
-        const otherP = chat.participants.find(p => p.id !== 'u_current' && p.id !== 'guest');
-        const key = otherP?.name?.trim().toLowerCase() || otherP?.id || chat.id;
-        if (!uniqueMap.has(key)) {
-          uniqueMap.set(key, chat);
-        } else {
-          const existing = uniqueMap.get(key)!;
-          const msgIds = new Set(existing.messages.map(m => m.id));
-          for (const m of chat.messages) {
-            if (!msgIds.has(m.id)) {
-              existing.messages.push(m);
-              msgIds.add(m.id);
-            }
-          }
-        }
-      }
-      return Array.from(uniqueMap.values());
-    } catch (_) { return initialDirectChats; }
+      const consolidated = consolidateDirectChats(loaded || []);
+      localStorage.setItem('sb_direct_chats', JSON.stringify(consolidated));
+      return consolidated;
+    } catch (_) { 
+      return consolidateDirectChats(initialDirectChats); 
+    }
   });
 
   const [blockedUsers, setBlockedUsers] = useState<BlockedUser[]>(() => {
@@ -812,7 +832,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       } else {
         const loaded: TutorPage[] = [];
-        snapshot.forEach((d) => loaded.push(d.data() as TutorPage));
+        snapshot.forEach((d) => {
+          const tutorData = d.data() as TutorPage;
+          const fullTutor = { ...tutorData, id: tutorData.id || d.id };
+          if (isFakeOrBotTutor(fullTutor)) {
+            // Delete fake tutor from Firestore to permanently purge it
+            deleteDoc(doc(db, 'tutors', d.id)).catch(() => {});
+          } else {
+            loaded.push(fullTutor);
+          }
+        });
         const normalized = loaded.map(t => normalizeTutorForUser(t, user.id));
         setTutors(normalized);
         localStorage.setItem('sb_tutors', JSON.stringify(loaded));
@@ -823,12 +852,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (saved) {
         try { 
           const loaded = JSON.parse(saved);
-          setTutors(loaded.map((t: TutorPage) => normalizeTutorForUser(t, user.id))); 
+          const filtered = Array.isArray(loaded) ? loaded.filter(t => !isFakeOrBotTutor(t)) : [];
+          setTutors(filtered.map((t: TutorPage) => normalizeTutorForUser(t, user.id))); 
         } catch (_) { 
-          setTutors(initialTutors.map(t => normalizeTutorForUser(t, user.id))); 
+          setTutors(initialTutors.filter(t => !isFakeOrBotTutor(t)).map(t => normalizeTutorForUser(t, user.id))); 
         }
       } else {
-        setTutors(initialTutors.map(t => normalizeTutorForUser(t, user.id)));
+        setTutors(initialTutors.filter(t => !isFakeOrBotTutor(t)).map(t => normalizeTutorForUser(t, user.id)));
       }
     });
 
@@ -922,24 +952,51 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // G. Sync Direct Chats across accounts
     const unsubscribeDirectChats = onSnapshot(collection(db, 'directChats'), async (snapshot) => {
       if (snapshot.empty) {
-        for (const c of initialDirectChats) {
+        const cleanedInitial = consolidateDirectChats(initialDirectChats);
+        for (const c of cleanedInitial) {
           try {
             await setDoc(doc(db, 'directChats', c.id), cleanForFirestore(c));
           } catch (e) {
             console.warn('Failed to seed direct chat:', e);
           }
         }
+        setDirectChats(cleanedInitial);
       } else {
         const loaded: DirectChat[] = [];
-        snapshot.forEach((d) => loaded.push(d.data() as DirectChat));
-        setDirectChats(loaded);
-        localStorage.setItem('sb_direct_chats', JSON.stringify(loaded));
+        snapshot.forEach((d) => {
+          const data = d.data() as DirectChat;
+          const withId = { ...data, id: d.id };
+          if (isPlaceholderBinhChat(withId)) {
+            // Delete Binh placeholder chat document immediately from Firestore
+            deleteDoc(doc(db, 'directChats', d.id)).catch(() => {});
+          } else {
+            loaded.push(withId);
+          }
+        });
+
+        // Consolidate duplicates by person identity and clean stale duplicate docs in Firestore
+        const consolidated = consolidateDirectChats(
+          loaded,
+          user.id || 'u_current',
+          user.name || '',
+          (staleId) => {
+            deleteDoc(doc(db, 'directChats', staleId)).catch(() => {});
+          }
+        );
+
+        setDirectChats(consolidated);
+        localStorage.setItem('sb_direct_chats', JSON.stringify(consolidated));
       }
     }, (error) => {
       console.warn('Firestore directChats sync failed (falling back to local):', error);
       const saved = localStorage.getItem('sb_direct_chats');
       if (saved) {
-        try { setDirectChats(JSON.parse(saved)); } catch (_) { setDirectChats(initialDirectChats); }
+        try { 
+          const parsed = JSON.parse(saved);
+          setDirectChats(consolidateDirectChats(parsed, user.id || 'u_current', user.name || '')); 
+        } catch (_) { 
+          setDirectChats(consolidateDirectChats(initialDirectChats)); 
+        }
       }
     });
 
@@ -2237,8 +2294,10 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
     // 3. Check official verified tutors list
     if (tutors && tutors.length > 0) {
       const matchTutor = tutors.find(t =>
-        Boolean((resolvedId && t.id === resolvedId)) ||
-        Boolean((authorName && t.name.trim().toLowerCase() === authorName.trim().toLowerCase()))
+        !isFakeOrBotTutor(t) && (
+          Boolean((resolvedId && t.id === resolvedId)) ||
+          Boolean((authorName && t.name.trim().toLowerCase() === authorName.trim().toLowerCase()))
+        )
       );
       if (matchTutor) {
         return matchTutor.verified === true;
@@ -2960,17 +3019,31 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
       return;
     }
 
+    const targetName = (targetUser.name || '').trim().toLowerCase();
+    const targetEmail = (targetUser.email || '').trim().toLowerCase();
+    const targetId = (targetUser.id || '').trim().toLowerCase();
+
     // Check if target user has already created a chat with current user
     const existing = directChats.find(c => {
       if (c.id === `dm_${targetUser.id}`) return true;
-      return c.participants.some(p => 
-        (targetUser.id && p.id === targetUser.id) ||
-        (targetUser.email && p.email && p.email.toLowerCase() === targetUser.email.toLowerCase()) ||
-        (targetUser.name && p.name && p.name.trim().toLowerCase() === targetUser.name.trim().toLowerCase())
-      );
+      return c.participants.some(p => {
+        const pId = (p.id || '').toLowerCase();
+        const pName = (p.name || '').trim().toLowerCase();
+        const pEmail = (p.email || '').trim().toLowerCase();
+        // Skip current user
+        if (pId === (user.id || '').toLowerCase() || pId === 'u_current' || pId === 'guest' || pName === (user.name || '').trim().toLowerCase()) {
+          return false;
+        }
+        if (targetId && pId === targetId) return true;
+        if (targetEmail && pEmail && pEmail === targetEmail) return true;
+        if (targetName && pName && pName === targetName) return true;
+        return false;
+      });
     });
 
-    const chatId = existing ? existing.id : `dm_${[user.id || 'guest', targetUser.id].sort().join('_')}`;
+    const peerKey = targetUser.id || (targetUser.name || 'peer').trim().toLowerCase().replace(/[^a-z0-9]/g, '_');
+    const myKey = user.id || 'guest';
+    const chatId = existing ? existing.id : `dm_${[myKey, peerKey].sort().join('_')}`;
 
     if (!existing) {
       const newChat: DirectChat = {
@@ -2984,7 +3057,7 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
       };
 
       setDirectChats(prev => {
-        const next = [...prev, newChat];
+        const next = consolidateDirectChats([...prev, newChat], user.id || 'u_current', user.name || '');
         localStorage.setItem('sb_direct_chats', JSON.stringify(next));
         return next;
       });
@@ -3065,16 +3138,17 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
         updatedList = [...prev, newChat];
       }
 
-      localStorage.setItem('sb_direct_chats', JSON.stringify(updatedList));
+      const consolidated = consolidateDirectChats(updatedList, user.id || 'u_current', user.name || '');
+      localStorage.setItem('sb_direct_chats', JSON.stringify(consolidated));
 
       if (isFirebaseConfigured) {
-        const chatToSave = updatedList.find(c => c.id === chatId);
+        const chatToSave = consolidated.find(c => c.id === chatId) || updatedList.find(c => c.id === chatId);
         if (chatToSave) {
           setDoc(doc(db, 'directChats', chatId), cleanForFirestore(chatToSave)).catch(e => console.warn('Firebase save direct message failed:', e));
         }
       }
 
-      return updatedList;
+      return consolidated;
     });
 
     playSound('send');

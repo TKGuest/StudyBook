@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { ShieldAlert, EyeOff, Sliders, Volume2, VolumeX, Save, Download, RefreshCw, User as UserIcon, Globe, LogOut, Check, Upload, X, BadgeCheck, Clock, Award, History, Search, Trash2, Maximize2, FileText, AlertTriangle, School, BookOpen, Music, Sparkles, Flame, MessageSquare, UserX, ShieldCheck, Zap, Activity } from 'lucide-react';
+import { ShieldAlert, EyeOff, Sliders, Volume2, VolumeX, Save, Download, RefreshCw, User as UserIcon, Globe, LogOut, Check, Upload, X, BadgeCheck, Clock, Award, History, Search, Trash2, Maximize2, FileText, AlertTriangle, School, BookOpen, Music, Sparkles, Flame, MessageSquare, UserX, ShieldCheck, Zap, Activity, ChevronDown } from 'lucide-react';
 import { isFirebaseConfigured, auth, db } from '../lib/firebase';
 import { setDoc, doc } from 'firebase/firestore';
 import { SILHOUETTE_AVATAR } from '../data/mockData';
@@ -403,63 +403,57 @@ export const SettingsView: React.FC = () => {
         </div>
       </div>
 
-      {/* BLOCK 1.1: ACADEMIC GRADE SECTION (GRADE 1 TO COLLEGE) */}
-      <div id="academic-grade-section" className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-150 dark:border-slate-700 p-5 space-y-4 shadow-sm">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-150 dark:border-slate-700 pb-3">
+      {/* BLOCK 1.1: ACADEMIC GRADE SECTION (SMALL DROPDOWN SELECTION) */}
+      <div id="academic-grade-section" className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-150 dark:border-slate-700 p-4 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="space-y-1">
             <h3 className="font-display font-bold text-sm text-gray-800 dark:text-white flex items-center gap-1.5">
               <School className="h-4.5 w-4.5 text-indigo-600 dark:text-indigo-400" />
               Academic Grade Level (Grade 1 to College)
             </h3>
-            <p className="text-[11px] text-gray-400 font-medium leading-relaxed">
-              Set your current school grade. The Newsfeed algorithm boosts study materials matching your grade (+35 pts boost) directly to the top of your feed.
+            <p className="text-[11px] text-gray-400 font-medium leading-relaxed max-w-xl">
+              Set your current school grade. The Newsfeed algorithm boosts study materials matching your grade (+40 pts boost) directly to the top of your feed.
             </p>
           </div>
-          <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
-            <span className="px-3 py-1 bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-300 font-bold rounded-lg text-xs border border-indigo-200 dark:border-indigo-800/80 flex items-center gap-1.5">
-              🎓 Active: {selectedGrade || user.grade || 'Grade 10'}
+
+          <div className="flex items-center gap-2.5 self-start sm:self-auto shrink-0">
+            <div className="relative">
+              <select
+                id="academic-grade-select-dropdown"
+                value={selectedGrade || user.grade || 'Grade 10'}
+                onChange={(e) => handleSelectGrade(e.target.value)}
+                className="appearance-none bg-gray-50 dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800/80 text-indigo-600 dark:text-indigo-300 text-xs font-bold rounded-xl pl-3.5 pr-8 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all cursor-pointer shadow-2xs"
+              >
+                <optgroup label="Elementary School" className="font-semibold text-gray-800 dark:text-gray-200 bg-white dark:bg-slate-800">
+                  <option value="Grade 1">Grade 1</option>
+                  <option value="Grade 2">Grade 2</option>
+                  <option value="Grade 3">Grade 3</option>
+                  <option value="Grade 4">Grade 4</option>
+                  <option value="Grade 5">Grade 5</option>
+                </optgroup>
+                <optgroup label="Middle School" className="font-semibold text-gray-800 dark:text-gray-200 bg-white dark:bg-slate-800">
+                  <option value="Grade 6">Grade 6</option>
+                  <option value="Grade 7">Grade 7</option>
+                  <option value="Grade 8">Grade 8</option>
+                </optgroup>
+                <optgroup label="High School" className="font-semibold text-gray-800 dark:text-gray-200 bg-white dark:bg-slate-800">
+                  <option value="Grade 9">Grade 9</option>
+                  <option value="Grade 10">Grade 10</option>
+                  <option value="Grade 11">Grade 11</option>
+                  <option value="Grade 12">Grade 12</option>
+                </optgroup>
+                <optgroup label="Higher Education" className="font-semibold text-gray-800 dark:text-gray-200 bg-white dark:bg-slate-800">
+                  <option value="College">College</option>
+                </optgroup>
+              </select>
+              <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-indigo-500 pointer-events-none" />
+            </div>
+
+            <span className="px-2.5 py-1.5 bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-300 font-bold rounded-xl text-xs border border-indigo-200 dark:border-indigo-800/80 flex items-center gap-1.5">
+              <Check className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400 stroke-[2.5]" />
+              Active
             </span>
           </div>
-        </div>
-
-        {/* Grade Category Groups */}
-        <div className="space-y-4 pt-1">
-          {[
-            { title: 'Elementary School', desc: 'Foundations & primary education', grades: ['Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5'] },
-            { title: 'Middle School', desc: 'Junior secondary curriculum', grades: ['Grade 6', 'Grade 7', 'Grade 8'] },
-            { title: 'High School', desc: 'Senior secondary & college prep', grades: ['Grade 9', 'Grade 10', 'Grade 11', 'Grade 12'] },
-            { title: 'Higher Education', desc: 'University & undergraduate courses', grades: ['College'] }
-          ].map(cat => (
-            <div key={cat.title} className="p-3 bg-gray-50/70 dark:bg-slate-900/50 rounded-xl border border-gray-200/80 dark:border-slate-700/80 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-indigo-500" />
-                  {cat.title}
-                </span>
-                <span className="text-[10px] text-gray-400 font-medium">{cat.desc}</span>
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
-                {cat.grades.map(grade => {
-                  const isCurrent = (selectedGrade || user.grade) === grade;
-                  return (
-                    <button
-                      key={grade}
-                      type="button"
-                      onClick={() => handleSelectGrade(grade)}
-                      className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-between transition-all duration-150 cursor-pointer ${
-                        isCurrent
-                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-600/30 ring-2 ring-indigo-500/30'
-                          : 'bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-700 hover:bg-indigo-50/40 dark:hover:bg-slate-750'
-                      }`}
-                    >
-                      <span>{grade}</span>
-                      {isCurrent && <Check className="h-3.5 w-3.5 text-white stroke-[3]" />}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
         </div>
       </div>
 
