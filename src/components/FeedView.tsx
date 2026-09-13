@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import { AcademicReactionType, Post, GRADE_LEVELS, GradeLevel, AlgorithmScoreBreakdown } from '../types';
 import { playSound } from '../utils/soundEffects';
@@ -34,6 +34,7 @@ import {
   Lock,
   BadgeCheck,
   UserPlus,
+  Users,
   MessageSquare,
   UserX,
   ShieldAlert,
@@ -45,8 +46,47 @@ import {
   Clock,
   ArrowUpDown,
   Activity,
-  Loader2
+  Loader2,
+  Film
 } from 'lucide-react';
+import { CreateReelModal } from './CreateReelModal';
+
+const formatSubjectDisplay = (subject?: string): string => {
+  if (!subject) return 'General';
+  const s = subject.trim();
+  const lower = s.toLowerCase();
+  if (lower === 'math' || lower === 'mathematics') return 'Mathematics';
+  if (lower === 'physics') return 'Physics';
+  if (lower === 'chemistry') return 'Chemistry';
+  if (lower === 'english') return 'English';
+  if (lower === 'biology') return 'Biology';
+  if (lower === 'exam prep' || lower === 'examprep') return 'Exam Prep';
+  if (lower === 'history') return 'History';
+  return s.charAt(0).toUpperCase() + s.slice(1);
+};
+
+const getSubjectBadgeClasses = (subject?: string): string => {
+  const lower = (subject || '').trim().toLowerCase();
+  if (lower === 'math' || lower === 'mathematics') {
+    return 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200/80 dark:border-blue-800/80';
+  }
+  if (lower === 'physics') {
+    return 'bg-violet-50 dark:bg-violet-950/60 text-violet-700 dark:text-violet-300 border-violet-200/80 dark:border-violet-800/80';
+  }
+  if (lower === 'chemistry') {
+    return 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200/80 dark:border-emerald-800/80';
+  }
+  if (lower === 'english') {
+    return 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200/80 dark:border-amber-800/80';
+  }
+  if (lower === 'biology') {
+    return 'bg-teal-50 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 border-teal-200/80 dark:border-teal-800/80';
+  }
+  if (lower === 'exam prep' || lower === 'examprep') {
+    return 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200/80 dark:border-rose-800/80';
+  }
+  return 'bg-slate-100 dark:bg-slate-750 text-slate-700 dark:text-slate-300 border-slate-200/80 dark:border-slate-700';
+};
 
 interface FeedViewProps {
   searchQuery: string;
@@ -68,6 +108,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
     isSpeaking,
     isUserVerifiedTutor,
     user,
+    setActiveTab,
     setUserGrade,
     settings,
     activeFolderId,
@@ -78,7 +119,14 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
     getFriendshipStatus,
     blockUser,
     isUserBlocked,
-    isBlockedByAuthor
+    isBlockedByAuthor,
+    isBlockedMutual,
+    openUserProfile,
+    toggleFollowUser,
+    followingIds,
+    creatorScores,
+    joinedGroupIds,
+    groupInteractions
   } = useApp();
 
   const [newPostText, setNewPostText] = useState('');
@@ -103,6 +151,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
   const [selectedStoryIndex, setSelectedStoryIndex] = useState<number | null>(null);
   const [storyProgress, setStoryProgress] = useState<number>(0);
   const [createPostModalOpen, setCreatePostModalOpen] = useState(false);
+  const [isCreateReelOpen, setIsCreateReelOpen] = useState(false);
 
   // Delete Confirmation Modal State
   const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<{
@@ -115,9 +164,10 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
 
   // Filtering based on subject filters AND Search Query AND settings.subjectWeights (if we want to reflect weights or mute tags!)
   const filteredPosts = posts.filter(post => {
-    // 0. Privacy & Blocking checks
+    // 0. Privacy & Blocking checks (Mutual Block Rule)
     const authorId = post.authorId || post.user?.id;
     if (authorId && authorId !== user.id) {
+      if (isBlockedMutual(authorId)) return false;
       if (isUserBlocked(authorId)) return false;
       if (isBlockedByAuthor(authorId, post.authorBlockedUserIds || post.blockedUserIds)) return false;
       if (post.user?.blockedUserIds?.includes(user.id)) return false;
@@ -173,21 +223,66 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
       if (isMuted) return false;
     }
 
+    // 4. Group post filter:
+    // If you are in a group, based on how much you interact with the group, post from them will appear on normal page too
+    if (post.groupId) {
+      const isMember = (joinedGroupIds || []).includes(post.groupId) || post.authorId === user.id || post.user?.id === user.id;
+      if (!isMember) return false;
+    }
+
     return true;
   });
 
-  // Personalized dynamic newsfeed algorithm sorting:
-  // - Matches user's grade and language preferences
-  // - Blends likes and freshness decay (-2.5 pts/hr)
-  // - Applies -100 pts penalty for posts already in user's seenPostIds
-  // - Randomizes in buckets of 5 (e.g. top 5 highest score randomized together)
-  const sortedPosts = sortFeedPosts(
-    filteredPosts,
-    user,
-    settings.subjectWeights,
-    'algorithm',
-    true
-  );
+  // Stable post order tracking to ensure that typing, reacting, or commenting
+  // NEVER causes posts in the feed to randomize, jump, or reshuffle positions!
+  const stableOrderRef = useRef<string[]>([]);
+  const prevFilterKeyRef = useRef<string>('');
+
+  const currentFilterKey = `${activeSubjectFilter}__${savedOnly}__${searchQuery}__${user?.grade || ''}__${(joinedGroupIds || []).join(',')}`;
+
+  const sortedPosts = useMemo(() => {
+    // 1. Calculate scores deterministically without randomizing
+    const scoredList = sortFeedPosts(
+      filteredPosts,
+      user,
+      settings.subjectWeights,
+      'algorithm',
+      false, // Never randomize buckets!
+      followingIds,
+      creatorScores,
+      joinedGroupIds,
+      groupInteractions
+    );
+
+    // 2. If the user changed the active subject filter, saved filter, search query, or grade, establish fresh order
+    if (prevFilterKeyRef.current !== currentFilterKey) {
+      prevFilterKeyRef.current = currentFilterKey;
+      stableOrderRef.current = scoredList.map(item => item.post.id);
+      return scoredList;
+    }
+
+    // 3. Maintain existing post order while browsing:
+    // Any new posts (e.g. newly created by user) are prepended at the top
+    const existingOrder = stableOrderRef.current;
+    const scoredMap = new Map(scoredList.map(item => [item.post.id, item]));
+
+    // Find any newly created or arrived posts
+    const newPostIds = scoredList
+      .filter(item => !existingOrder.includes(item.post.id))
+      .map(item => item.post.id);
+
+    // Build the updated stable order preserving existing visual positions
+    const updatedOrder = [
+      ...newPostIds,
+      ...existingOrder.filter(id => scoredMap.has(id))
+    ];
+    stableOrderRef.current = updatedOrder;
+
+    // Return the items in the stable order, with their latest live post data
+    return updatedOrder
+      .map(id => scoredMap.get(id))
+      .filter((item): item is NonNullable<typeof item> => Boolean(item));
+  }, [filteredPosts, user, settings.subjectWeights, currentFilterKey, followingIds, creatorScores, joinedGroupIds, groupInteractions]);
 
   // Facebook-style Infinite Scroll Pagination state
   const [visibleCount, setVisibleCount] = useState<number>(5);
@@ -406,7 +501,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
   }, [savedOnly]);
 
   return (
-    <div className="flex-1 p-4 md:p-6 max-w-3xl mx-auto space-y-6 h-[calc(100vh-57px)] overflow-y-auto pb-20 scrollbar-thin">
+    <div className="flex-1 p-4 md:p-6 max-w-3xl mx-auto space-y-6 h-[calc(100vh-57px)] overflow-y-auto pb-20 scrollbar-none no-scrollbar">
       {savedOnly ? (
         <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-150 dark:border-slate-700 p-6 shadow-sm space-y-2">
           <div className="flex items-center gap-3">
@@ -661,6 +756,14 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
             >
               <Video className="w-4 h-4 text-red-600" />
               <span>Video / Link URL</span>
+            </button>
+            
+            <button 
+              onClick={() => setIsCreateReelOpen(true)}
+              className="flex items-center gap-2 hover:bg-gray-100 dark:hover:bg-slate-750 py-1.5 px-3 rounded-lg cursor-pointer transition-all font-semibold"
+            >
+              <Film className="w-4 h-4 text-pink-500" />
+              <span>Reel</span>
             </button>
             
             <button 
@@ -962,150 +1065,166 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
               const postGrade = post.grade || post.user?.grade || 'Grade 10';
               const isGradeMatch = scoreBreakdown.isGradeMatch;
               const breakdown = scoreBreakdown;
-              
-              // Generate glowing ring classes for authors with daily streaks
-              const getStreakRing = (streak: number) => {
-                if (post.isAnonymous) return '';
-                if (streak >= 100) return 'border-2 border-yellow-400 ring-2 ring-yellow-500/20';
-                if (streak >= 30) return 'border-2 border-indigo-400 ring-2 ring-indigo-500/10';
-                if (streak > 0) return 'border-2 border-orange-500';
-                return '';
-              };
 
               return (
                 <motion.div 
                   id={`post-card-${post.id}`}
                   key={post.id} 
-                  layout="position"
-                  initial={{ opacity: 0, y: 15 }}
+                  initial={{ opacity: 0, y: 12 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.95 }}
-                  transition={{ duration: 0.25, ease: 'easeOut' }}
-                  className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 p-4 shadow-sm space-y-4 hover:shadow-md transition-shadow duration-200 relative overflow-hidden"
+                  transition={{ duration: 0.2, ease: 'easeOut' }}
+                  className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-150 dark:border-slate-700 p-4 shadow-xs space-y-3.5 hover:shadow-md transition-shadow duration-200"
                 >
-                {/* Category subject ribbon & Algorithm badges */}
-                <div className="absolute top-4 right-4 flex items-center gap-1.5 flex-wrap justify-end">
-                  {/* Grade Badge */}
-                  <span 
-                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 transition-all ${
-                      isGradeMatch
-                        ? 'bg-indigo-100 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 ring-1 ring-indigo-400/40'
-                        : 'bg-gray-100 dark:bg-slate-750 text-gray-600 dark:text-gray-400'
-                    }`}
-                    title={isGradeMatch ? `Matches your active grade (${postGrade})! +35 pts algorithm boost` : `Target Grade: ${postGrade}`}
-                  >
-                    <School className="h-2.5 w-2.5" />
-                    {postGrade}
-                    {isGradeMatch && (
-                      <span className="text-amber-500 font-extrabold">⭐</span>
-                    )}
-                  </span>
-
-                  {/* Subject Ribbon */}
-                  <span className="text-[10px] font-bold bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-300 px-2 py-0.5 rounded-full uppercase tracking-wider">
-                    {post.subject}
-                  </span>
-
-                  {(post.user?.id === user.id || post.authorId === user.id || isAdmin) && (
-                    <button 
-                      onClick={() => handleDeletePost(post.id, post.authorId || post.user?.id, post.user?.name)}
-                      className="p-1 text-gray-400 hover:text-red-500 rounded-full hover:bg-red-50 transition-colors"
-                      title={isAdmin && post.user?.id !== user.id ? 'Admin: Delete this post' : 'Delete post'}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                  {!post.isAnonymous && post.user?.id && post.user.id !== user.id && (
-                    <button 
-                      onClick={() => {
-                        if (confirm(`Block ${post.user.name}? They will no longer be able to message you or view your posts.`)) {
-                          blockUser(post.user.id, post.user.name, post.user.avatar);
-                        }
-                      }}
-                      className="p-1 text-gray-400 hover:text-red-500 rounded-full hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors cursor-pointer"
-                      title={`Block ${post.user.name}`}
-                    >
-                      <UserX className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                </div>
-
-                {/* Header info */}
-                <div className="flex gap-3">
-                  <div className="relative">
-                    <img 
-                      src={post.isAnonymous ? 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=150' : post.user.avatar} 
-                      alt="Author" 
-                      className={`h-10 w-10 rounded-full object-cover ${getStreakRing(post.user.streak)}`}
-                    />
-                    {!post.isAnonymous && post.user.streak > 0 && (
-                      <span className="absolute -bottom-1 -right-1 bg-orange-600 text-[9px] font-bold text-white px-1 rounded-full flex items-center gap-0.5">
-                        <Flame className="h-2 w-2 fill-white shrink-0" />
-                        {post.user.streak}
-                      </span>
-                    )}
-                    {!post.isAnonymous && isUserVerifiedTutor(post.user, post.authorId) && post.user.streak === 0 && (
-                      <span className="absolute -bottom-1 -right-1 bg-white dark:bg-slate-900 rounded-full p-0.5 shadow-xs" title="Verified Tutor">
-                        <BadgeCheck className="h-4 w-4 text-blue-500 fill-blue-500/20 shrink-0" />
-                      </span>
-                    )}
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-xs font-bold text-gray-900 dark:text-white hover:underline cursor-pointer flex items-center gap-1">
-                        {post.isAnonymous ? 'Anonymous Student' : post.user.name}
-                      </span>
-                      {!post.isAnonymous && isUserVerifiedTutor(post.user, post.authorId) && (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-extrabold bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border border-blue-300/80 dark:border-blue-700/80 px-2 py-0.5 rounded-full" title="Verified Educator & Tutor">
-                          <BadgeCheck className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 fill-blue-500/30 shrink-0" />
-                          <span>Verified Tutor</span>
+                  {/* Group Feed Indication: Shows if post originates from a joined study group and its interaction boost */}
+                  {post.groupId && (
+                    <div className="flex items-center justify-between gap-2 pb-2.5 mb-1 border-b border-gray-100 dark:border-slate-750 text-[11px]">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="flex items-center justify-center h-6 w-6 rounded-lg bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 font-bold shrink-0">
+                          <Users className="h-3.5 w-3.5" />
+                        </div>
+                        <span className="text-gray-600 dark:text-gray-300 font-medium truncate">
+                          From your study group: <strong className="font-bold text-gray-900 dark:text-white">{post.groupName || 'Study Cohort'}</strong>
                         </span>
-                      )}
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <span 
+                          className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200/70 dark:border-blue-800/60" 
+                          title={`Boosted by group interactions: +${breakdown.groupBoost || 20} pts (Activity score: ${breakdown.groupInteractionScore || 0} pts)`}
+                        >
+                          <Sparkles className="h-3 w-3 text-blue-500" />
+                          <span>Group Boost {breakdown.groupBoost > 0 ? `+${breakdown.groupBoost} pts` : ''}</span>
+                        </span>
+                      </div>
+                    </div>
+                  )}
 
-                      {!post.isAnonymous && post.user?.id && post.user.id !== user.id && !isUserBlocked(post.user.id) && (
-                        <div className="flex items-center gap-1 ml-1">
-                          {getFriendshipStatus(post.user.id) === 'none' && (
-                            <button
-                              onClick={() => sendFriendRequest({
-                                id: post.user.id,
-                                name: post.user.name,
-                                avatar: post.user.avatar,
-                                email: post.user.email
-                              })}
-                              className="px-1.5 py-0.5 bg-purple-50 hover:bg-purple-100 text-purple-600 dark:bg-purple-950/40 dark:text-purple-300 text-[10px] font-semibold rounded-md flex items-center gap-1 transition-colors cursor-pointer"
-                              title="Send Friend Request"
-                            >
-                              <UserPlus className="h-3 w-3" />
-                              Add Friend
-                            </button>
+                  {/* Post Header: Left (Avatar + Author + Metadata tags), Right (Actions) */}
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-3 min-w-0 flex-1">
+                      {/* Avatar */}
+                      <div 
+                        onClick={() => {
+                          if (!post.isAnonymous && (post.authorId || post.user?.id)) {
+                            openUserProfile(post.authorId || post.user.id);
+                          }
+                        }}
+                        className={`relative shrink-0 mt-0.5 ${!post.isAnonymous ? 'cursor-pointer' : ''}`}
+                        title={!post.isAnonymous ? `View ${post.user.name}'s profile` : 'Anonymous Student'}
+                      >
+                        <img 
+                          src={post.isAnonymous ? 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=150' : post.user.avatar} 
+                          alt="Author" 
+                          className="h-10 w-10 rounded-full object-cover border border-gray-200 dark:border-slate-700 hover:ring-2 hover:ring-blue-400 transition-all"
+                        />
+                        {!post.isAnonymous && isUserVerifiedTutor(post.user, post.authorId) && (
+                          <span className="absolute -bottom-1 -right-1 bg-white dark:bg-slate-900 rounded-full p-0.5 shadow-xs" title="Verified Tutor">
+                            <BadgeCheck className="h-4 w-4 text-blue-500 fill-blue-500/20 shrink-0" />
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Author Info and Tag Metadata */}
+                      <div className="min-w-0 flex-1">
+                        {/* Line 1: Name, Verified Tutor, Social buttons */}
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span 
+                            onClick={() => {
+                              if (!post.isAnonymous && (post.authorId || post.user?.id)) {
+                                openUserProfile(post.authorId || post.user.id);
+                              }
+                            }}
+                            className="text-xs font-bold text-gray-900 dark:text-white hover:underline cursor-pointer flex items-center gap-1"
+                          >
+                            {post.isAnonymous ? 'Anonymous Student' : post.user.name}
+                          </span>
+                          {!post.isAnonymous && isUserVerifiedTutor(post.user, post.authorId) && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-extrabold bg-blue-50 text-blue-700 dark:bg-blue-950/70 dark:text-blue-300 border border-blue-200/80 dark:border-blue-700/80 px-2 py-0.5 rounded-full" title="Verified Educator & Tutor">
+                              <BadgeCheck className="h-3 w-3 text-blue-600 dark:text-blue-400 fill-blue-500/30 shrink-0" />
+                              <span>Verified Tutor</span>
+                            </span>
                           )}
 
-                          <button
-                            onClick={() => {
-                              playSound('pop');
-                              openDirectChat({
-                                id: post.user.id,
-                                name: post.user.name,
-                                avatar: post.user.avatar,
-                                email: post.user.email,
-                                role: post.user.role,
-                                allowDMsFromStrangers: post.user.allowDMsFromStrangers
-                              });
-                            }}
-                            className="px-1.5 py-0.5 bg-gray-100 hover:bg-gray-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-gray-700 dark:text-gray-200 text-[10px] font-semibold rounded-md flex items-center gap-1 transition-colors cursor-pointer"
-                            title="Direct Message"
-                          >
-                            <MessageSquare className="h-3 w-3 text-purple-500" />
-                            Chat
-                          </button>
+                          {!post.isAnonymous && post.user?.id && post.user.id !== user.id && !isUserBlocked(post.user.id) && (
+                            <div className="flex items-center gap-1 ml-0.5 flex-wrap">
+                              <button
+                                onClick={() => {
+                                  playSound('pop');
+                                  openDirectChat({
+                                    id: post.user.id,
+                                    name: post.user.name,
+                                    avatar: post.user.avatar,
+                                    email: post.user.email,
+                                    role: post.user.role,
+                                    allowDMsFromStrangers: post.user.allowDMsFromStrangers
+                                  });
+                                }}
+                                className="px-2 py-0.5 bg-gray-100 hover:bg-gray-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-gray-700 dark:text-gray-200 text-[10px] font-semibold rounded-md flex items-center gap-1 transition-colors cursor-pointer"
+                                title="Direct Message"
+                              >
+                                <MessageSquare className="h-2.5 w-2.5 text-blue-500" />
+                                Chat
+                              </button>
+                            </div>
+                          )}
                         </div>
+
+                        {/* Line 2: Timestamp • Grade Tag • Subject Tag */}
+                        <div className="flex items-center gap-2 text-[11px] text-gray-500 dark:text-gray-400 mt-1 flex-wrap">
+                          <span>{new Date(post.timestamp).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                          <span className="text-gray-300 dark:text-slate-600">•</span>
+
+                          {/* Grade Badge Tag */}
+                          <span 
+                            className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border transition-all ${
+                              isGradeMatch
+                                ? 'bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800'
+                                : 'bg-gray-100 dark:bg-slate-750 text-gray-600 dark:text-gray-300 border-gray-200/70 dark:border-slate-700'
+                            }`}
+                            title={isGradeMatch ? `Matches your active grade (${postGrade})! +35 pts algorithm boost` : `Target Grade: ${postGrade}`}
+                          >
+                            <School className="h-2.5 w-2.5 text-indigo-500 shrink-0" />
+                            <span>{postGrade}</span>
+                            {isGradeMatch && (
+                              <span className="text-amber-500 font-extrabold text-[10px]">⭐</span>
+                            )}
+                          </span>
+
+                          {/* Subject Badge Tag */}
+                          <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${getSubjectBadgeClasses(post.subject)}`}>
+                            <BookOpen className="h-2.5 w-2.5 shrink-0 opacity-80" />
+                            <span>{formatSubjectDisplay(post.subject)}</span>
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Right Side: Options (Delete & Block) - completely outside flow of left side */}
+                    <div className="flex items-center gap-1 shrink-0 pt-0.5">
+                      {(post.user?.id === user.id || post.authorId === user.id || isAdmin) && (
+                        <button 
+                          onClick={() => handleDeletePost(post.id, post.authorId || post.user?.id, post.user?.name)}
+                          className="p-1.5 text-gray-400 hover:text-red-500 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors cursor-pointer"
+                          title={isAdmin && post.user?.id !== user.id ? 'Admin: Delete this post' : 'Delete post'}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                      {!post.isAnonymous && post.user?.id && post.user.id !== user.id && (
+                        <button 
+                          onClick={() => {
+                            if (confirm(`Block ${post.user.name}? They will no longer be able to message you or view your posts.`)) {
+                              blockUser(post.user.id, post.user.name, post.user.avatar);
+                            }
+                          }}
+                          className="p-1.5 text-gray-400 hover:text-red-500 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors cursor-pointer"
+                          title={`Block ${post.user.name}`}
+                        >
+                          <UserX className="h-3.5 w-3.5" />
+                        </button>
                       )}
                     </div>
-                    <div className="flex items-center gap-1 text-[10px] text-gray-400 mt-0.5">
-                      <span>{new Date(post.timestamp).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
-                    </div>
                   </div>
-                </div>
 
                 {/* Post body */}
                 <div className="space-y-3">
@@ -1346,12 +1465,21 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
                         
                         return (
                           <div key={comment.id} className={`pt-2.5 flex gap-2.5 items-start ${idx === 0 ? 'border-t-0 pt-0' : ''}`}>
-                            <img src={comment.user.avatar} alt="Commentor" className="h-7 w-7 rounded-full object-cover shrink-0 mt-0.5" />
+                            <img 
+                              src={comment.user.avatar} 
+                              alt="Commentor" 
+                              onClick={() => comment.user?.id && openUserProfile(comment.user.id)}
+                              className="h-7 w-7 rounded-full object-cover shrink-0 mt-0.5 cursor-pointer hover:ring-2 hover:ring-blue-400 transition-all" 
+                              title={`View ${comment.user.name}'s profile`}
+                            />
                             <div className="flex-1 min-w-0">
                               <div className="bg-white dark:bg-slate-800 rounded-2xl p-2.5 shadow-sm">
                                 <div className="flex items-center justify-between gap-1.5 mb-1">
                                   <div className="flex items-center gap-1.5">
-                                    <span className="text-[11px] font-bold text-gray-800 dark:text-white hover:underline cursor-pointer flex items-center gap-1">
+                                    <span 
+                                      onClick={() => comment.user?.id && openUserProfile(comment.user.id)}
+                                      className="text-[11px] font-bold text-gray-800 dark:text-white hover:underline cursor-pointer flex items-center gap-1"
+                                    >
                                       {comment.user.name}
                                     </span>
                                     {isUserVerifiedTutor(comment.user, comment.user?.id) && (
@@ -1487,6 +1615,18 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
           </div>
         )}
       </AnimatePresence>
+
+      {/* Educational Reel Upload Modal */}
+      <CreateReelModal
+        isOpen={isCreateReelOpen}
+        onClose={() => setIsCreateReelOpen(false)}
+        onSuccess={() => {
+          setIsCreateReelOpen(false);
+          if (setActiveTab) {
+            setActiveTab('reels');
+          }
+        }}
+      />
     </div>
   );
 };

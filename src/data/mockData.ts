@@ -21,41 +21,77 @@ export const sampleUsers: Record<string, User> = {
   u_marcus: {
     id: 'u_marcus',
     name: 'Marcus Chen',
-    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=150',
+    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=250',
+    coverPhoto: 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&q=80&w=1200',
+    bio: '🔬 High School Physics Enthusiast & Competitive Programmer. Passionate about solving mechanics problems and sharing clean formula derivations.',
     role: 'student',
     grade: 'Grade 11',
     streak: 42,
     streakLevel: 'silver',
-    badges: ['Physics Club', 'Top Solver'],
-    institution: 'Westwood Academy'
+    badges: ['Physics Club', 'Top Solver', 'Code Olympiad'],
+    institution: 'Westwood Academy',
+    followersCount: 142,
+    followingCount: 38,
+    subjects: ['Physics', 'Chemistry', 'Calculus']
   },
   u_elena: {
     id: 'u_elena',
     name: 'Prof. Elena Rostova',
-    avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&q=80&w=150',
+    avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&q=80&w=250',
+    coverPhoto: 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&q=80&w=1200',
+    bio: '📐 Associate Professor in Applied Mathematics. Creating intuitive visual cheatsheets for Multivariable Calculus, Linear Algebra & Differential Equations.',
     role: 'tutor',
     grade: 'College',
     streak: 85,
     streakLevel: 'gold',
-    badges: ['Verified Tutor', 'STEM Educator'],
-    institution: 'Metro State University'
+    badges: ['Verified Tutor', 'STEM Educator', 'Master Creator'],
+    institution: 'Metro State University',
+    followersCount: 520,
+    followingCount: 45,
+    subjects: ['Math', 'Calculus', 'Linear Algebra']
   },
   u_maya: {
     id: 'u_maya',
     name: 'Maya Patel',
-    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=150',
+    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=250',
+    coverPhoto: 'https://images.unsplash.com/photo-1497633762265-9d179a990aa6?auto=format&fit=crop&q=80&w=1200',
+    bio: '📚 Literature & Exam Prep Mentor. Sharing weekly study summaries, essay structures, and IELTS/SAT high-scoring analysis worksheets.',
     role: 'student',
     grade: 'Grade 12',
     streak: 110,
     streakLevel: 'gold',
-    badges: ['IELTS 8.5', 'National Scholar'],
-    institution: 'Cambridge Prep'
+    badges: ['IELTS 8.5', 'National Scholar', 'Essay Mentor'],
+    institution: 'Cambridge Prep',
+    followersCount: 389,
+    followingCount: 62,
+    subjects: ['English', 'Literature', 'Writing']
+  },
+  u_liam: {
+    id: 'u_liam',
+    name: 'Liam Nguyen',
+    avatar: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?auto=format&fit=crop&q=80&w=250',
+    coverPhoto: 'https://images.unsplash.com/photo-1509062522246-3755977927d7?auto=format&fit=crop&q=80&w=1200',
+    bio: '⚡ Grade 10 Honors Chemistry & Biology peer tutor. Love making 3D molecule diagrams and interactive study flashcards.',
+    role: 'creator',
+    grade: 'Grade 10',
+    streak: 28,
+    streakLevel: 'bronze',
+    badges: ['Lab Ace', 'Study Buddy'],
+    institution: 'Saigon International High',
+    followersCount: 95,
+    followingCount: 31,
+    subjects: ['Chemistry', 'Biology']
   }
 };
+
+export const initialCommunityUsers: User[] = [];
 
 export const initialPosts: Post[] = [
   {
     id: 'p_fresh_1',
+    groupId: 'g_1788665354922',
+    groupName: 'Test',
+    groupAvatar: 'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&q=80&w=400',
     user: sampleUsers.u_maya,
     authorId: sampleUsers.u_maya.id,
     authorName: sampleUsers.u_maya.name,
@@ -191,7 +227,75 @@ export const initialGroups: StudyGroup[] = [];
 
 export const initialTutors: TutorPage[] = [];
 
-export const initialReels: Reel[] = [];
+export const initialReels: Reel[] = [
+  {
+    id: 'reel_math_pythagoras',
+    tutorName: 'Marcus Chen',
+    tutorAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=250',
+    authorId: 'u_marcus',
+    videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
+    caption: '3D Visual proof of the Pythagorean Theorem! 📐 When squares rearrange into a single hypotenuse square. Pure geometry magic! #Math #Geometry #Proof',
+    subject: 'Math',
+    grade: 'Grade 10',
+    audioTrack: 'Original Audio - Marcus Chen • Math Beats',
+    likes: 142,
+    comments: 18,
+    worksheet: {
+      title: 'Pythagorean_Visual_Proof.pdf',
+      url: '#',
+      size: '1.4 MB'
+    }
+  },
+  {
+    id: 'reel_physics_gyro',
+    tutorName: 'Prof. Elena Rostova',
+    tutorAvatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&q=80&w=250',
+    authorId: 'u_elena',
+    videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4',
+    caption: 'Why spinning wheels stay upright: Conservation of Angular Momentum simplified in 45 seconds! ⚡ Try spinning a bicycle wheel yourself. #Physics #Mechanics',
+    subject: 'Physics',
+    grade: 'Grade 11',
+    audioTrack: 'Original Audio - Prof. Elena • Physics Lecture',
+    likes: 289,
+    comments: 34,
+    worksheet: {
+      title: 'Angular_Momentum_Derivations.pdf',
+      url: '#',
+      size: '2.1 MB'
+    }
+  },
+  {
+    id: 'reel_chem_reaction',
+    tutorName: 'Liam Nguyen',
+    tutorAvatar: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?auto=format&fit=crop&q=80&w=250',
+    authorId: 'u_liam',
+    videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4',
+    caption: 'The oscillating chemical reaction (Briggs-Rauscher clock)! Watch clear liquid turn amber, dark blue, then clear again. 🧪 RedOx kinetics in action. #Chemistry #ScienceExperiments',
+    subject: 'Chemistry',
+    grade: 'Grade 10',
+    audioTrack: 'Lofi Study Beats - Focus Session',
+    likes: 315,
+    comments: 27
+  },
+  {
+    id: 'reel_english_essay',
+    tutorName: 'Maya Patel',
+    tutorAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=250',
+    authorId: 'u_maya',
+    videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyBlazes.mp4',
+    caption: '3 words to BAN from your argumentative essay introductions! Replace "Nowadays" and "Since the dawn of time" with this killer contrast technique. 📚 #English #EssayTips #StudyHacks',
+    subject: 'English',
+    grade: 'Grade 12',
+    audioTrack: 'Original Audio - Maya Patel • Writing Tips',
+    likes: 420,
+    comments: 56,
+    worksheet: {
+      title: 'Academic_Transitions_Cheatsheet.pdf',
+      url: '#',
+      size: '820 KB'
+    }
+  }
+];
 
 export const initialMarketplaceItems: MarketplaceItem[] = [];
 

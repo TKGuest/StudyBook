@@ -26,6 +26,7 @@ export const FriendsView: React.FC = () => {
     declineFriendRequest, 
     getFriendshipStatus,
     openDirectChat,
+    openUserProfile,
     tutors,
     posts,
     user 
@@ -58,15 +59,20 @@ export const FriendsView: React.FC = () => {
         n.includes('sarah') ||
         n.includes('jenkins') ||
         n.includes('david kim') ||
-        n.includes('bot 4') ||
-        n.includes('bot4') ||
+        n.includes('bot') ||
+        n.includes('ban quản lý') ||
+        n.includes('ban quan ly') ||
+        n.includes('studybook') ||
+        n.includes('mai lan') ||
+        n.includes('lucas') ||
+        n.includes('system') ||
         i.includes('phunggiabinh') ||
         i.includes('sarah') ||
         i.includes('std_sarah') ||
         i.includes('u_sarah') ||
         i.includes('u_david') ||
-        i.includes('bot_4') ||
-        i.includes('bot4')
+        i.includes('bot') ||
+        i.includes('ban_quan_ly')
       );
     };
 
@@ -439,11 +445,18 @@ export const FriendsView: React.FC = () => {
                         <img 
                           src={person.avatar || SILHOUETTE_AVATAR} 
                           alt={person.name} 
-                          className="h-10 w-10 rounded-full object-cover border border-gray-150 dark:border-[#2f3031] shrink-0" 
+                          onClick={() => openUserProfile(person.id)}
+                          className="h-10 w-10 rounded-full object-cover border border-gray-150 dark:border-[#2f3031] shrink-0 cursor-pointer hover:ring-2 hover:ring-blue-400 transition-all" 
+                          title={`View ${person.name}'s profile`}
                         />
                         <div className="min-w-0">
                           <div className="flex items-center gap-1.5">
-                            <h5 className="text-xs font-bold text-gray-900 dark:text-white truncate">{person.name}</h5>
+                            <h5 
+                              onClick={() => openUserProfile(person.id)}
+                              className="text-xs font-bold text-gray-900 dark:text-white truncate cursor-pointer hover:underline"
+                            >
+                              {person.name}
+                            </h5>
                             {person.role === 'tutor' && (
                               <span title="Verified Tutor">
                                 <ShieldCheck className="h-3.5 w-3.5 text-blue-500 shrink-0" />

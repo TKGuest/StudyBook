@@ -177,7 +177,7 @@ export const FloatingChats: React.FC = () => {
                 <>
                   <div 
                     ref={el => { scrollRefs.current[chatId] = el; }}
-                    className="flex-1 p-3 overflow-y-auto space-y-3 bg-gray-50/50 dark:bg-slate-850/80 scrollbar-thin flex flex-col"
+                    className="flex-1 p-3 overflow-y-auto space-y-3 bg-gray-50/50 dark:bg-slate-850/80 scrollbar-none no-scrollbar flex flex-col"
                   >
                     {isBlocked ? (
                       <div className="p-4 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-2xl text-center space-y-2 m-auto">

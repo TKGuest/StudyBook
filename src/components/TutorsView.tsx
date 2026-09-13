@@ -45,7 +45,7 @@ export const TutorsView: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 p-4 md:p-6 max-w-4xl mx-auto space-y-6 h-[calc(100vh-57px)] overflow-y-auto pb-20 scrollbar-thin">
+    <div className="flex-1 p-4 md:p-6 max-w-4xl mx-auto space-y-6 h-[calc(100vh-57px)] overflow-y-auto pb-20 scrollbar-none no-scrollbar">
       
       {/* Horizontal grid list of tutors */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

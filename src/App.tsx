@@ -9,7 +9,7 @@ import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
 import { FeedView } from './components/FeedView';
 import { GroupsView } from './components/GroupsView';
-import { TutorsView } from './components/TutorsView';
+import { ProfileView } from './components/ProfileView';
 import { ReelsView } from './components/ReelsView';
 import { MarketplaceView } from './components/MarketplaceView';
 import { GamesView } from './components/GamesView';
@@ -29,7 +29,8 @@ import {
   ShoppingBag, 
   Gamepad2, 
   Settings as SettingsIcon,
-  UserCheck
+  UserCheck,
+  UserCircle2
 } from 'lucide-react';
 
 const AppContent: React.FC = () => {
@@ -38,6 +39,7 @@ const AppContent: React.FC = () => {
     setActiveTab, 
     settings, 
     user,
+    openUserProfile,
     isFirebaseConnected, 
     isFirebaseLoading,
     isOfflineBypass,
@@ -79,8 +81,9 @@ const AppContent: React.FC = () => {
         return <GroupsView />;
       case 'friends':
         return <FriendsView />;
+      case 'profiles':
       case 'tutors':
-        return <TutorsView />;
+        return <ProfileView />;
       case 'reels':
         return <ReelsView />;
       case 'marketplace':
@@ -98,7 +101,7 @@ const AppContent: React.FC = () => {
     { id: 'feed', icon: Rss, label: 'Feed' },
     { id: 'groups', icon: Users, label: 'Groups' },
     { id: 'friends', icon: UserCheck, label: 'Friends' },
-    { id: 'tutors', icon: GraduationCap, label: 'Tutors' },
+    { id: 'profiles', icon: UserCircle2, label: 'Profiles' },
     { id: 'reels', icon: Film, label: 'Reels' },
     { id: 'marketplace', icon: ShoppingBag, label: 'Bazaar' },
     { id: 'games', icon: Gamepad2, label: 'Battle' },
@@ -147,7 +150,13 @@ const AppContent: React.FC = () => {
             return (
               <button
                 key={item.id}
-                onClick={() => setActiveTab(item.id)}
+                onClick={() => {
+                  if (item.id === 'profiles') {
+                    openUserProfile(user?.id || 'u_current');
+                  } else {
+                    setActiveTab(item.id);
+                  }
+                }}
                 className={`flex flex-col items-center gap-0.5 focus:outline-none cursor-pointer ${isSel ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 hover:text-gray-600'}`}
               >
                 <Icon className="h-4.5 w-4.5 shrink-0" />

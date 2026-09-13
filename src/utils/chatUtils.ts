@@ -22,7 +22,12 @@ export const isIgnoredOrBotChat = (chat: any, currentUserId?: string, currentUse
     idLower.includes('u_sarah') ||
     idLower.includes('bot4') ||
     idLower.includes('bot_4') ||
-    idLower.includes('u_david')
+    idLower.includes('u_david') ||
+    idLower.includes('bot') ||
+    idLower.includes('ban_quan_ly') ||
+    idLower.includes('studybot') ||
+    idLower.includes('system') ||
+    idLower.includes('admin')
   ) {
     return true;
   }
@@ -40,6 +45,8 @@ export const isIgnoredOrBotChat = (chat: any, currentUserId?: string, currentUse
       pidLower.includes('phunggiabinh') ||
       pidLower.includes('phung_binh') ||
       pidLower === 'tut_phunggiabinh' ||
+      pidLower.includes('bot') ||
+      nameLower.includes('bot') ||
       nameLower.includes('phùng gia binh') ||
       nameLower.includes('phung gia binh') ||
       nameLower.includes('phùng gia bình') ||
@@ -52,13 +59,19 @@ export const isIgnoredOrBotChat = (chat: any, currentUserId?: string, currentUse
       nameLower.includes('sarah') ||
       nameLower.includes('jenkins') ||
       emailLower.includes('sarah') ||
-      // Bot 4 account
+      // Bot & management test accounts
       pidLower === 'bot_4' ||
       pidLower === 'bot4' ||
       pidLower === 'u_david' ||
       nameLower === 'bot 4' ||
       nameLower === 'bot4' ||
-      nameLower === 'david kim'
+      nameLower === 'david kim' ||
+      nameLower.includes('ban quản lý') ||
+      nameLower.includes('ban quan ly') ||
+      nameLower.includes('studybook') ||
+      nameLower.includes('mai lan') ||
+      nameLower.includes('lucas') ||
+      nameLower.includes('system')
     );
   });
 
@@ -104,16 +117,25 @@ export const isFakeOrBotTutor = (tutor: any): boolean => {
     nameLower.includes('sarah') ||
     nameLower.includes('jenkins') ||
     nameLower.includes('david kim') ||
+    nameLower.includes('ban quản lý') ||
+    nameLower.includes('ban quan ly') ||
+    nameLower.includes('studybook') ||
+    nameLower.includes('mai lan') ||
+    nameLower.includes('lucas') ||
+    nameLower.includes('system') ||
     idLower.includes('phunggiabinh') ||
     idLower.includes('phung_gia_binh') ||
     idLower.includes('phung_binh') ||
     idLower.includes('tut_phunggiabinh') ||
     idLower.includes('bot4') ||
     idLower.includes('bot_4') ||
+    idLower.includes('bot') ||
     idLower.includes('sarah') ||
     idLower.includes('david') ||
+    idLower.includes('ban_quan_ly') ||
     nameLower.startsWith('bot ') ||
     nameLower === 'bot' ||
+    nameLower.includes('bot') ||
     bioLower.includes('bot 4') ||
     bioLower.includes('physics guru')
   );

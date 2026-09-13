@@ -173,7 +173,7 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
           </div>
 
           {/* Conversations List */}
-          <div className="flex-1 overflow-y-auto px-2 space-y-1 scrollbar-thin">
+          <div className="flex-1 overflow-y-auto px-2 space-y-1 scrollbar-none no-scrollbar">
             {filteredChats.length === 0 ? (
               <div className="text-center py-12 px-4">
                 <MessageSquare className="h-10 w-10 text-gray-300 dark:text-gray-600 mx-auto mb-2.5" />
@@ -307,7 +307,7 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
               </div>
 
               {/* Chat Messages Body */}
-              <div className="flex-1 min-h-0 p-4 overflow-y-auto space-y-2 bg-[#ffffff] dark:bg-[#18191a] scrollbar-thin flex flex-col">
+              <div className="flex-1 min-h-0 p-4 overflow-y-auto space-y-2 bg-[#ffffff] dark:bg-[#18191a] scrollbar-none no-scrollbar flex flex-col">
                 {/* Profile header card at the top of chat (Classic Messenger) */}
                 <div className="text-center py-6 px-4 mb-2 flex flex-col items-center">
                   <div className="relative mb-3">

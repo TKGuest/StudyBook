@@ -5,11 +5,9 @@ import { motion, AnimatePresence } from 'motion/react';
 import { playSound } from '../utils/soundEffects';
 import { 
   Users, 
-  Calendar, 
   FileText, 
   MessageCircle, 
   ChevronRight, 
-  Flame, 
   Clock, 
   Download, 
   Send, 
@@ -24,14 +22,41 @@ export const GroupsView: React.FC = () => {
   const { 
     groups, 
     setGroups, 
+    posts,
+    addPost,
     groupChats, 
     sendGroupMessage, 
     createStudyGroup,
+    joinedGroupIds,
+    groupInteractions,
+    recordGroupInteraction,
+    toggleJoinGroup,
     user 
   } = useApp();
 
-  const [selectedGroupId, setSelectedGroupId] = useState<string>(groups[0]?.id || '');
-  const [activeSubTab, setActiveSubTab] = useState<'feed' | 'files' | 'events' | 'chat'>('feed');
+  const [selectedGroupId, setSelectedGroupId] = useState<string>(() => {
+    return localStorage.getItem('sb_selected_group_id') || groups[0]?.id || '';
+  });
+
+  useEffect(() => {
+    const handleStorage = () => {
+      const saved = localStorage.getItem('sb_selected_group_id');
+      if (saved) setSelectedGroupId(saved);
+    };
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener('sb_group_selected', handleStorage as EventListener);
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('sb_group_selected', handleStorage as EventListener);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (selectedGroupId) {
+      localStorage.setItem('sb_selected_group_id', selectedGroupId);
+    }
+  }, [selectedGroupId]);
+  const [activeSubTab, setActiveSubTab] = useState<'feed' | 'files' | 'chat'>('feed');
   const [chatInput, setChatInput] = useState('');
   const [anonToggle, setAnonToggle] = useState(false);
   const [groupPostText, setGroupPostText] = useState('');
@@ -249,10 +274,23 @@ export const GroupsView: React.FC = () => {
 
   const handleCreateGroupPost = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!groupPostText.trim()) return;
+    if (!groupPostText.trim() || !activeGroup) return;
 
     playSound('send');
-    alert(anonToggle ? 'Anonymous question posted to group timeline successfully!' : 'Discussion posted to group timeline successfully!');
+    addPost(
+      groupPostText.trim(),
+      activeGroup.category || 'General',
+      undefined,
+      undefined,
+      anonToggle,
+      undefined,
+      user.grade || 'Grade 10',
+      {
+        groupId: activeGroup.id,
+        groupName: activeGroup.name,
+        groupAvatar: activeGroup.coverImage
+      }
+    );
     setGroupPostText('');
   };
 
@@ -261,6 +299,7 @@ export const GroupsView: React.FC = () => {
     if (!newFileTitle.trim() || !activeGroup) return;
 
     playSound('send');
+    recordGroupInteraction(activeGroup.id, 'file');
     const newFile = {
       id: `f_${Date.now()}`,
       title: newFileTitle.endsWith('.pdf') || newFileTitle.endsWith('.docx') ? newFileTitle : `${newFileTitle}.${newFileType.toLowerCase()}`,
@@ -281,29 +320,6 @@ export const GroupsView: React.FC = () => {
     setNewFileTitle('');
     setShowAddFileModal(false);
     alert(`Document "${newFile.title}" uploaded to group successfully!`);
-  };
-
-  const handleGoingToggle = (eventId: string) => {
-    if (!activeGroup) return;
-    playSound('pop');
-    setGroups(prev => prev.map(g => {
-      if (g.id !== activeGroup.id) return g;
-      return {
-        ...g,
-        events: (g.events || []).map(ev => {
-          if (ev.id !== eventId) return ev;
-          const isGoing = !ev.isGoing;
-          if (isGoing) {
-            alert(`Scheduled successfully! Event "${ev.title}" has been added to your study calendar.`);
-          }
-          return {
-            ...ev,
-            isGoing,
-            attendees: isGoing ? ev.attendees + 1 : ev.attendees - 1
-          };
-        })
-      };
-    }));
   };
 
   const handleCreateGroupPrompt = () => {
@@ -406,7 +422,29 @@ export const GroupsView: React.FC = () => {
         <div className="relative h-44 shrink-0 bg-gray-200">
           <img src={activeGroup.coverImage} alt="Cover" className="w-full h-full object-cover" />
           <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent flex flex-col justify-end p-4">
-            <span className="text-[10px] font-bold bg-blue-600 text-white px-2 py-0.5 rounded-full w-max uppercase tracking-wider mb-1.5">{activeGroup.category}</span>
+            <div className="flex items-center justify-between gap-3 mb-1.5">
+              <span className="text-[10px] font-bold bg-blue-600 text-white px-2 py-0.5 rounded-full w-max uppercase tracking-wider">{activeGroup.category}</span>
+              <button
+                onClick={() => toggleJoinGroup(activeGroup.id)}
+                className={`px-3 py-1 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm ${
+                  joinedGroupIds.includes(activeGroup.id)
+                    ? 'bg-emerald-500 hover:bg-emerald-600 text-white'
+                    : 'bg-white hover:bg-gray-100 text-gray-900'
+                }`}
+              >
+                {joinedGroupIds.includes(activeGroup.id) ? (
+                  <>
+                    <UserCheck className="h-3.5 w-3.5" />
+                    Joined ({groupInteractions[activeGroup.id]?.score || 15} activity pts)
+                  </>
+                ) : (
+                  <>
+                    <Plus className="h-3.5 w-3.5" />
+                    Join Group
+                  </>
+                )}
+              </button>
+            </div>
             <h2 className="font-display font-extrabold text-xl text-white tracking-tight">{activeGroup.name}</h2>
             <p className="text-xs text-gray-200 font-medium truncate mt-1">{activeGroup.description}</p>
           </div>
@@ -430,7 +468,6 @@ export const GroupsView: React.FC = () => {
           {[
             { id: 'feed', label: 'Discussion Board', icon: MessageCircle },
             { id: 'files', label: 'Study Resources', icon: FileText },
-            { id: 'events', label: 'Cram Sessions', icon: Calendar },
             { id: 'chat', label: 'Group Chat', icon: MessageCircle }
           ].map(tab => {
             const isSel = activeSubTab === tab.id;
@@ -497,8 +534,41 @@ export const GroupsView: React.FC = () => {
                 </form>
               </div>
 
-              {/* Mock group discussions */}
+              {/* Group discussions */}
               <div className="space-y-4">
+                {posts.filter(p => p.groupId === activeGroup.id).map(p => (
+                  <div key={p.id} className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-150 dark:border-slate-700 p-4 shadow-xs space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <img 
+                          src={p.isAnonymous ? 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=150' : (p.user?.avatar || user.avatar)} 
+                          alt="Avatar" 
+                          className="h-8 w-8 rounded-full object-cover"
+                        />
+                        <div>
+                          <h4 className="text-xs font-bold text-gray-800 dark:text-white">
+                            {p.isAnonymous ? 'Anonymous Student' : (p.user?.name || p.authorName || 'Cohort Peer')}
+                          </h4>
+                          <p className="text-[10px] text-gray-400">
+                            {p.timestamp?.includes('T') ? new Date(p.timestamp).toLocaleDateString() : (p.timestamp || 'Just now')} • {p.subject}
+                          </p>
+                        </div>
+                      </div>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-300">
+                        Cohort Post
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-700 dark:text-gray-200 leading-relaxed font-sans font-normal">
+                      {p.content}
+                    </p>
+                    <div className="flex items-center gap-3 pt-2 border-t border-gray-100 dark:border-slate-750 text-[11px] text-gray-400">
+                      <span>{p.comments?.length || 0} comments</span>
+                      <span>•</span>
+                      <span>{(p.reactions?.helpful || 0) + (p.reactions?.insightful || 0)} reactions</span>
+                    </div>
+                  </div>
+                ))}
+
                 <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 p-4 shadow-sm space-y-3">
                   <div className="flex gap-2 items-center text-[10px] text-blue-600 bg-blue-50 dark:bg-blue-950/40 dark:text-blue-300 w-max px-2.5 py-0.5 rounded-full font-bold">
                     PINNED POST
@@ -513,7 +583,7 @@ export const GroupsView: React.FC = () => {
                     </div>
                   </div>
                   <p className="text-xs text-gray-700 dark:text-gray-200 leading-relaxed font-sans font-normal">
-                    Welcome everyone to our cohort! Please explore the shared study resources, keep discussions academically focused, and react Helpful or Insightful to support fellow peers answering your questions.
+                    Welcome everyone to our cohort! Please explore the shared study resources, keep discussions academically focused, and interact regularly to boost cohort discussions on your home feed.
                   </p>
                 </div>
               </div>
@@ -635,59 +705,6 @@ export const GroupsView: React.FC = () => {
               </motion.div>
             )}
 
-            {/* TAB: VIRTUAL CRAM SESSIONS (EVENTS) */}
-            {activeSubTab === 'events' && (
-              <motion.div
-                key="events-tab"
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -12 }}
-                transition={{ duration: 0.18 }}
-                className="max-w-2xl mx-auto space-y-4"
-              >
-              <h3 className="font-display font-bold text-sm text-gray-800 dark:text-white">Upcoming Virtual Cram Sessions & Study Livestreams</h3>
-              {(!activeGroup.events || activeGroup.events.length === 0) ? (
-                <div className="bg-white dark:bg-slate-800 rounded-2xl p-8 border border-gray-100 dark:border-slate-700 text-center text-gray-400">
-                  No live cram sessions scheduled yet.
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 gap-4">
-                  {activeGroup.events.map(ev => (
-                    <div key={ev.id} className="bg-white dark:bg-slate-800 border border-gray-150 dark:border-slate-700 rounded-2xl p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 hover:shadow-sm transition-all">
-                      <div className="space-y-1">
-                        <span className="text-[10px] font-bold text-blue-600 bg-blue-50 dark:bg-blue-950/40 dark:text-blue-300 px-2.5 py-0.5 rounded-full uppercase">Cram Session</span>
-                        <h4 className="text-xs font-bold text-gray-800 dark:text-white">{ev.title}</h4>
-                        <p className="text-[10px] text-gray-400 flex items-center gap-2">
-                          <span>Guided by: {ev.tutor}</span>
-                          <span>•</span>
-                          <span className="flex items-center gap-0.5 font-bold text-indigo-500">
-                            <Clock className="h-3 w-3" />
-                            {ev.time}
-                          </span>
-                        </p>
-                      </div>
-
-                      <div className="flex items-center gap-3">
-                        <span className="text-[10px] text-gray-400 font-semibold">{ev.attendees} registered</span>
-                        <button
-                          onClick={() => handleGoingToggle(ev.id)}
-                          className={`flex items-center gap-1 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-                            ev.isGoing 
-                              ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200' 
-                              : 'bg-blue-600 hover:bg-blue-700 text-white shadow-sm'
-                          }`}
-                        >
-                          {ev.isGoing ? <UserCheck className="h-3.5 w-3.5" /> : null}
-                          {ev.isGoing ? 'Registered' : 'Register Now'}
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              </motion.div>
-            )}
-
             {/* TAB: PERMANENT MESSENGER FOR RAPID STUDY CONVERSATIONS */}
             {activeSubTab === 'chat' && activeChat && (
               <motion.div
@@ -702,19 +719,31 @@ export const GroupsView: React.FC = () => {
               <div className="bg-gray-50 dark:bg-slate-750 px-4 py-3 border-b border-gray-150 dark:border-slate-700 flex justify-between items-center shrink-0">
                 <div className="flex items-center gap-2.5">
                   <span className="h-2.5 w-2.5 rounded-full bg-emerald-500"></span>
-                  <span className="text-xs font-bold text-gray-800 dark:text-white truncate">Rapid Study Lounge ({activeGroup.name})</span>
+                  <span className="text-xs font-bold text-gray-800 dark:text-white truncate">Study Chat ({activeGroup.name})</span>
                 </div>
-                <span className="text-[10px] text-gray-400 font-medium">Live Feed</span>
+                <span className="text-[10px] text-gray-400 font-medium">Real-time</span>
               </div>
 
               {/* Chat Log Message Scroll */}
               <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50/20 dark:bg-slate-900/10">
-                {activeChat.messages.length === 0 ? (
-                  <div className="h-full flex items-center justify-center text-xs text-gray-400 text-center p-4">
-                    No messages yet. Try pasting a complex equation or homework question to get started!
-                  </div>
-                ) : (
-                  activeChat.messages.map(m => {
+                {(() => {
+                  const sanitizedMessages = (activeChat.messages || []).filter(m => {
+                    const sId = String(m?.sender?.id || '').toLowerCase();
+                    const sName = String(m?.sender?.name || '').toLowerCase();
+                    if (sId === 'system' || sId === 'bot' || sId === 'admin') return false;
+                    if (sName.includes('ban quản lý') || sName.includes('studybook') || sName.includes('bot') || sName.includes('mai lan') || sName.includes('lucas')) return false;
+                    return true;
+                  });
+
+                  if (sanitizedMessages.length === 0) {
+                    return (
+                      <div className="h-full flex items-center justify-center text-xs text-gray-400 text-center p-4">
+                        No messages yet. Ask a question or share a problem with your cohort to start chatting!
+                      </div>
+                    );
+                  }
+
+                  return sanitizedMessages.map(m => {
                     const isSelf = m.sender.id === user.id;
                     return (
                       <div key={m.id} className={`flex gap-2.5 items-start max-w-[85%] ${isSelf ? 'ml-auto flex-row-reverse' : ''}`}>
@@ -732,8 +761,8 @@ export const GroupsView: React.FC = () => {
                         </div>
                       </div>
                     );
-                  })
-                )}
+                  });
+                })()}
                 <div ref={messagesEndRef} />
               </div>
 

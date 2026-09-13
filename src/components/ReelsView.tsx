@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { playSound } from '../utils/soundEffects';
+import { CreateReelModal } from './CreateReelModal';
 import { 
   ThumbsUp, 
   MessageSquare, 
@@ -10,17 +11,16 @@ import {
   Bookmark, 
   Volume2, 
   VolumeX, 
-  MoreHorizontal, 
   ChevronUp, 
   ChevronDown, 
   X, 
   Send, 
   Music, 
-  Check, 
-  UserPlus, 
-  UserCheck, 
   Copy, 
-  Film 
+  Film,
+  Plus,
+  Trash2,
+  Sparkles
 } from 'lucide-react';
 
 interface LocalComment {
@@ -34,16 +34,12 @@ interface LocalComment {
 }
 
 export const ReelsView: React.FC = () => {
-  const { reels, toggleReelLike, user } = useApp();
+  const { reels, toggleReelLike, deleteReel, user } = useApp();
   const [activeReelIndex, setActiveReelIndex] = useState(0);
   const [playingStates, setPlayingStates] = useState<Record<string, boolean>>({});
   const [mutedStates, setMutedStates] = useState<Record<string, boolean>>({});
-  const [followingStates, setFollowingStates] = useState<Record<string, boolean>>(() => {
-    try {
-      const saved = localStorage.getItem(`sb_following_reels_${user?.id || 'guest'}`);
-      return saved ? JSON.parse(saved) : {};
-    } catch (_) { return {}; }
-  });
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const [savedReels, setSavedReels] = useState<Record<string, boolean>>(() => {
     try {
@@ -55,8 +51,6 @@ export const ReelsView: React.FC = () => {
   useEffect(() => {
     if (user?.id) {
       try {
-        const savedFollow = localStorage.getItem(`sb_following_reels_${user.id}`);
-        setFollowingStates(savedFollow ? JSON.parse(savedFollow) : {});
         const savedSaved = localStorage.getItem(`sb_saved_reels_${user.id}`);
         setSavedReels(savedSaved ? JSON.parse(savedSaved) : {});
       } catch (_) {}
@@ -133,18 +127,6 @@ export const ReelsView: React.FC = () => {
     if (vid) vid.muted = nextMuted;
   };
 
-  const toggleFollow = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    playSound('pop');
-    setFollowingStates(prev => {
-      const next = { ...prev, [id]: !prev[id] };
-      if (user?.id) {
-        try { localStorage.setItem(`sb_following_reels_${user.id}`, JSON.stringify(next)); } catch (_) {}
-      }
-      return next;
-    });
-  };
-
   const toggleSave = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     playSound('pop');
@@ -155,6 +137,16 @@ export const ReelsView: React.FC = () => {
       }
       return next;
     });
+  };
+
+  const handleDeleteReel = async (reelId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (window.confirm('Are you sure you want to delete this reel?')) {
+      playSound('delete');
+      await deleteReel(reelId);
+      setToastMessage('Reel deleted successfully');
+      setTimeout(() => setToastMessage(null), 3000);
+    }
   };
 
   const handleAddComment = (reelId: string) => {
@@ -200,15 +192,46 @@ export const ReelsView: React.FC = () => {
     }
   };
 
+  const handleReelCreated = (newReelId: string) => {
+    setToastMessage('🎉 Educational reel published to StudyBook Reels!');
+    setTimeout(() => setToastMessage(null), 4000);
+    if (containerRef.current) {
+      containerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+    setActiveReelIndex(0);
+  };
+
   return (
     <div className="relative w-full h-[calc(100vh-57px)] bg-neutral-950 text-white flex justify-center items-center overflow-hidden">
       {/* Facebook Reels Top Banner */}
-      <div className="absolute top-3 left-4 z-30 flex items-center gap-2 bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10">
+      <div className="absolute top-3 left-4 z-30 flex items-center gap-2 bg-black/50 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-white/10 shadow-lg">
         <div className="h-6 w-6 rounded-full bg-gradient-to-tr from-pink-500 via-red-500 to-yellow-400 flex items-center justify-center p-0.5">
           <Film className="h-3.5 w-3.5 text-white" />
         </div>
         <span className="text-xs font-bold font-display tracking-wide text-white">Facebook Reels</span>
       </div>
+
+      {/* Top Right Create / Upload Reel Button */}
+      <div className="absolute top-3 right-4 z-30 flex items-center gap-2">
+        <button
+          onClick={() => {
+            playSound('openModal');
+            setShowCreateModal(true);
+          }}
+          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-lg transition-all active:scale-95 cursor-pointer border border-blue-400/30 backdrop-blur-md"
+        >
+          <Plus className="h-4 w-4" />
+          <span>Upload Reel</span>
+        </button>
+      </div>
+
+      {/* Success Toast Banner */}
+      {toastMessage && (
+        <div className="absolute top-14 z-40 bg-emerald-600 text-white text-xs font-semibold px-4 py-2 rounded-full shadow-2xl border border-emerald-400 animate-in fade-in slide-in-from-top-2 duration-200 flex items-center gap-2">
+          <Sparkles className="h-4 w-4" />
+          {toastMessage}
+        </div>
+      )}
 
       {/* Main Reels Vertical Container */}
       <div 
@@ -223,16 +246,26 @@ export const ReelsView: React.FC = () => {
             </div>
             <h3 className="text-base font-bold text-white">No Educational Reels Yet</h3>
             <p className="text-xs text-neutral-400 max-w-xs">Upload or share your first short educational video on StudyBook!</p>
+            <button
+              onClick={() => {
+                playSound('openModal');
+                setShowCreateModal(true);
+              }}
+              className="px-4 py-2 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
+            >
+              <Plus className="h-4 w-4" />
+              Upload First Reel
+            </button>
           </div>
         ) : (
           reels.map((reel, index) => {
           const isPlaying = playingStates[reel.id] !== false;
           const isMuted = mutedStates[reel.id] ?? true;
-          const isFollowing = followingStates[reel.id];
           const isSaved = savedReels[reel.id];
           const isCaptionExpanded = expandedCaptions[reel.id];
           const reelComments = commentsMap[reel.id] || [];
           const totalComments = reel.comments + reelComments.length;
+          const isAuthorOrAdmin = reel.authorId === user?.id || reel.tutorName === user?.name || user?.role === 'admin';
 
           return (
             <div 
@@ -270,19 +303,39 @@ export const ReelsView: React.FC = () => {
               </div>
 
               {/* Top Controls Bar Inside Reel */}
-              <div className="relative z-20 p-4 flex justify-between items-center pointer-events-auto mt-10 md:mt-0">
-                <span className="text-[10px] font-bold bg-blue-600/90 text-white px-2.5 py-1 rounded-full uppercase tracking-wider shadow-sm">
-                  {reel.subject}
-                </span>
+              <div className="relative z-20 p-4 flex justify-between items-center pointer-events-auto mt-12 md:mt-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-bold bg-blue-600/90 text-white px-2.5 py-1 rounded-full uppercase tracking-wider shadow-sm">
+                    {reel.subject}
+                  </span>
+                  {reel.grade && (
+                    <span className="text-[10px] font-medium bg-white/20 text-gray-200 px-2 py-0.5 rounded-full backdrop-blur-xs">
+                      {reel.grade}
+                    </span>
+                  )}
+                </div>
 
-                {/* Mute/Unmute Audio Toggle */}
-                <button
-                  onClick={(e) => toggleMute(reel.id, e)}
-                  className="p-2.5 rounded-full bg-black/40 hover:bg-black/60 text-white backdrop-blur-md transition-colors border border-white/10"
-                  title={isMuted ? 'Mute' : 'Unmute'}
-                >
-                  {isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
-                </button>
+                <div className="flex items-center gap-2">
+                  {/* Delete Reel for Author */}
+                  {isAuthorOrAdmin && (
+                    <button
+                      onClick={(e) => handleDeleteReel(reel.id, e)}
+                      className="p-2.5 rounded-full bg-black/40 hover:bg-red-600/80 text-white backdrop-blur-md transition-colors border border-white/10"
+                      title="Delete your reel"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  )}
+
+                  {/* Mute/Unmute Audio Toggle */}
+                  <button
+                    onClick={(e) => toggleMute(reel.id, e)}
+                    className="p-2.5 rounded-full bg-black/40 hover:bg-black/60 text-white backdrop-blur-md transition-colors border border-white/10"
+                    title={isMuted ? 'Mute' : 'Unmute'}
+                  >
+                    {isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+                  </button>
+                </div>
               </div>
 
               {/* Right Side Action Icons Column (Facebook Reels style) */}
@@ -352,7 +405,7 @@ export const ReelsView: React.FC = () => {
 
               {/* Bottom Left Author & Caption Info Overlay (Pinned strictly to bottom) */}
               <div className="absolute left-3.5 right-16 bottom-3 z-20 flex flex-col gap-2 pointer-events-auto">
-                {/* Author Info & Follow Button */}
+                {/* Author Info */}
                 <div className="flex items-center gap-2">
                   <img 
                     src={reel.tutorAvatar} 
@@ -361,26 +414,9 @@ export const ReelsView: React.FC = () => {
                   />
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-bold text-white shadow-sm">{reel.tutorName}</span>
-                    <button
-                      onClick={(e) => toggleFollow(reel.id, e)}
-                      className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold transition-all flex items-center gap-1 border border-white/20 shadow-sm ${
-                        isFollowing 
-                          ? 'bg-white/20 text-white hover:bg-white/30' 
-                          : 'bg-blue-600 hover:bg-blue-700 text-white'
-                      }`}
-                    >
-                      {isFollowing ? (
-                        <>
-                          <UserCheck className="h-3 w-3" />
-                          Following
-                        </>
-                      ) : (
-                        <>
-                          <UserPlus className="h-3 w-3" />
-                          Follow
-                        </>
-                      )}
-                    </button>
+                    <span className="text-[10px] text-blue-300 font-semibold bg-blue-900/60 px-2 py-0.5 rounded-full border border-blue-400/30">
+                      {reel.subject}
+                    </span>
                   </div>
                 </div>
 
@@ -402,7 +438,7 @@ export const ReelsView: React.FC = () => {
                 {/* Audio Track Line */}
                 <div className="flex items-center gap-1.5 text-[11px] text-gray-300 font-medium">
                   <Music className="h-3 w-3 text-blue-400 shrink-0" />
-                  <span className="truncate">Original Audio - {reel.tutorName} • {reel.subject}</span>
+                  <span className="truncate">{reel.audioTrack || `Original Audio - ${reel.tutorName}`}</span>
                 </div>
 
                 {/* Download Worksheet Attached Button */}
@@ -584,6 +620,13 @@ export const ReelsView: React.FC = () => {
           <ChevronDown className="h-5 w-5" />
         </button>
       </div>
+
+      {/* Create Reel Modal */}
+      <CreateReelModal
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        onSuccess={handleReelCreated}
+      />
     </div>
   );
 };

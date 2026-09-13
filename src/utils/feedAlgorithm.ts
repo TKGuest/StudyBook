@@ -1,13 +1,17 @@
-import { Post, AlgorithmScoreBreakdown, GRADE_LEVELS, User } from '../types';
+import { Post, AlgorithmScoreBreakdown, GRADE_LEVELS, User, CreatorScore } from '../types';
 import { randomizeInBucketsOfFive, shuffleArray } from './newsfeedAlgorithm';
 
 export { randomizeInBucketsOfFive, shuffleArray };
 
 /**
- * Freshness Value Algorithm Configuration:
- * - Recent posts start with 50 points.
- * - Slowly decays over time (-2.5 points per hour) to keep the feed fresh.
- * - Decay floor is 0 points.
+ * Feed Algorithm Configuration:
+ * - Freshness: Recent posts start with 50 points, decaying (-2.5 pts/hr)
+ * - Grade & Language Match boosts
+ * - Creator Points & Decay:
+ *   * If user follows a creator, posts by that creator get a +35 point boost.
+ *   * Interactions (likes +8, comments +12, saves +15) increase creator's point score.
+ *   * Inactivity Decay: If the user goes a full day (24 hours) without interacting,
+ *     the creator's point score decreases by 10 points per full 24-hour cycle.
  */
 export const ALGORITHM_CONFIG = {
   BASE_FRESHNESS: 50,
@@ -20,8 +24,88 @@ export const ALGORITHM_CONFIG = {
   INSIGHTFUL_REACTION_WEIGHT: 3,
   VERIFIED_REACTION_WEIGHT: 5,
   COMMENT_WEIGHT: 2,
-  MAX_SUBJECT_BOOST: 15
+  MAX_SUBJECT_BOOST: 15,
+  // Creator Points & Inactivity Decay Configuration
+  CREATOR_FOLLOW_BOOST: 35, // Boost when user follows this creator
+  INTERACTION_LIKE_POINTS: 8, // Points per like / reaction
+  INTERACTION_COMMENT_POINTS: 12, // Points per comment
+  INTERACTION_SAVE_POINTS: 15, // Points per save / bookmark
+  INACTIVITY_DECAY_HOURS: 24, // 24-hour period of inactivity threshold
+  INACTIVITY_DECAY_PER_DAY: 10 // Points deducted per full 24h of inactivity
 } as const;
+
+/**
+ * Calculates Creator Points for a post's creator, including:
+ * 1. Follower point boost
+ * 2. Interaction score (accumulated from likes, comments, saves)
+ * 3. Inactivity decay: -10 points per 24 hours of inactivity without interaction
+ */
+export function calculateCreatorPointsAndDecay(
+  creatorId?: string,
+  followingIds: string[] = [],
+  creatorScores: Record<string, CreatorScore> = {},
+  currentTimestamp: number = Date.now()
+): {
+  creatorScore: number;
+  isFollowingCreator: boolean;
+  creatorFollowBoost: number;
+  creatorInteractionScore: number;
+  creatorDecayAmount: number;
+  creatorInactivityHours: number;
+} {
+  if (!creatorId) {
+    return {
+      creatorScore: 0,
+      isFollowingCreator: false,
+      creatorFollowBoost: 0,
+      creatorInteractionScore: 0,
+      creatorDecayAmount: 0,
+      creatorInactivityHours: 0
+    };
+  }
+
+  // 1. Follower point boost
+  const isFollowingCreator = followingIds.includes(creatorId);
+  const creatorFollowBoost = isFollowingCreator ? ALGORITHM_CONFIG.CREATOR_FOLLOW_BOOST : 0;
+
+  // 2. Interaction point accumulation
+  const scoreRecord = creatorScores[creatorId];
+  const rawInteractionScore = scoreRecord?.score || 0;
+
+  // 3. 24-hour Inactivity Decay calculation
+  let creatorDecayAmount = 0;
+  let creatorInactivityHours = 0;
+
+  if (scoreRecord?.lastInteractionTimestamp) {
+    const lastInteractionTime = new Date(scoreRecord.lastInteractionTimestamp).getTime();
+    if (!isNaN(lastInteractionTime) && lastInteractionTime > 0) {
+      const diffMs = Math.max(0, currentTimestamp - lastInteractionTime);
+      creatorInactivityHours = Math.round((diffMs / (1000 * 60 * 60)) * 10) / 10;
+
+      // If user goes a full day (24 hours) without interacting with this creator's posts,
+      // creator's point score decreases
+      if (creatorInactivityHours >= ALGORITHM_CONFIG.INACTIVITY_DECAY_HOURS) {
+        const fullDaysWithoutInteraction = Math.floor(creatorInactivityHours / 24);
+        creatorDecayAmount = fullDaysWithoutInteraction * ALGORITHM_CONFIG.INACTIVITY_DECAY_PER_DAY;
+      }
+    }
+  }
+
+  // Decayed interaction score (floor at 0)
+  const decayedInteractionScore = Math.max(0, rawInteractionScore - creatorDecayAmount);
+
+  // Total creator points
+  const creatorScore = Math.round((creatorFollowBoost + decayedInteractionScore) * 10) / 10;
+
+  return {
+    creatorScore,
+    isFollowingCreator,
+    creatorFollowBoost,
+    creatorInteractionScore: decayedInteractionScore,
+    creatorDecayAmount,
+    creatorInactivityHours
+  };
+}
 
 /**
  * Calculates the exact post age in hours and decayed Freshness Value.
@@ -65,7 +149,11 @@ export function calculateFreshnessValue(
 export function calculatePostScore(
   post: Post,
   userOrGrade?: Partial<User> | string,
-  subjectWeights?: Record<string, number>
+  subjectWeights?: Record<string, number>,
+  followingIds?: string[],
+  creatorScores?: Record<string, CreatorScore>,
+  joinedGroupIds?: string[],
+  groupInteractions?: Record<string, any>
 ): AlgorithmScoreBreakdown {
   const user = typeof userOrGrade === 'string'
     ? { grade: userOrGrade }
@@ -74,6 +162,12 @@ export function calculatePostScore(
   const userGrade = user.grade;
   const userLang = user.language || 'English';
   const seenPostIds = user.seenPostIds || [];
+
+  // Retrieve followingIds and creatorScores either from arguments or user object
+  const activeFollowingIds = followingIds || (user as any).followingIds || (user as any).followingUserIds || [];
+  const activeCreatorScores = creatorScores || (user as any).creatorScores || {};
+  const activeJoinedGroupIds = joinedGroupIds || (user as any).joinedGroupIds || [];
+  const activeGroupInteractions = groupInteractions || (user as any).groupInteractions || {};
 
   const postDate = post.createdDate || post.timestamp;
   const { freshnessScore, hoursAgo, decayAmount } = calculateFreshnessValue(postDate);
@@ -125,12 +219,49 @@ export function calculatePostScore(
     subjectScore = Math.round((Math.min(100, Math.max(0, rawWeight)) / 100) * ALGORITHM_CONFIG.MAX_SUBJECT_BOOST * 10) / 10;
   }
 
-  // Seen penalty (-200 points) to push already-viewed posts to the bottom
+  // Creator Points & Inactivity Decay
+  const creatorId = post.isAnonymous ? undefined : (post.authorId || post.user?.id);
+  const creatorDetails = calculateCreatorPointsAndDecay(
+    creatorId,
+    activeFollowingIds,
+    activeCreatorScores
+  );
+
+  // Group Interaction Boost:
+  // If you are in a group, based on how much you interact with the group,
+  // posts from them will receive an elevated score on the normal page too!
+  let groupBoost = 0;
+  let isGroupPost = false;
+  let groupInteractionScore = 0;
+
+  if (post.groupId) {
+    isGroupPost = true;
+    const isMemberOfGroup = activeJoinedGroupIds.includes(post.groupId) || post.authorId === (user as any).id;
+    if (isMemberOfGroup) {
+      const interactionRecord = activeGroupInteractions[post.groupId];
+      const interactionPoints = typeof interactionRecord === 'number'
+        ? interactionRecord
+        : (interactionRecord?.score ?? 15);
+      groupInteractionScore = interactionPoints;
+      // High relevance boost: Base +20 pts for group cohort membership,
+      // plus interaction scaling up to +40 pts (Max +60 group boost points)
+      groupBoost = Math.min(60, 20 + Math.round(groupInteractionScore * 0.8));
+    }
+  }
+
+  // Seen penalty (-100 points) to push already-viewed posts to the bottom
   const isSeen = seenPostIds.includes(post.id);
   const seenPenalty = isSeen ? ALGORITHM_CONFIG.SEEN_PENALTY : 0;
 
   const totalScore = Math.round(
-    (freshnessScore + gradeMatchBoost + languageBoost + popularityScore + subjectScore + seenPenalty) * 10
+    (freshnessScore + 
+     gradeMatchBoost + 
+     languageBoost + 
+     popularityScore + 
+     subjectScore + 
+     creatorDetails.creatorScore + 
+     groupBoost + 
+     seenPenalty) * 10
   ) / 10;
 
   return {
@@ -148,7 +279,18 @@ export function calculatePostScore(
     userGrade,
     languageBoost,
     seenPenalty,
-    isSeen
+    isSeen,
+    // Creator Points & Decay diagnostics
+    creatorScore: creatorDetails.creatorScore,
+    isFollowingCreator: creatorDetails.isFollowingCreator,
+    creatorFollowBoost: creatorDetails.creatorFollowBoost,
+    creatorInteractionScore: creatorDetails.creatorInteractionScore,
+    creatorDecayAmount: creatorDetails.creatorDecayAmount,
+    creatorInactivityHours: creatorDetails.creatorInactivityHours,
+    // Group Post diagnostics
+    groupBoost,
+    isGroupPost,
+    groupInteractionScore
   };
 }
 
@@ -164,11 +306,23 @@ export function sortFeedPosts(
   userOrGrade?: Partial<User> | string,
   subjectWeights?: Record<string, number>,
   sortOption: FeedSortOption = 'algorithm',
-  randomizeBuckets: boolean = true
+  randomizeBuckets: boolean = false,
+  followingIds?: string[],
+  creatorScores?: Record<string, CreatorScore>,
+  joinedGroupIds?: string[],
+  groupInteractions?: Record<string, any>
 ): { post: Post; scoreBreakdown: AlgorithmScoreBreakdown }[] {
   const scoredPosts = posts.map(post => ({
     post,
-    scoreBreakdown: calculatePostScore(post, userOrGrade, subjectWeights)
+    scoreBreakdown: calculatePostScore(
+      post, 
+      userOrGrade, 
+      subjectWeights, 
+      followingIds, 
+      creatorScores,
+      joinedGroupIds,
+      groupInteractions
+    )
   }));
 
   switch (sortOption) {
@@ -176,25 +330,38 @@ export function sortFeedPosts(
       return scoredPosts.sort((a, b) => {
         const timeA = new Date(a.post.createdDate || a.post.timestamp).getTime() || 0;
         const timeB = new Date(b.post.createdDate || b.post.timestamp).getTime() || 0;
-        return timeB - timeA;
+        if (timeB !== timeA) return timeB - timeA;
+        return String(a.post.id).localeCompare(String(b.post.id));
       });
 
     case 'popular':
       return scoredPosts.sort((a, b) => {
-        return b.scoreBreakdown.popularityScore - a.scoreBreakdown.popularityScore;
+        if (b.scoreBreakdown.popularityScore !== a.scoreBreakdown.popularityScore) {
+          return b.scoreBreakdown.popularityScore - a.scoreBreakdown.popularityScore;
+        }
+        const timeA = new Date(a.post.createdDate || a.post.timestamp).getTime() || 0;
+        const timeB = new Date(b.post.createdDate || b.post.timestamp).getTime() || 0;
+        if (timeB !== timeA) return timeB - timeA;
+        return String(a.post.id).localeCompare(String(b.post.id));
       });
 
     case 'algorithm':
     default: {
-      // 1. Sort strictly by score descending
+      // 1. Sort strictly and deterministically by score descending, then freshness, then timestamp, then id
       const sorted = scoredPosts.sort((a, b) => {
         if (b.scoreBreakdown.totalScore !== a.scoreBreakdown.totalScore) {
           return b.scoreBreakdown.totalScore - a.scoreBreakdown.totalScore;
         }
-        return b.scoreBreakdown.freshnessScore - a.scoreBreakdown.freshnessScore;
+        if (b.scoreBreakdown.freshnessScore !== a.scoreBreakdown.freshnessScore) {
+          return b.scoreBreakdown.freshnessScore - a.scoreBreakdown.freshnessScore;
+        }
+        const timeA = new Date(a.post.createdDate || a.post.timestamp).getTime() || 0;
+        const timeB = new Date(b.post.createdDate || b.post.timestamp).getTime() || 0;
+        if (timeB !== timeA) return timeB - timeA;
+        return String(a.post.id).localeCompare(String(b.post.id));
       });
 
-      // 2. Randomize in buckets of 5 (highest score with 2nd, 3rd, 4th, 5th, etc.)
+      // 2. Only randomize if explicitly requested (defaults to false for stable viewing)
       if (randomizeBuckets) {
         return randomizeInBucketsOfFive(sorted, 5);
       }

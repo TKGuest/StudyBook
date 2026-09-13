@@ -33,6 +33,17 @@ export interface AlgorithmScoreBreakdown {
   languageBoost?: number;
   seenPenalty?: number;
   isSeen?: boolean;
+  // Creator Points & Inactivity Decay
+  creatorScore?: number;
+  isFollowingCreator?: boolean;
+  creatorFollowBoost?: number;
+  creatorInteractionScore?: number;
+  creatorDecayAmount?: number;
+  creatorInactivityHours?: number;
+  // Group Post & Interaction Score Boost
+  groupBoost?: number;
+  isGroupPost?: boolean;
+  groupInteractionScore?: number;
 }
 
 export interface BlockedUser {
@@ -42,11 +53,26 @@ export interface BlockedUser {
   blockedAt?: string;
 }
 
+export interface CreatorInteractions {
+  likes: number;
+  comments: number;
+  saves: number;
+}
+
+export interface CreatorScore {
+  creatorId: string;
+  score: number; // Accumulated interaction points
+  lastInteractionTimestamp: string; // ISO string of last like, comment, or save
+  interactions: CreatorInteractions;
+}
+
 export interface User {
   id: string;
   name: string;
   email?: string;
   avatar: string;
+  coverPhoto?: string;
+  bio?: string;
   role: 'student' | 'tutor' | 'creator' | 'admin';
   streak: number; // consecutive days
   streakLevel: 'none' | 'bronze' | 'silver' | 'gold';
@@ -59,7 +85,23 @@ export interface User {
   lastLoginDate?: string; // YYYY-MM-DD
   allowDMsFromStrangers?: boolean;
   blockedUserIds?: string[];
+  followersCount?: number;
+  followingCount?: number;
+  followedByUsers?: string[];
+  followingUserIds?: string[];
+  subjects?: string[];
+  joinedGroupIds?: string[];
+  groupInteractions?: Record<string, {
+    score: number;
+    lastInteractionTimestamp?: string;
+    messagesSent?: number;
+    postsCreated?: number;
+    filesContributed?: number;
+    reactionsCount?: number;
+  }>;
 }
+
+export type UserProfile = User;
 
 export interface RequestHistoryLog {
   timestamp: string;
@@ -102,8 +144,10 @@ export interface Post {
   user: User;
   authorId?: string;
   authorName?: string;
+  title?: string;
   content: string;
   text?: string; // Text field alias for algorithm processing
+  tags?: string[];
   subject: string; // Math, Physics, English, Chemistry, Exam Prep, Biology
   grade?: string; // e.g., 'Grade 10', 'College', 'All'
   gradeLevel?: string; // Grade level alias for algorithm processing
@@ -143,6 +187,9 @@ export interface Post {
   savedFolderId?: string;
   savedByUsersMap?: Record<string, { isSaved: boolean; savedFolderId?: string }>;
   isAnonymous?: boolean;
+  groupId?: string;
+  groupName?: string;
+  groupAvatar?: string;
   blockedUserIds?: string[];
   authorBlockedUserIds?: string[];
 }
@@ -154,6 +201,11 @@ export interface StudyGroup {
   description: string;
   category: string;
   memberCount: number;
+  membersCount?: number;
+  members?: any[];
+  isMember?: boolean;
+  memberUserIds?: string[];
+  tags?: string[];
   countdownDate?: string; // Target date for major exams
   countdownLabel?: string; // e.g., "National Math Finals"
   files: {
@@ -204,9 +256,13 @@ export interface Reel {
   id: string;
   tutorName: string;
   tutorAvatar: string;
+  authorId?: string;
   videoUrl: string; // Standard video or placeholder color
+  thumbnailUrl?: string;
   caption: string;
   subject: string;
+  grade?: string;
+  audioTrack?: string;
   likes: number;
   baseLikes?: number;
   comments: number;
@@ -217,6 +273,7 @@ export interface Reel {
     url: string;
     size: string;
   };
+  createdAt?: string;
 }
 
 export interface BinderFolder {
@@ -262,7 +319,9 @@ export interface Friend {
   avatar: string;
   email?: string;
   role?: string;
+  grade?: string;
   institution?: string;
+  bio?: string;
   addedAt: string;
   isOnline?: boolean;
 }
@@ -287,6 +346,7 @@ export interface DirectMessage {
   receiverName?: string;
   receiverAvatar?: string;
   content: string;
+  text?: string;
   timestamp: string;
   isImage?: boolean;
   read?: boolean;

@@ -1,11 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import { SILHOUETTE_AVATAR } from '../data/mockData';
 import { playSound } from '../utils/soundEffects';
 import { consolidateDirectChats, formatMessengerTimestamp } from '../utils/chatUtils';
 import { 
   Search, 
-  Flame, 
   Bell, 
   MessageSquare, 
   ShieldAlert, 
@@ -21,7 +20,13 @@ import {
   Users,
   Gamepad2,
   GraduationCap,
-  UserCheck
+  UserCheck,
+  UserCircle2,
+  FileText,
+  Layers,
+  X,
+  School,
+  ArrowRight
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -37,17 +42,36 @@ export const Header: React.FC<HeaderProps> = ({ onSearchQuery }) => {
     groupChats, 
     directChats,
     openDirectChat,
+    openUserProfile,
     setActiveTab, 
     isSpeaking, 
     stopSpeaking,
     tutorRequests,
-    approveTutorRequest
+    approveTutorRequest,
+    posts,
+    groups,
+    friends,
+    communityUsers
   } = useApp();
   
   const [showNotifications, setShowNotifications] = useState(false);
   const [showMessenger, setShowMessenger] = useState(false);
-  const [showStreakModal, setShowStreakModal] = useState(false);
   const [search, setSearch] = useState('');
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const [searchFilter, setSearchFilter] = useState<'people' | 'posts' | 'groups' | 'all'>('people');
+
+  const searchContainerRef = useRef<HTMLDivElement>(null);
+
+  // Close search dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(e.target as Node)) {
+        setIsSearchFocused(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const currentEmail = user.email || localStorage.getItem('sb_current_email') || '';
   const isAdmin = user.role === 'admin' || currentEmail.toLowerCase() === 'billkute030709@gmail.com';
@@ -104,21 +128,157 @@ export const Header: React.FC<HeaderProps> = ({ onSearchQuery }) => {
     const val = e.target.value;
     setSearch(val);
     onSearchQuery(val);
+    if (!isSearchFocused) setIsSearchFocused(true);
   };
 
-  // Streak badge ring styles based on streak status
-  const getStreakRingStyle = () => {
-    if (settings.incognitoMode) return 'ring-4 ring-slate-400 animate-pulse';
-    if (settings.showStreakToOthers === false) return 'ring-2 ring-slate-300 dark:ring-slate-700';
-    if (user.streak >= 100) return 'ring-4 ring-yellow-400 ring-offset-2 shadow-lg shadow-yellow-500/20 animate-pulse';
-    if (user.streak >= 30) return 'ring-4 ring-indigo-400 ring-offset-2 animate-pulse';
-    return 'ring-4 ring-orange-500 ring-offset-1';
+  const clearSearch = () => {
+    setSearch('');
+    onSearchQuery('');
   };
 
-  const getStreakTitle = () => {
-    if (user.streak >= 100) return 'Diamond Scholar';
-    if (user.streak >= 30) return 'Academic Elite';
-    return 'Study Warrior';
+  // Search Data Synthesis
+  const query = search.trim().toLowerCase();
+
+  // 1. Gather all identifiable people across the platform
+  const allKnownPeople = useMemo(() => {
+    const map = new Map<string, any>();
+    
+    // Current user
+    if (user) {
+      map.set(user.id, {
+        id: user.id,
+        name: user.name || 'Current User',
+        email: user.email || '',
+        avatar: user.avatar || SILHOUETTE_AVATAR,
+        role: user.role || 'student',
+        grade: user.grade || 'Grade 10',
+        institution: user.institution || 'StudyBook Academy',
+        bio: user.bio || '',
+        isYou: true
+      });
+    }
+
+    // Friends
+    (friends || []).forEach(f => {
+      if (f?.id && !map.has(f.id)) {
+        map.set(f.id, {
+          id: f.id,
+          name: f.name || 'Student',
+          email: f.email || '',
+          avatar: f.avatar || SILHOUETTE_AVATAR,
+          role: f.role || 'student',
+          grade: f.grade || 'Grade 10',
+          institution: f.institution || '',
+          bio: f.bio || '',
+          isFriend: true
+        });
+      }
+    });
+
+    // Community / registered users
+    (communityUsers || []).forEach(u => {
+      if (u?.id && !map.has(u.id)) {
+        map.set(u.id, {
+          id: u.id,
+          name: u.name,
+          email: u.email || '',
+          avatar: u.avatar || SILHOUETTE_AVATAR,
+          role: u.role || 'student',
+          grade: u.grade || 'Grade 10',
+          institution: u.institution || '',
+          bio: u.bio || ''
+        });
+      }
+    });
+
+    // Authors from posts
+    (posts || []).forEach(p => {
+      const authorId = p.authorId || p.user?.id;
+      if (authorId && !map.has(authorId) && !p.isAnonymous) {
+        map.set(authorId, {
+          id: authorId,
+          name: p.user?.name || 'Student',
+          email: p.user?.email || '',
+          avatar: p.user?.avatar || SILHOUETTE_AVATAR,
+          role: p.user?.role || 'student',
+          grade: p.user?.grade || p.grade || 'Grade 10',
+          institution: p.user?.institution || '',
+          bio: p.user?.bio || ''
+        });
+      }
+    });
+
+    return Array.from(map.values());
+  }, [user, friends, communityUsers, posts]);
+
+  // People Matching
+  const peopleResults = useMemo(() => {
+    if (!query) return [];
+    return allKnownPeople.filter(p => {
+      const name = (p.name || '').toLowerCase();
+      const email = (p.email || '').toLowerCase();
+      const grade = (p.grade || '').toLowerCase();
+      const inst = (p.institution || '').toLowerCase();
+      const bio = (p.bio || '').toLowerCase();
+      const role = (p.role || '').toLowerCase();
+      return name.includes(query) || email.includes(query) || grade.includes(query) || inst.includes(query) || bio.includes(query) || role.includes(query);
+    });
+  }, [allKnownPeople, query]);
+
+  // Posts Matching
+  const postResults = useMemo(() => {
+    if (!query) return [];
+    return (posts || []).filter(p => {
+      const content = (p.content || '').toLowerCase();
+      const title = (p.title || '').toLowerCase();
+      const subject = (p.subject || '').toLowerCase();
+      const authorName = (p.user?.name || '').toLowerCase();
+      const grade = (p.grade || p.user?.grade || '').toLowerCase();
+      const tagMatch = (p.tags || []).some((t: string) => t.toLowerCase().includes(query));
+      return content.includes(query) || title.includes(query) || subject.includes(query) || authorName.includes(query) || grade.includes(query) || tagMatch;
+    });
+  }, [posts, query]);
+
+  // Groups Matching
+  const groupResults = useMemo(() => {
+    if (!query) return [];
+    return (groups || []).filter(g => {
+      const name = (g.name || '').toLowerCase();
+      const desc = (g.description || '').toLowerCase();
+      const cat = (g.category || '').toLowerCase();
+      const tagMatch = (g.tags || []).some((t: string) => t.toLowerCase().includes(query));
+      return name.includes(query) || desc.includes(query) || cat.includes(query) || tagMatch;
+    });
+  }, [groups, query]);
+
+  const totalResultsCount = peopleResults.length + postResults.length + groupResults.length;
+
+  const handleSelectPerson = (personId: string) => {
+    playSound('tab');
+    setIsSearchFocused(false);
+    openUserProfile(personId);
+  };
+
+  const handleSelectPost = (postId: string) => {
+    playSound('tab');
+    setIsSearchFocused(false);
+    setActiveTab('feed');
+    setTimeout(() => {
+      const el = document.getElementById(`post-card-${postId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.classList.add('ring-2', 'ring-blue-500');
+        setTimeout(() => el.classList.remove('ring-2', 'ring-blue-500'), 2500);
+      }
+    }, 200);
+  };
+
+  const handleSelectGroup = (groupId: string) => {
+    playSound('tab');
+    setIsSearchFocused(false);
+    localStorage.setItem('sb_selected_group_id', groupId);
+    window.dispatchEvent(new CustomEvent('sb_group_selected'));
+    setActiveTab('groups');
   };
 
   // Notifications
@@ -142,18 +302,329 @@ export const Header: React.FC<HeaderProps> = ({ onSearchQuery }) => {
           </span>
         </div>
         
-        {/* Search Bar */}
-        <div className="relative flex items-center max-w-xs md:max-w-md ml-2">
+        {/* Search Bar Container */}
+        <div ref={searchContainerRef} className="relative flex items-center max-w-xs md:max-w-md ml-2">
           <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
             <Search className="h-4 w-4 text-gray-400" />
           </div>
           <input
-            type="search"
+            type="text"
             value={search}
             onChange={handleSearchChange}
-            placeholder="Search documents, groups, tutors..."
-            className="w-40 sm:w-64 rounded-full bg-gray-100 dark:bg-slate-800 py-1.5 pl-9 pr-4 text-sm font-sans text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all duration-200"
+            onFocus={() => setIsSearchFocused(true)}
+            placeholder="Search people, posts, groups..."
+            className="w-48 sm:w-72 rounded-full bg-gray-100 dark:bg-slate-800 py-1.5 pl-9 pr-8 text-sm font-sans text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:bg-white dark:focus:bg-slate-850 focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all duration-200"
           />
+          {search && (
+            <button
+              onClick={clearSearch}
+              className="absolute right-2.5 p-0.5 rounded-full hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors cursor-pointer"
+              title="Clear search"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+
+          {/* Search Dropdown with Filter Tabs */}
+          {isSearchFocused && search.trim().length > 0 && (
+            <div className="absolute left-0 top-full mt-2 w-[340px] sm:w-[460px] md:w-[520px] max-w-[92vw] bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-2xl shadow-2xl z-50 overflow-hidden flex flex-col max-h-[500px]">
+              {/* Top Filter Buttons: People (default), Posts, Groups, All */}
+              <div className="flex items-center gap-1.5 p-2 bg-gray-50/90 dark:bg-slate-850/90 border-b border-gray-150 dark:border-slate-800 overflow-x-auto scrollbar-none no-scrollbar">
+                <button
+                  type="button"
+                  onClick={() => setSearchFilter('people')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                    searchFilter === 'people'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 border border-gray-200 dark:border-slate-700'
+                  }`}
+                >
+                  <UserCheck className="h-3.5 w-3.5 shrink-0" />
+                  <span>People</span>
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                    searchFilter === 'people' ? 'bg-blue-700 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'
+                  }`}>
+                    {peopleResults.length}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSearchFilter('posts')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                    searchFilter === 'posts'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 border border-gray-200 dark:border-slate-700'
+                  }`}
+                >
+                  <FileText className="h-3.5 w-3.5 shrink-0" />
+                  <span>Posts</span>
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                    searchFilter === 'posts' ? 'bg-blue-700 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'
+                  }`}>
+                    {postResults.length}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSearchFilter('groups')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                    searchFilter === 'groups'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 border border-gray-200 dark:border-slate-700'
+                  }`}
+                >
+                  <Users className="h-3.5 w-3.5 shrink-0" />
+                  <span>Groups</span>
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                    searchFilter === 'groups' ? 'bg-blue-700 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'
+                  }`}>
+                    {groupResults.length}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSearchFilter('all')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                    searchFilter === 'all'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 border border-gray-200 dark:border-slate-700'
+                  }`}
+                >
+                  <Layers className="h-3.5 w-3.5 shrink-0" />
+                  <span>All</span>
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                    searchFilter === 'all' ? 'bg-blue-700 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'
+                  }`}>
+                    {totalResultsCount}
+                  </span>
+                </button>
+              </div>
+
+              {/* Results Container */}
+              <div className="overflow-y-auto flex-1 p-2 space-y-2 scrollbar-none no-scrollbar">
+                {/* 1. People Section (Shows when searchFilter is 'people' or 'all') */}
+                {(searchFilter === 'people' || searchFilter === 'all') && (
+                  <div>
+                    {searchFilter === 'all' && peopleResults.length > 0 && (
+                      <div className="flex items-center justify-between px-2 py-1 text-[11px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">
+                        <span className="flex items-center gap-1.5">
+                          <UserCheck className="h-3.5 w-3.5 text-blue-500" /> People ({peopleResults.length})
+                        </span>
+                        <button 
+                          onClick={() => setSearchFilter('people')} 
+                          className="text-blue-600 dark:text-blue-400 text-[10px] hover:underline cursor-pointer"
+                        >
+                          View only
+                        </button>
+                      </div>
+                    )}
+
+                    {peopleResults.length > 0 ? (
+                      <div className="space-y-1">
+                        {peopleResults.map(person => (
+                          <div
+                            key={person.id}
+                            onClick={() => handleSelectPerson(person.id)}
+                            className="flex items-center justify-between gap-3 p-2.5 rounded-xl hover:bg-gray-100 dark:hover:bg-slate-800 cursor-pointer transition-colors group"
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <img
+                                src={person.avatar}
+                                alt={person.name}
+                                className="h-10 w-10 rounded-full object-cover border border-gray-200 dark:border-slate-700 shrink-0"
+                              />
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-1.5">
+                                  <h4 className="text-xs font-bold text-gray-900 dark:text-white truncate group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                                    {person.name}
+                                  </h4>
+                                  {person.isYou && (
+                                    <span className="text-[9px] font-bold px-1.5 py-0.2 bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 rounded-full">
+                                      You
+                                    </span>
+                                  )}
+                                  {person.role === 'tutor' && (
+                                    <span className="text-[9px] font-bold px-1.5 py-0.2 bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 rounded-full">
+                                      Tutor
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-[11px] text-gray-500 dark:text-slate-400 truncate flex items-center gap-1 mt-0.5">
+                                  <span>{person.institution || 'StudyBook'}</span>
+                                  <span>•</span>
+                                  <span>{person.grade || 'Grade 10'}</span>
+                                </p>
+                              </div>
+                            </div>
+                            <span className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 shrink-0">
+                              Profile <ArrowRight className="h-3 w-3" />
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      searchFilter === 'people' && (
+                        <div className="py-8 px-4 text-center">
+                          <UserCircle2 className="h-8 w-8 text-gray-300 dark:text-slate-600 mx-auto mb-2" />
+                          <p className="text-xs font-bold text-gray-700 dark:text-gray-300">No people found matching "{search}"</p>
+                          <p className="text-[11px] text-gray-400 mt-1">
+                            {postResults.length > 0 || groupResults.length > 0 ? (
+                              <span>
+                                Found results in other categories: 
+                                {postResults.length > 0 && (
+                                  <button onClick={() => setSearchFilter('posts')} className="text-blue-600 font-bold ml-1 hover:underline cursor-pointer">
+                                    {postResults.length} Posts
+                                  </button>
+                                )}
+                                {groupResults.length > 0 && (
+                                  <button onClick={() => setSearchFilter('groups')} className="text-blue-600 font-bold ml-1 hover:underline cursor-pointer">
+                                    {groupResults.length} Groups
+                                  </button>
+                                )}
+                              </span>
+                            ) : (
+                              'Try searching for another name or grade.'
+                            )}
+                          </p>
+                        </div>
+                      )
+                    )}
+                  </div>
+                )}
+
+                {/* 2. Posts Section (Shows when searchFilter is 'posts' or 'all') */}
+                {(searchFilter === 'posts' || searchFilter === 'all') && (
+                  <div>
+                    {searchFilter === 'all' && postResults.length > 0 && (
+                      <div className="flex items-center justify-between px-2 py-1 pt-2 text-[11px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider border-t border-gray-100 dark:border-slate-800 mt-2">
+                        <span className="flex items-center gap-1.5">
+                          <FileText className="h-3.5 w-3.5 text-indigo-500" /> Posts & Documents ({postResults.length})
+                        </span>
+                        <button 
+                          onClick={() => setSearchFilter('posts')} 
+                          className="text-blue-600 dark:text-blue-400 text-[10px] hover:underline cursor-pointer"
+                        >
+                          View only
+                        </button>
+                      </div>
+                    )}
+
+                    {postResults.length > 0 ? (
+                      <div className="space-y-1">
+                        {postResults.map(post => (
+                          <div
+                            key={post.id}
+                            onClick={() => handleSelectPost(post.id)}
+                            className="p-2.5 rounded-xl hover:bg-gray-100 dark:hover:bg-slate-800 cursor-pointer transition-colors group border border-transparent hover:border-gray-200 dark:hover:border-slate-700"
+                          >
+                            <div className="flex items-center justify-between gap-2 mb-1">
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 dark:bg-blue-950/70 dark:text-blue-300">
+                                  {post.subject || 'General'}
+                                </span>
+                                <span className="text-[11px] font-bold text-gray-700 dark:text-slate-300">
+                                  {post.user?.name || 'Student'}
+                                </span>
+                              </div>
+                              <span className="text-[10px] text-gray-400">{post.grade || post.user?.grade || ''}</span>
+                            </div>
+                            <p className="text-xs text-gray-800 dark:text-slate-200 line-clamp-2 leading-relaxed">
+                              {post.title || post.content}
+                            </p>
+                            {post.tags && post.tags.length > 0 && (
+                              <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+                                {post.tags.slice(0, 3).map((tag: string) => (
+                                  <span key={tag} className="text-[9px] text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-slate-800 px-1.5 py-0.2 rounded-md">
+                                    #{tag}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      searchFilter === 'posts' && (
+                        <div className="py-8 px-4 text-center">
+                          <FileText className="h-8 w-8 text-gray-300 dark:text-slate-600 mx-auto mb-2" />
+                          <p className="text-xs font-bold text-gray-700 dark:text-gray-300">No posts found matching "{search}"</p>
+                          <p className="text-[11px] text-gray-400 mt-1">Try searching for subjects, tags, or question keywords.</p>
+                        </div>
+                      )
+                    )}
+                  </div>
+                )}
+
+                {/* 3. Groups Section (Shows when searchFilter is 'groups' or 'all') */}
+                {(searchFilter === 'groups' || searchFilter === 'all') && (
+                  <div>
+                    {searchFilter === 'all' && groupResults.length > 0 && (
+                      <div className="flex items-center justify-between px-2 py-1 pt-2 text-[11px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider border-t border-gray-100 dark:border-slate-800 mt-2">
+                        <span className="flex items-center gap-1.5">
+                          <Users className="h-3.5 w-3.5 text-emerald-500" /> Study Groups ({groupResults.length})
+                        </span>
+                        <button 
+                          onClick={() => setSearchFilter('groups')} 
+                          className="text-blue-600 dark:text-blue-400 text-[10px] hover:underline cursor-pointer"
+                        >
+                          View only
+                        </button>
+                      </div>
+                    )}
+
+                    {groupResults.length > 0 ? (
+                      <div className="space-y-1">
+                        {groupResults.map(group => (
+                          <div
+                            key={group.id}
+                            onClick={() => handleSelectGroup(group.id)}
+                            className="flex items-center justify-between gap-3 p-2.5 rounded-xl hover:bg-gray-100 dark:hover:bg-slate-800 cursor-pointer transition-colors group"
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <div className="h-10 w-10 rounded-xl bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold text-sm shrink-0">
+                                {group.name.charAt(0).toUpperCase()}
+                              </div>
+                              <div className="min-w-0">
+                                <h4 className="text-xs font-bold text-gray-900 dark:text-white truncate group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
+                                  {group.name}
+                                </h4>
+                                <p className="text-[11px] text-gray-500 dark:text-slate-400 truncate mt-0.5">
+                                  {group.description || `${group.category} Study Group`}
+                                </p>
+                              </div>
+                            </div>
+                            <span className="text-[10px] font-bold text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-slate-800 px-2 py-1 rounded-full shrink-0">
+                              {group.membersCount || (group.members?.length || 1)} members
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      searchFilter === 'groups' && (
+                        <div className="py-8 px-4 text-center">
+                          <Users className="h-8 w-8 text-gray-300 dark:text-slate-600 mx-auto mb-2" />
+                          <p className="text-xs font-bold text-gray-700 dark:text-gray-300">No study groups found matching "{search}"</p>
+                          <p className="text-[11px] text-gray-400 mt-1">Try searching by topic, grade, or subject name.</p>
+                        </div>
+                      )
+                    )}
+                  </div>
+                )}
+
+                {/* Empty State for 'all' tab */}
+                {searchFilter === 'all' && totalResultsCount === 0 && (
+                  <div className="py-8 px-4 text-center">
+                    <Search className="h-8 w-8 text-gray-300 dark:text-slate-600 mx-auto mb-2" />
+                    <p className="text-xs font-bold text-gray-700 dark:text-gray-300">No results found for "{search}"</p>
+                    <p className="text-[11px] text-gray-400 mt-1">Try checking your spelling or using more general terms.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -163,7 +634,7 @@ export const Header: React.FC<HeaderProps> = ({ onSearchQuery }) => {
           { id: 'feed', icon: Home, label: 'Academic Feed' },
           { id: 'groups', icon: Users, label: 'Study Groups' },
           { id: 'friends', icon: UserCheck, label: 'Friends & Chat' },
-          { id: 'tutors', icon: GraduationCap, label: 'Tutors & Channels' },
+          { id: 'profiles', icon: UserCircle2, label: 'User Profile' },
           { id: 'reels', icon: Film, label: 'Educational Reels' },
           { id: 'marketplace', icon: ShoppingBag, label: 'Bazaar Marketplace' },
           { id: 'games', icon: Gamepad2, label: 'Quizz & Flashcards' }
@@ -175,7 +646,11 @@ export const Header: React.FC<HeaderProps> = ({ onSearchQuery }) => {
               key={item.id}
               onClick={() => {
                 if (activeTab !== item.id) playSound('tab');
-                setActiveTab(item.id);
+                if (item.id === 'profiles') {
+                  openUserProfile(user?.id || 'u_current');
+                } else {
+                  setActiveTab(item.id);
+                }
               }}
               className={`flex-1 flex flex-col items-center justify-center h-full relative cursor-pointer group focus:outline-none transition-colors ${
                 isSelected 
@@ -214,311 +689,184 @@ export const Header: React.FC<HeaderProps> = ({ onSearchQuery }) => {
           <EyeOff className={`h-5 w-5 ${settings.incognitoMode ? 'fill-slate-200' : ''}`} />
         </button>
 
-        {/* Dark/Light mode switch */}
+        {/* TTS Stop Button */}
+        {isSpeaking && (
+          <button
+            onClick={() => {
+              playSound('pop');
+              stopSpeaking();
+            }}
+            className="flex items-center gap-1.5 px-3 py-1 bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300 rounded-full text-xs font-bold animate-pulse hover:bg-red-200 transition-colors"
+            title="Stop audio reading"
+          >
+            <VolumeX className="h-3.5 w-3.5" />
+            <span>Stop Audio</span>
+          </button>
+        )}
+
+        {/* Dark mode toggle */}
         <button
           onClick={toggleDarkMode}
-          className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-slate-800 text-gray-400 hover:text-gray-600 dark:hover:text-slate-300 transition-colors"
-          title="Toggle Theme"
+          className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-slate-800 text-gray-500 dark:text-gray-400 transition-colors"
+          title="Toggle Dark Mode"
         >
-          {settings.darkMode ? <Sun className="h-5 w-5 text-yellow-400" /> : <Moon className="h-5 w-5 text-slate-600" />}
+          {settings.darkMode ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
         </button>
 
-        {/* Messenger Panel trigger */}
+        {/* Messenger Chats dropdown */}
         <div className="relative">
           <button
             onClick={() => {
-              const nextState = !showMessenger;
-              setShowMessenger(nextState);
+              setShowMessenger(!showMessenger);
               setShowNotifications(false);
-              setShowStreakModal(false);
-              if (hasUnreadMessages) {
-                setHasUnreadMessages(false);
-                try {
-                  const msgKey = user?.id ? `sb_has_unread_msg_${user.id}` : 'sb_has_unread_msg';
-                  localStorage.setItem(msgKey, 'false');
-                } catch (_) {}
-              }
+              setHasUnreadMessages(false);
+              try {
+                const key = user?.id ? `sb_has_unread_msg_${user.id}` : 'sb_has_unread_msg';
+                localStorage.setItem(key, 'false');
+              } catch (_) {}
             }}
-            className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-slate-800 text-gray-500 hover:text-gray-700 dark:hover:text-slate-300 transition-colors relative"
-            title="Study Groups Chat"
+            className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-slate-800 text-gray-500 dark:text-gray-400 transition-colors relative cursor-pointer"
+            title="Chats & Messaging"
           >
             <MessageSquare className="h-5 w-5" />
             {hasUnreadMessages && (
-              <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-blue-500"></span>
+              <span className="absolute top-1 right-1 flex h-2 w-2 rounded-full bg-blue-600" />
             )}
           </button>
-          
-          {/* Messenger dropdown */}
+
           {showMessenger && (
-            <div className="absolute right-0 mt-2 w-88 rounded-2xl bg-white dark:bg-slate-800 border border-gray-150 dark:border-slate-700 shadow-xl z-50 overflow-hidden">
-              <div className="p-3 border-b border-gray-100 dark:border-slate-700 flex justify-between items-center bg-gray-50 dark:bg-slate-855">
-                <div className="flex items-center gap-1.5">
-                  <span className="font-bold text-sm text-gray-900 dark:text-gray-100">Chats</span>
-                  <span className="px-1.5 py-0.2 rounded-full text-[10px] font-semibold bg-[#0084ff]/10 text-[#0084ff]">Messenger</span>
-                </div>
-                <button 
-                  onClick={() => { 
-                    playSound('tab');
-                    setActiveTab('friends'); 
-                    setShowMessenger(false); 
-                  }}
-                  className="text-xs text-[#0084ff] hover:underline font-semibold cursor-pointer"
-                >
-                  See all
-                </button>
+            <div className="absolute right-0 mt-2 w-80 sm:w-96 rounded-2xl bg-white dark:bg-slate-800 border border-gray-150 dark:border-slate-700 shadow-2xl z-50 overflow-hidden">
+              <div className="p-3 border-b border-gray-100 dark:border-slate-700 flex items-center justify-between">
+                <h3 className="font-display font-bold text-sm text-gray-800 dark:text-white">Chats & Study Partners</h3>
+                <span className="text-[10px] bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-300 font-bold px-2 py-0.5 rounded-full">
+                  Messenger
+                </span>
               </div>
-              <div className="max-h-80 overflow-y-auto divide-y divide-gray-50 dark:divide-slate-700">
-                {(() => {
-                  const cleanDms = consolidateDirectChats(directChats, user.id || 'u_current', user.name || '');
-                  return (
-                    <>
-                      {cleanDms.length > 0 && (
-                        <div className="p-1">
-                          <div className="px-2 py-1 text-[10px] font-bold text-gray-400 dark:text-slate-400 uppercase tracking-wider">
-                            Direct Messages
-                          </div>
-                          {cleanDms.slice(0, 4).map(chat => {
-                            const other = chat.participants.find(p => p.id !== user.id && p.id !== 'u_current' && p.id !== 'guest') || 
-                                          chat.participants.find(p => p.id !== user.id) || 
-                                          chat.participants[0];
-                            const lastMsg = chat.messages.length > 0 ? chat.messages[chat.messages.length - 1] : null;
-                            const timeText = lastMsg ? formatMessengerTimestamp(lastMsg.timestamp) : '';
-
-                            return (
-                              <div
-                                key={chat.id}
-                                onClick={() => {
-                                  playSound('pop');
-                                  if (other) {
-                                    openDirectChat({
-                                      id: other.id,
-                                      name: other.name,
-                                      avatar: other.avatar || SILHOUETTE_AVATAR,
-                                      email: other.email,
-                                      role: other.role
-                                    });
-                                  }
-                                  setShowMessenger(false);
-                                }}
-                                className="p-2 hover:bg-gray-100 dark:hover:bg-slate-700/60 rounded-xl cursor-pointer flex gap-2.5 items-center transition-colors"
-                              >
-                                <div className="relative shrink-0">
-                                  <img 
-                                    src={other?.avatar || SILHOUETTE_AVATAR} 
-                                    alt={other?.name || 'User'} 
-                                    className="h-10 w-10 rounded-full object-cover border border-gray-100 dark:border-slate-700"
-                                  />
-                                  <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-green-500 border border-white dark:border-slate-800"></span>
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center justify-between gap-1">
-                                    <p className="text-xs font-bold text-gray-800 dark:text-gray-150 truncate">{other?.name || 'Study Colleague'}</p>
-                                    {timeText && <span className="text-[10px] text-gray-400">{timeText}</span>}
-                                  </div>
-                                  <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                                    {lastMsg ? (lastMsg.content === '👍' ? '👍 Sent a thumbs up' : lastMsg.content) : 'Start conversation'}
-                                  </p>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-
-                      {groupChats.length > 0 && (
-                        <div className="p-1">
-                          <div className="px-2 py-1 text-[10px] font-bold text-gray-400 dark:text-slate-400 uppercase tracking-wider">
-                            Study Groups
-                          </div>
-                          {groupChats.slice(0, 3).map(chat => (
-                            <div 
-                              key={chat.groupId} 
-                              onClick={() => {
-                                setActiveTab('groups');
-                                setShowMessenger(false);
-                              }}
-                              className="p-2 hover:bg-gray-100 dark:hover:bg-slate-700/60 rounded-xl cursor-pointer flex gap-2.5 items-center transition-colors"
-                            >
-                              <div className="h-9 w-9 rounded-full bg-[#0084ff]/10 dark:bg-[#0084ff]/20 flex items-center justify-center font-bold text-[#0084ff] text-xs shrink-0">
-                                {chat.groupName.substring(0, 2).toUpperCase()}
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <p className="text-xs font-bold text-gray-800 dark:text-gray-150 truncate">{chat.groupName}</p>
-                                <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                                  {chat.messages.length > 0 ? `${chat.messages[chat.messages.length - 1].sender.name}: ${chat.messages[chat.messages.length - 1].content}` : 'Start group discussion!'}
-                                </p>
-                              </div>
+              <div className="max-h-80 overflow-y-auto divide-y divide-gray-100 dark:divide-slate-700/60 scrollbar-none no-scrollbar">
+                {directChats.length === 0 && groupChats.length === 0 ? (
+                  <div className="p-6 text-center text-xs text-gray-400">
+                    No active conversations. Open a study group or message a friend!
+                  </div>
+                ) : (
+                  <>
+                    {directChats.map(chat => {
+                      const otherParticipant = chat.participants.find(p => p.id !== user.id) || chat.participants[0];
+                      const lastMessage = chat.messages[chat.messages.length - 1];
+                      return (
+                        <div
+                          key={chat.id}
+                          onClick={() => {
+                            setShowMessenger(false);
+                            if (otherParticipant) {
+                              openDirectChat(otherParticipant);
+                            }
+                          }}
+                          className="p-3 hover:bg-gray-50 dark:hover:bg-slate-700/50 cursor-pointer flex items-center gap-3 transition-colors"
+                        >
+                          <img
+                            src={otherParticipant?.avatar || SILHOUETTE_AVATAR}
+                            alt={otherParticipant?.name || 'User'}
+                            className="h-10 w-10 rounded-full object-cover border border-gray-200 dark:border-slate-700 shrink-0"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between">
+                              <h4 className="text-xs font-bold text-gray-800 dark:text-white truncate">
+                                {otherParticipant?.name || 'User'}
+                              </h4>
+                              {lastMessage && (
+                                <span className="text-[9px] text-gray-400">
+                                  {formatMessengerTimestamp(lastMessage.timestamp)}
+                                </span>
+                              )}
                             </div>
-                          ))}
+                            <p className="text-xs text-gray-500 dark:text-gray-400 truncate mt-0.5">
+                              {lastMessage ? lastMessage.text : 'Start chatting...'}
+                            </p>
+                          </div>
                         </div>
-                      )}
-
-                      {cleanDms.length === 0 && groupChats.length === 0 && (
-                        <div className="p-6 text-center text-xs text-gray-400">
-                          No messages yet.
-                        </div>
-                      )}
-                    </>
-                  );
-                })()}
+                      );
+                    })}
+                  </>
+                )}
               </div>
             </div>
           )}
         </div>
 
-        {/* Notification Panel Trigger */}
+        {/* Notifications dropdown */}
         <div className="relative">
           <button
             onClick={() => {
-              const nextState = !showNotifications;
-              setShowNotifications(nextState);
+              setShowNotifications(!showNotifications);
               setShowMessenger(false);
-              setShowStreakModal(false);
-              if (hasUnreadNotifications) {
-                setHasUnreadNotifications(false);
-                try {
-                  const notifKey = user?.id ? `sb_has_unread_notif_${user.id}` : 'sb_has_unread_notif';
-                  localStorage.setItem(notifKey, 'false');
-                } catch (_) {}
-              }
+              setHasUnreadNotifications(false);
+              try {
+                const key = user?.id ? `sb_has_unread_notif_${user.id}` : 'sb_has_unread_notif';
+                localStorage.setItem(key, 'false');
+              } catch (_) {}
             }}
-            className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-slate-800 text-gray-500 hover:text-gray-700 dark:hover:text-slate-300 transition-colors relative"
-            title="Study Notifications"
+            className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-slate-800 text-gray-500 dark:text-gray-400 transition-colors relative cursor-pointer"
+            title="Notifications"
           >
             <Bell className="h-5 w-5" />
-            {hasUnreadNotifications && (
-              <span className="absolute top-1 right-1 flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
-              </span>
+            {(hasUnreadNotifications || tutorNotifications.length > 0) && (
+              <span className="absolute top-1 right-1 flex h-2 w-2 rounded-full bg-red-500" />
             )}
           </button>
 
-          {/* Notifications dropdown */}
           {showNotifications && (
-            <div className="absolute right-0 mt-2 w-96 rounded-2xl bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700 shadow-xl z-50 overflow-hidden">
-              <div className="p-3 border-b border-gray-100 dark:border-slate-700 bg-gray-50 dark:bg-slate-850 flex flex-col gap-1">
-                <div className="flex justify-between items-center">
-                  <span className="font-semibold text-sm text-gray-800 dark:text-gray-100">Study Notifications</span>
-                  <span className="text-xs text-gray-500">Academic & Interactions</span>
-                </div>
-                {/* Academic Mode Status indicator */}
-                <div className="flex items-center gap-1.5 mt-1 px-2 py-1 rounded bg-blue-50 dark:bg-blue-950/50 border border-blue-100 dark:border-blue-900 text-[11px] text-blue-700 dark:text-blue-300">
-                  <ShieldAlert className="h-3 w-3 shrink-0" />
-                  <span>Exam Mode active: Non-academic notifications disabled.</span>
-                </div>
-              </div>
-              <div className="max-h-80 overflow-y-auto divide-y divide-gray-50 dark:divide-slate-700">
-                {tutorNotifications.map(n => (
-                  <div key={n.id} className="p-3.5 bg-purple-500/10 dark:bg-purple-950/30 hover:bg-purple-500/15 transition-colors flex flex-col gap-2">
-                    <div className="flex gap-2.5 items-start">
-                      <div className="h-2 w-2 rounded-full mt-1.5 shrink-0 bg-purple-500"></div>
-                      <div className="flex-1">
-                        <p className="text-xs text-gray-800 dark:text-gray-100 font-bold leading-relaxed">{n.text}</p>
-                        <span className="text-[10px] text-purple-400 block mt-0.5">{n.time}</span>
-                      </div>
-                    </div>
-                    <div className="flex justify-end gap-2 pt-1">
-                      <button
-                        onClick={() => {
-                          approveTutorRequest(n.requestId);
-                          setShowNotifications(false);
-                        }}
-                        className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[10px] font-bold transition-all shadow-xs"
-                      >
-                        Approve
-                      </button>
-                      <button
-                        onClick={() => {
-                          setActiveTab('settings');
-                          setShowNotifications(false);
-                        }}
-                        className="px-2.5 py-1 bg-slate-700 hover:bg-slate-600 text-white rounded text-[10px] font-bold transition-all"
-                      >
-                        Admin Panel
-                      </button>
-                    </div>
-                  </div>
-                ))}
-                {mockNotifications.map(n => (
-                  <div key={n.id} className={`p-3.5 hover:bg-gray-50 dark:hover:bg-slate-750 transition-colors flex gap-2.5 items-start ${n.isHighPriority ? 'bg-amber-50/20 dark:bg-amber-950/10' : ''}`}>
-                    <div className={`h-2 w-2 rounded-full mt-1.5 shrink-0 ${n.isHighPriority ? 'bg-amber-500' : 'bg-gray-300'}`}></div>
-                    <div className="flex-1">
-                      <p className="text-xs text-gray-800 dark:text-gray-200 font-medium leading-relaxed">{n.text}</p>
-                      <span className="text-[10px] text-gray-400 block mt-1">{n.time}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Daily Study Streak Badge - Glowing Ring surrounding user's profile picture */}
-        <div className="relative">
-          <button
-            onClick={() => {
-              setShowStreakModal(!showStreakModal);
-              setShowMessenger(false);
-              setShowNotifications(false);
-            }}
-            className="flex items-center focus:outline-none"
-            title="Study Streak"
-          >
-            <div className="relative p-0.5">
-              <img
-                src={settings.incognitoMode ? SILHOUETTE_AVATAR : (user.avatar || SILHOUETTE_AVATAR)}
-                alt="Profile"
-                className={`h-9 w-9 rounded-full object-cover transition-all ${getStreakRingStyle()}`}
-              />
-              {!settings.incognitoMode && (
-                <span 
-                  className={`absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold text-white border border-white ${settings.showStreakToOthers === false ? 'bg-gray-400 dark:bg-slate-600' : 'bg-orange-600'}`}
-                  title={settings.showStreakToOthers === false ? 'Streak hidden to others' : `Streak ${user.streak} Days`}
-                >
-                  <Flame className="h-3 w-3 fill-white" />
+            <div className="absolute right-0 mt-2 w-80 rounded-2xl bg-white dark:bg-slate-800 border border-gray-150 dark:border-slate-700 shadow-2xl z-50 overflow-hidden">
+              <div className="p-3 border-b border-gray-100 dark:border-slate-700 flex items-center justify-between">
+                <h3 className="font-display font-bold text-sm text-gray-800 dark:text-white">Notifications</h3>
+                <span className="text-[10px] bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-300 font-bold px-2 py-0.5 rounded-full">
+                  {tutorNotifications.length + mockNotifications.length} New
                 </span>
-              )}
-            </div>
-          </button>
-
-          {/* Streak details modal */}
-          {showStreakModal && (
-            <div className="absolute right-0 mt-2 w-80 rounded-2xl bg-white dark:bg-slate-800 border border-gray-150 dark:border-slate-700 shadow-2xl z-50 overflow-hidden p-4">
-              <div className="text-center pb-3 border-b border-gray-100 dark:border-slate-700">
-                <Flame className="h-10 w-10 text-orange-500 fill-orange-500 mx-auto animate-bounce" />
-                <h3 className="font-display font-bold text-lg text-gray-800 dark:text-white mt-1">
-                  Streak {user.streak} Days!
-                </h3>
-                <p className="text-xs text-gray-500 mt-0.5 font-medium">{getStreakTitle()}</p>
               </div>
-
-              {/* Login Streak Info Card */}
-              <div className="my-3 p-3.5 bg-orange-50 dark:bg-orange-950/30 border border-orange-200/80 dark:border-orange-800/40 rounded-xl space-y-1.5 text-center">
-                <p className="text-xs font-bold text-orange-700 dark:text-orange-300 flex items-center justify-center gap-1">
-                  <Flame className="h-4 w-4 fill-orange-500 text-orange-500" />
-                  Daily Login Streak
-                </p>
-                <p className="text-[11px] text-orange-800/80 dark:text-orange-200/80 leading-relaxed">
-                  Log in to StudyBook every day to maintain your streak! If you miss a day, your streak resets to 1.
-                </p>
-              </div>
-
-              {/* Earned badges in app */}
-              <div className="pt-2 border-t border-gray-100 dark:border-slate-700">
-                <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider block mb-2">Earned Badges</span>
-                <div className="flex flex-wrap gap-1.5">
-                  {user.badges.map(b => (
-                    <span key={b} className="flex items-center gap-1 text-[10px] font-semibold bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-300 px-2 py-1 rounded-full">
-                      <Award className="h-3 w-3" />
-                      {b}
-                    </span>
-                  ))}
-                </div>
+              <div className="max-h-72 overflow-y-auto divide-y divide-gray-100 dark:divide-slate-700 scrollbar-none no-scrollbar">
+                {tutorNotifications.map(tNotif => (
+                  <div key={tNotif.id} className="p-3 bg-amber-50 dark:bg-amber-950/40 space-y-2">
+                    <p className="text-xs font-semibold text-amber-900 dark:text-amber-200">{tNotif.text}</p>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => {
+                          approveTutorRequest(tNotif.requestId);
+                          setShowNotifications(false);
+                        }}
+                        className="px-2.5 py-1 bg-amber-600 text-white rounded-lg text-[10px] font-bold hover:bg-amber-700 transition-all cursor-pointer"
+                      >
+                        Approve Tutor
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {mockNotifications.map(notif => (
+                  <div key={notif.id} className="p-3 hover:bg-gray-50 dark:hover:bg-slate-700/50 cursor-pointer">
+                    <p className="text-xs text-gray-700 dark:text-gray-200">{notif.text}</p>
+                    <span className="text-[10px] text-gray-400 mt-1 block">{notif.time}</span>
+                  </div>
+                ))}
               </div>
             </div>
           )}
         </div>
+
+        {/* User Profile Avatar button (Directly opens current user profile, no streak modal) */}
+        <button
+          onClick={() => {
+            playSound('tab');
+            openUserProfile(user.id);
+          }}
+          className="flex items-center focus:outline-none cursor-pointer group"
+          title={`View your profile (${user.name})`}
+        >
+          <div className="relative p-0.5">
+            <img
+              src={settings.incognitoMode ? SILHOUETTE_AVATAR : (user.avatar || SILHOUETTE_AVATAR)}
+              alt="Profile"
+              className="h-9 w-9 rounded-full object-cover border-2 border-gray-200 dark:border-slate-700 group-hover:border-blue-500 transition-all shadow-xs"
+            />
+          </div>
+        </button>
       </div>
     </header>
   );

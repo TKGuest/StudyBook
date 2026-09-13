@@ -4,7 +4,7 @@ import { playSound } from '../utils/soundEffects';
 import { 
   Rss, 
   Users, 
-  GraduationCap, 
+  UserCircle2, 
   Film, 
   ShoppingBag, 
   Gamepad2, 
@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 
 export const Sidebar: React.FC = () => {
-  const { activeTab, setActiveTab, posts, folders, addFolder, activeFolderId, setActiveFolderId } = useApp();
+  const { activeTab, setActiveTab, posts, folders, addFolder, activeFolderId, setActiveFolderId, user, openUserProfile } = useApp();
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
   const [newFolderColor, setNewFolderColor] = useState('bg-blue-500');
@@ -31,7 +31,7 @@ export const Sidebar: React.FC = () => {
     { id: 'feed', label: 'Academic Feed', icon: Rss, desc: 'Resources, academic discussion' },
     { id: 'groups', label: 'Study Groups', icon: Users, desc: 'Virtual classrooms, shared files' },
     { id: 'friends', label: 'Friends & Chat', icon: UserCheck, desc: 'Friends list, 1-on-1 direct messages' },
-    { id: 'tutors', label: 'Tutors & Channels', icon: GraduationCap, desc: 'Teacher profiles, 5-star reviews' },
+    { id: 'profiles', label: 'User Profile', icon: UserCircle2, desc: 'Your bio, grade, streak & study notes' },
     { id: 'reels', label: 'Educational Reels', icon: Film, desc: 'Learn super fast in 60s' },
     { id: 'marketplace', label: 'Bazaar Marketplace', icon: ShoppingBag, desc: 'Calculators, textbooks, giveaways' },
     { id: 'games', label: 'Quizz & Flashcards', icon: Gamepad2, desc: 'Solve flashcards, rank weekly' },
@@ -52,7 +52,11 @@ export const Sidebar: React.FC = () => {
                 key={item.id}
                 onClick={() => {
                   if (activeTab !== item.id) playSound('tab');
-                  setActiveTab(item.id);
+                  if (item.id === 'profiles') {
+                    openUserProfile(user?.id || 'u_current');
+                  } else {
+                    setActiveTab(item.id);
+                  }
                 }}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all duration-200 group ${
                   isSelected 

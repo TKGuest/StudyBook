@@ -46,11 +46,10 @@ export const OnboardingScreen: React.FC = () => {
     }
   };
 
-  const gradeCategories = [
-    { title: 'Elementary School', grades: ['Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5'] },
-    { title: 'Middle School', grades: ['Grade 6', 'Grade 7', 'Grade 8'] },
-    { title: 'High School', grades: ['Grade 9', 'Grade 10', 'Grade 11', 'Grade 12'] },
-    { title: 'Higher Education', grades: ['College'] }
+  const allGrades = [
+    'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5',
+    'Grade 6', 'Grade 7', 'Grade 8', 'Grade 9', 'Grade 10',
+    'Grade 11', 'Grade 12', 'College'
   ];
 
   return (
@@ -203,36 +202,28 @@ export const OnboardingScreen: React.FC = () => {
                 </span>
               </div>
 
-              {/* Grade Categories & Badges */}
-              <div className="space-y-4 max-h-[300px] overflow-y-auto pr-1 scrollbar-thin">
-                {gradeCategories.map(cat => (
-                  <div key={cat.title} className="space-y-2">
-                    <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-blue-500" />
-                      {cat.title}
-                    </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                      {cat.grades.map(grade => {
-                        const isSelected = selectedGrade === grade;
-                        return (
-                          <button
-                            key={grade}
-                            type="button"
-                            onClick={() => setSelectedGrade(grade)}
-                            className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-between transition-all cursor-pointer ${
-                              isSelected
-                                ? 'bg-blue-600 text-white border-blue-500 shadow-sm shadow-blue-500/30 ring-2 ring-blue-500/30'
-                                : 'bg-slate-950/40 border-slate-800/80 text-slate-300 hover:bg-slate-900/80 hover:border-slate-700'
-                            }`}
-                          >
-                            <span>{grade}</span>
-                            {isSelected && <Check className="h-3.5 w-3.5 text-white" />}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
+              {/* Grade Badges */}
+              <div className="max-h-[300px] overflow-y-auto pr-1 scrollbar-none no-scrollbar">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {allGrades.map(grade => {
+                    const isSelected = selectedGrade === grade;
+                    return (
+                      <button
+                        key={grade}
+                        type="button"
+                        onClick={() => setSelectedGrade(grade)}
+                        className={`py-2.5 px-3 rounded-xl border text-xs font-semibold flex items-center justify-between transition-all cursor-pointer ${
+                          isSelected
+                            ? 'bg-blue-600 text-white border-blue-500 shadow-sm shadow-blue-500/30 ring-2 ring-blue-500/30'
+                            : 'bg-slate-950/40 border-slate-800/80 text-slate-300 hover:bg-slate-900/80 hover:border-slate-700'
+                        }`}
+                      >
+                        <span>{grade}</span>
+                        {isSelected && <Check className="h-3.5 w-3.5 text-white" />}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </motion.div>
           )}
@@ -254,7 +245,7 @@ export const OnboardingScreen: React.FC = () => {
                 </p>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[280px] overflow-y-auto scrollbar-thin p-1">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[280px] overflow-y-auto scrollbar-none no-scrollbar p-1">
                 {[
                   { key: 'Math' as const, label: 'Mathematics', sub: 'Algebra, Geometry, Calculus', desc: 'Algebra, Geometry, Calculus & problem solving' },
                   { key: 'Physics' as const, label: 'Physics', sub: 'Mechanics, Optics, Waves', desc: 'Mechanics, Thermodynamics & experiments' },

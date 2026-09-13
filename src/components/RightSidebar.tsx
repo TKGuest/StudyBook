@@ -1,6 +1,6 @@
 import React from 'react';
 import { useApp } from '../context/AppContext';
-import { MessageSquare, Flame, Users, UserPlus, ShieldCheck, UserCheck } from 'lucide-react';
+import { MessageSquare, Users, UserPlus, ShieldCheck, UserCheck } from 'lucide-react';
 import { playSound } from '../utils/soundEffects';
 import { SILHOUETTE_AVATAR } from '../data/mockData';
 
@@ -10,27 +10,12 @@ export const RightSidebar: React.FC = () => {
   const pendingReceived = friendRequests.filter(r => r.receiverId === user.id && r.status === 'pending');
 
   return (
-    <aside className="w-72 shrink-0 hidden xl:flex flex-col bg-gray-50 dark:bg-slate-950 p-3 pt-2 border-l border-gray-150 dark:border-slate-850 h-[calc(100vh-57px)] overflow-y-auto scrollbar-thin transition-colors">
+    <aside className="w-72 shrink-0 hidden xl:flex flex-col bg-gray-50 dark:bg-slate-950 p-3 pt-2 border-l border-gray-150 dark:border-slate-850 h-[calc(100vh-57px)] overflow-y-auto scrollbar-none no-scrollbar transition-colors">
       <div className="space-y-5">
         
-        {/* User Study Quick Stats & Streak */}
+        {/* Activity & Chat Header */}
         <div className="flex items-center justify-between px-1 pt-0.5">
           <span className="text-[11px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-widest">Activity & Chat</span>
-          <button 
-            onClick={() => { playSound('tab'); setActiveTab('settings'); }}
-            className={`flex items-center gap-1.5 text-xs font-bold px-2.5 py-0.5 rounded-full shadow-2xs border transition-colors cursor-pointer ${
-              settings.showStreakToOthers !== false
-                ? 'text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-950/50 border-orange-200/80 dark:border-orange-900/60'
-                : 'text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-slate-800 border-gray-200 dark:border-slate-700'
-            }`}
-            title={settings.showStreakToOthers !== false ? 'Streak is visible to others' : 'Streak is hidden from others (Click to manage in Settings)'}
-          >
-            <Flame className={`h-3.5 w-3.5 ${settings.showStreakToOthers !== false ? 'fill-orange-500 text-orange-500' : 'text-gray-400'}`} />
-            {user?.streak || 0}
-            {settings.showStreakToOthers === false && (
-              <span className="text-[9px] font-semibold text-gray-400 uppercase ml-0.5">(Hidden)</span>
-            )}
-          </button>
         </div>
 
         {/* Pending Friend Requests Banner Alert */}

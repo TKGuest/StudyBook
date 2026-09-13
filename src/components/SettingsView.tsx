@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { ShieldAlert, EyeOff, Sliders, Volume2, VolumeX, Save, Download, RefreshCw, User as UserIcon, Globe, LogOut, Check, Upload, X, BadgeCheck, Clock, Award, History, Search, Trash2, Maximize2, FileText, AlertTriangle, School, BookOpen, Music, Sparkles, Flame, MessageSquare, UserX, ShieldCheck, Zap, Activity, ChevronDown } from 'lucide-react';
+import { ShieldAlert, EyeOff, Sliders, Volume2, VolumeX, Save, Download, RefreshCw, User as UserIcon, Globe, LogOut, Check, Upload, X, BadgeCheck, Clock, Award, History, Search, Trash2, Maximize2, FileText, AlertTriangle, School, BookOpen, Music, Sparkles, MessageSquare, UserX, ShieldCheck, Zap, Activity, ChevronDown } from 'lucide-react';
 import { isFirebaseConfigured, auth, db } from '../lib/firebase';
 import { setDoc, doc } from 'firebase/firestore';
 import { SILHOUETTE_AVATAR } from '../data/mockData';
@@ -205,7 +205,7 @@ export const SettingsView: React.FC = () => {
   const pendingRequest = tutorRequests.find(r => r.userId === user.id && r.status === 'pending');
 
   return (
-    <div className="flex-1 p-4 md:p-6 max-w-3xl mx-auto space-y-6 h-[calc(100vh-57px)] overflow-y-auto pb-20 scrollbar-thin">
+    <div className="flex-1 p-4 md:p-6 max-w-3xl mx-auto space-y-6 h-[calc(100vh-57px)] overflow-y-auto pb-20 scrollbar-none no-scrollbar">
       
       <div>
         <h2 className="font-display font-extrabold text-lg text-gray-800 dark:text-white flex items-center gap-2">
@@ -424,27 +424,20 @@ export const SettingsView: React.FC = () => {
                 onChange={(e) => handleSelectGrade(e.target.value)}
                 className="appearance-none bg-gray-50 dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800/80 text-indigo-600 dark:text-indigo-300 text-xs font-bold rounded-xl pl-3.5 pr-8 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all cursor-pointer shadow-2xs"
               >
-                <optgroup label="Elementary School" className="font-semibold text-gray-800 dark:text-gray-200 bg-white dark:bg-slate-800">
-                  <option value="Grade 1">Grade 1</option>
-                  <option value="Grade 2">Grade 2</option>
-                  <option value="Grade 3">Grade 3</option>
-                  <option value="Grade 4">Grade 4</option>
-                  <option value="Grade 5">Grade 5</option>
-                </optgroup>
-                <optgroup label="Middle School" className="font-semibold text-gray-800 dark:text-gray-200 bg-white dark:bg-slate-800">
-                  <option value="Grade 6">Grade 6</option>
-                  <option value="Grade 7">Grade 7</option>
-                  <option value="Grade 8">Grade 8</option>
-                </optgroup>
-                <optgroup label="High School" className="font-semibold text-gray-800 dark:text-gray-200 bg-white dark:bg-slate-800">
-                  <option value="Grade 9">Grade 9</option>
-                  <option value="Grade 10">Grade 10</option>
-                  <option value="Grade 11">Grade 11</option>
-                  <option value="Grade 12">Grade 12</option>
-                </optgroup>
-                <optgroup label="Higher Education" className="font-semibold text-gray-800 dark:text-gray-200 bg-white dark:bg-slate-800">
-                  <option value="College">College</option>
-                </optgroup>
+                <option value="Grade 1">Grade 1</option>
+                <option value="Grade 2">Grade 2</option>
+                <option value="Grade 3">Grade 3</option>
+                <option value="Grade 4">Grade 4</option>
+                <option value="Grade 5">Grade 5</option>
+                <option value="Grade 6">Grade 6</option>
+                <option value="Grade 7">Grade 7</option>
+                <option value="Grade 8">Grade 8</option>
+                <option value="Grade 9">Grade 9</option>
+                <option value="Grade 10">Grade 10</option>
+                <option value="Grade 11">Grade 11</option>
+                <option value="Grade 12">Grade 12</option>
+                <option value="College">College / University</option>
+                <option value="Graduate">Graduate / Researcher</option>
               </select>
               <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-indigo-500 pointer-events-none" />
             </div>
@@ -548,7 +541,7 @@ export const SettingsView: React.FC = () => {
             <p className="text-[10px] text-gray-400 mt-0.5">You have not blocked any users. You can block anyone directly from their posts or chat.</p>
           </div>
         ) : (
-          <div className="space-y-2 max-h-60 overflow-y-auto scrollbar-thin">
+          <div className="space-y-2 max-h-60 overflow-y-auto scrollbar-none no-scrollbar">
             {blockedUsers.map(blocked => (
               <div
                 key={blocked.id}
@@ -797,25 +790,6 @@ export const SettingsView: React.FC = () => {
             className={`w-11 h-6 rounded-full transition-colors relative shrink-0 focus:outline-none ${settings.spoilerProtection ? 'bg-blue-600' : 'bg-gray-200 dark:bg-slate-700'}`}
           >
             <span className={`absolute top-1 left-1 h-4 w-4 bg-white rounded-full transition-transform ${settings.spoilerProtection ? 'translate-x-5' : ''}`}></span>
-          </button>
-        </div>
-
-        {/* Show / Hide Streak to Others Toggle */}
-        <div className="flex justify-between items-center py-2 pt-4">
-          <div className="space-y-0.5">
-            <h4 className="text-xs font-bold text-gray-800 dark:text-white flex items-center gap-1.5">
-              <Flame className="h-4 w-4 text-orange-500 fill-orange-500" />
-              Show Study Streak to Community
-            </h4>
-            <p className="text-[10px] text-gray-400 leading-relaxed pr-8">
-              Allows friends and study partners to view your active study streak on your profile and leaderboards.
-            </p>
-          </div>
-          <button
-            onClick={() => handleToggleSetting('showStreakToOthers')}
-            className={`w-11 h-6 rounded-full transition-colors relative shrink-0 focus:outline-none ${settings.showStreakToOthers !== false ? 'bg-orange-500' : 'bg-gray-200 dark:bg-slate-700'}`}
-          >
-            <span className={`absolute top-1 left-1 h-4 w-4 bg-white rounded-full transition-transform ${settings.showStreakToOthers !== false ? 'translate-x-5' : ''}`}></span>
           </button>
         </div>
 

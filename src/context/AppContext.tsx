@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { User, Post, StudyGroup, TutorPage, Reel, MarketplaceItem, GroupChat, AppSettings, AcademicReactionType, Comment, Message, BinderFolder, TutorRequest, RequestHistoryLog, Friend, FriendRequest, DirectMessage, DirectChat, BlockedUser } from '../types';
-import { currentUser, initialPosts, initialGroups, initialTutors, initialReels, initialMarketplaceItems, initialGroupChats, defaultSettings, SILHOUETTE_AVATAR, initialFriends, initialFriendRequests, initialDirectChats } from '../data/mockData';
+import { User, Post, StudyGroup, TutorPage, Reel, MarketplaceItem, GroupChat, AppSettings, AcademicReactionType, Comment, Message, BinderFolder, TutorRequest, RequestHistoryLog, Friend, FriendRequest, DirectMessage, DirectChat, BlockedUser, CreatorScore } from '../types';
+import { currentUser, initialPosts, initialGroups, initialTutors, initialReels, initialMarketplaceItems, initialGroupChats, defaultSettings, SILHOUETTE_AVATAR, initialFriends, initialFriendRequests, initialDirectChats, initialCommunityUsers } from '../data/mockData';
+import { ALGORITHM_CONFIG } from '../utils/feedAlgorithm';
 import { playSound } from '../utils/soundEffects';
 import { isPlaceholderBinhChat, consolidateDirectChats, isFakeOrBotTutor } from '../utils/chatUtils';
 import { auth, db, isFirebaseConfigured } from '../lib/firebase';
@@ -58,7 +59,16 @@ interface AppContextType {
   
   // Custom interactive helper methods
   setUserGrade: (grade: string) => Promise<void>;
-  addPost: (content: string, subject: string, attachmentType?: 'pdf'|'doc'|'link'|'youtube', attachmentTitle?: string, isAnonymous?: boolean, attachmentUrl?: string, grade?: string) => void;
+  addPost: (
+    content: string, 
+    subject: string, 
+    attachmentType?: 'pdf'|'doc'|'link'|'youtube', 
+    attachmentTitle?: string, 
+    isAnonymous?: boolean, 
+    attachmentUrl?: string, 
+    grade?: string,
+    groupInfo?: { groupId: string; groupName: string; groupAvatar?: string }
+  ) => void;
   deletePost: (postId: string) => Promise<void>;
   reactToPost: (postId: string, reaction: AcademicReactionType) => void;
   addComment: (postId: string, content: string) => void;
@@ -69,6 +79,8 @@ interface AppContextType {
   addTutorReview: (tutorId: string, rating: number, text: string) => void;
   toggleEventGoing: (groupId: string, eventId: string) => void;
   toggleReelLike: (reelId: string) => void;
+  addReel: (reelData: Partial<Reel> & { videoUrl: string; caption: string; subject: string }) => Promise<Reel>;
+  deleteReel: (reelId: string) => Promise<void>;
   createStudyGroup: (name: string, description?: string, category?: string) => Promise<string>;
   addMarketplaceItem: (item: Omit<MarketplaceItem, 'id' | 'seller' | 'distance'>) => void;
   sendGroupMessage: (groupId: string, text: string) => void;
@@ -128,6 +140,35 @@ interface AppContextType {
   blockUser: (targetId: string, targetName: string, targetAvatar?: string) => Promise<void>;
   unblockUser: (targetId: string) => Promise<void>;
   isBlockedByAuthor: (authorId?: string, postAuthorBlockedIds?: string[]) => boolean;
+  isBlockedMutual: (targetUserId?: string) => boolean;
+
+  // Community User Profiles (Facebook Style)
+  communityUsers: User[];
+  setCommunityUsers: React.Dispatch<React.SetStateAction<User[]>>;
+  viewingProfileUserId: string | null;
+  setViewingProfileUserId: (userId: string | null) => void;
+  openUserProfile: (userId: string) => void;
+  updateUserProfile: (updates: Partial<User>) => Promise<void>;
+
+  // Following & Creator Points
+  followingIds: string[];
+  creatorScores: Record<string, CreatorScore>;
+  toggleFollowUser: (targetUserId: string) => Promise<{ success: boolean; message?: string }>;
+  toggleFollow: (targetUserId: string) => Promise<{ success: boolean; message?: string }>;
+  recordCreatorInteraction: (creatorId?: string, type?: 'like' | 'comment' | 'save') => void;
+
+  // Group Cohort Membership & Interaction Tracking
+  joinedGroupIds: string[];
+  groupInteractions: Record<string, {
+    score: number;
+    lastInteractionTimestamp?: string;
+    messagesSent?: number;
+    postsCreated?: number;
+    filesContributed?: number;
+    reactionsCount?: number;
+  }>;
+  recordGroupInteraction: (groupId: string, actionType: 'join' | 'message' | 'post' | 'file' | 'reaction') => void;
+  toggleJoinGroup: (groupId: string) => void;
 }
 
 const safeGetTime = (ts?: string) => {
@@ -486,12 +527,117 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch (_) { return initialMarketplaceItems; }
   });
 
+  const cleanGroupChatMessages = (messages: any[]): any[] => {
+    return (messages || []).filter(m => {
+      const sId = String(m?.sender?.id || '').toLowerCase();
+      const sName = String(m?.sender?.name || '').toLowerCase();
+      if (sId === 'system' || sId === 'bot' || sId === 'admin') return false;
+      if (sName.includes('ban quản lý') || sName.includes('studybook') || sName.includes('bot') || sName.includes('mai lan') || sName.includes('lucas')) return false;
+      return true;
+    });
+  };
+
   const [groupChats, setGroupChats] = useState<GroupChat[]>(() => {
     try {
       const saved = localStorage.getItem('sb_group_chats');
-      return saved ? JSON.parse(saved) : initialGroupChats;
+      const loaded: GroupChat[] = saved ? JSON.parse(saved) : initialGroupChats;
+      return (loaded || []).map(c => ({
+        ...c,
+        messages: cleanGroupChatMessages(c.messages)
+      }));
     } catch (_) { return initialGroupChats; }
   });
+
+  const [joinedGroupIds, setJoinedGroupIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('sb_joined_groups');
+      if (saved) return JSON.parse(saved);
+      return ['g_1788665354922']; // Default join the active group
+    } catch (_) {
+      return ['g_1788665354922'];
+    }
+  });
+
+  const [groupInteractions, setGroupInteractions] = useState<Record<string, {
+    score: number;
+    lastInteractionTimestamp?: string;
+    messagesSent?: number;
+    postsCreated?: number;
+    filesContributed?: number;
+    reactionsCount?: number;
+  }>>(() => {
+    try {
+      const saved = localStorage.getItem('sb_group_interactions');
+      return saved ? JSON.parse(saved) : {};
+    } catch (_) {
+      return {};
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('sb_joined_groups', JSON.stringify(joinedGroupIds));
+    } catch (_) {}
+  }, [joinedGroupIds]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('sb_group_interactions', JSON.stringify(groupInteractions));
+    } catch (_) {}
+  }, [groupInteractions]);
+
+  const recordGroupInteraction = (
+    groupId: string,
+    actionType: 'join' | 'message' | 'post' | 'file' | 'reaction'
+  ) => {
+    if (!groupId) return;
+    const now = new Date().toISOString();
+    const pointValues: Record<string, number> = {
+      join: 15,
+      message: 6,
+      post: 20,
+      file: 12,
+      reaction: 5
+    };
+    const pts = pointValues[actionType] || 5;
+
+    // Auto join group if interacting with it
+    setJoinedGroupIds(prev => prev.includes(groupId) ? prev : [...prev, groupId]);
+
+    setGroupInteractions(prev => {
+      const current = prev[groupId] || {
+        score: 0,
+        messagesSent: 0,
+        postsCreated: 0,
+        filesContributed: 0,
+        reactionsCount: 0
+      };
+      return {
+        ...prev,
+        [groupId]: {
+          ...current,
+          score: current.score + pts,
+          lastInteractionTimestamp: now,
+          messagesSent: (current.messagesSent || 0) + (actionType === 'message' ? 1 : 0),
+          postsCreated: (current.postsCreated || 0) + (actionType === 'post' ? 1 : 0),
+          filesContributed: (current.filesContributed || 0) + (actionType === 'file' ? 1 : 0),
+          reactionsCount: (current.reactionsCount || 0) + (actionType === 'reaction' ? 1 : 0)
+        }
+      };
+    });
+  };
+
+  const toggleJoinGroup = (groupId: string) => {
+    if (!groupId) return;
+    setJoinedGroupIds(prev => {
+      if (prev.includes(groupId)) {
+        return prev.filter(id => id !== groupId);
+      } else {
+        recordGroupInteraction(groupId, 'join');
+        return [...prev, groupId];
+      }
+    });
+  };
 
   const [friends, setFriends] = useState<Friend[]>(() => {
     try {
@@ -508,9 +654,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           idLower !== 'u_david' &&
           idLower !== 'bot_4' &&
           idLower !== 'bot4' &&
+          !idLower.includes('bot') &&
+          !idLower.includes('ban_quan_ly') &&
           !nameLower.includes('sarah') &&
-          !nameLower.includes('bot 4') &&
-          !nameLower.includes('bot4') &&
+          !nameLower.includes('bot') &&
+          !nameLower.includes('ban quản lý') &&
+          !nameLower.includes('ban quan ly') &&
+          !nameLower.includes('studybook') &&
+          !nameLower.includes('mai lan') &&
+          !nameLower.includes('lucas') &&
+          !nameLower.includes('system') &&
           !nameLower.includes('david kim')
         );
       });
@@ -532,9 +685,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           idLower !== 'u_david' &&
           idLower !== 'bot_4' &&
           idLower !== 'bot4' &&
+          !idLower.includes('bot') &&
+          !idLower.includes('ban_quan_ly') &&
           !nameLower.includes('sarah') &&
-          !nameLower.includes('bot 4') &&
-          !nameLower.includes('bot4') &&
+          !nameLower.includes('bot') &&
+          !nameLower.includes('ban quản lý') &&
+          !nameLower.includes('ban quan ly') &&
+          !nameLower.includes('studybook') &&
+          !nameLower.includes('mai lan') &&
+          !nameLower.includes('lucas') &&
+          !nameLower.includes('system') &&
           !nameLower.includes('david kim')
         );
       });
@@ -559,6 +719,60 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const saved = localStorage.getItem('sb_blocked_users');
       return saved ? JSON.parse(saved) : [];
     } catch (_) { return []; }
+  });
+
+  // Community user profiles (Facebook-style standard profiles)
+  const [communityUsers, setCommunityUsers] = useState<User[]>(() => {
+    try {
+      const saved = localStorage.getItem('sb_community_users');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const cleaned = parsed.filter(u => 
+            u.id !== 'u_marcus' && 
+            u.id !== 'u_elena' && 
+            u.id !== 'u_maya' && 
+            u.id !== 'u_liam'
+          );
+          return cleaned;
+        }
+      }
+    } catch (_) {}
+    return [];
+  });
+
+  // Target user profile being viewed (or null)
+  const [viewingProfileUserId, setViewingProfileUserId] = useState<string | null>(null);
+
+  // Following user IDs (creator boost)
+  const [followingIds, setFollowingIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('sb_following_ids');
+      if (saved) return JSON.parse(saved);
+    } catch (_) {}
+    return ['u_elena']; // default follow Prof. Elena
+  });
+
+  // Creator Interaction Points & timestamps with 24-hr inactivity decay tracking
+  const [creatorScores, setCreatorScores] = useState<Record<string, CreatorScore>>(() => {
+    try {
+      const saved = localStorage.getItem('sb_creator_scores');
+      if (saved) return JSON.parse(saved);
+    } catch (_) {}
+    return {
+      u_elena: {
+        creatorId: 'u_elena',
+        score: 24, // High interaction points, recent (active < 24h)
+        lastInteractionTimestamp: new Date(Date.now() - 4 * 3600 * 1000).toISOString(),
+        interactions: { likes: 3, comments: 0, saves: 0 }
+      },
+      u_maya: {
+        creatorId: 'u_maya',
+        score: 35, // Inactive > 24 hours (28h ago) - will decay by 10 points
+        lastInteractionTimestamp: new Date(Date.now() - 28 * 3600 * 1000).toISOString(),
+        interactions: { likes: 2, comments: 1, saves: 1 }
+      }
+    };
   });
 
   const [openDirectChatIds, setOpenDirectChatIds] = useState<string[]>([]);
@@ -936,14 +1150,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       } else {
         const loaded: GroupChat[] = [];
         snapshot.forEach((d) => loaded.push(d.data() as GroupChat));
-        setGroupChats(loaded);
-        localStorage.setItem('sb_group_chats', JSON.stringify(loaded));
+        const cleanedChats = loaded.map(c => ({
+          ...c,
+          messages: cleanGroupChatMessages(c.messages)
+        }));
+        setGroupChats(cleanedChats);
+        localStorage.setItem('sb_group_chats', JSON.stringify(cleanedChats));
       }
     }, (error) => {
       console.warn('Firestore groupChats sync failed (falling back to local):', error);
       const saved = localStorage.getItem('sb_group_chats');
       if (saved) {
-        try { setGroupChats(JSON.parse(saved)); } catch (_) { setGroupChats(initialGroupChats); }
+        try {
+          const parsed = JSON.parse(saved);
+          const cleaned = (parsed || []).map((c: any) => ({
+            ...c,
+            messages: cleanGroupChatMessages(c.messages)
+          }));
+          setGroupChats(cleaned);
+        } catch (_) { setGroupChats(initialGroupChats); }
       } else {
         setGroupChats(initialGroupChats);
       }
@@ -1323,7 +1548,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     attachmentTitle?: string,
     isAnonymous?: boolean,
     attachmentUrl?: string,
-    grade?: string
+    grade?: string,
+    groupInfo?: { groupId: string; groupName: string; groupAvatar?: string }
   ) => {
     const currentUserId = user.id || auth.currentUser?.uid || 'guest';
     const authorName = isAnonymous ? 'Anonymous Scholar' : (user.name || 'User');
@@ -1358,6 +1584,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       isAnonymous,
       blockedUserIds: user.blockedUserIds || [],
       authorBlockedUserIds: user.blockedUserIds || [],
+      ...(groupInfo?.groupId ? {
+        groupId: groupInfo.groupId,
+        groupName: groupInfo.groupName,
+        groupAvatar: groupInfo.groupAvatar
+      } : {}),
       ...(attachmentType && attachmentTitle ? {
         attachment: {
           type: attachmentType,
@@ -1367,6 +1598,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       } : {})
     };
+
+    if (groupInfo?.groupId) {
+      recordGroupInteraction(groupInfo.groupId, 'post');
+    }
 
     if (isFirebaseConfigured) {
       try {
@@ -1419,6 +1654,52 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const recordCreatorInteraction = (creatorId?: string, type: 'like' | 'comment' | 'save' = 'like') => {
+    if (!creatorId || creatorId === user.id) return;
+
+    const pointsToAdd = type === 'like' 
+      ? ALGORITHM_CONFIG.INTERACTION_LIKE_POINTS 
+      : type === 'comment' 
+        ? ALGORITHM_CONFIG.INTERACTION_COMMENT_POINTS 
+        : ALGORITHM_CONFIG.INTERACTION_SAVE_POINTS;
+
+    setCreatorScores(prev => {
+      const existing = prev[creatorId] || {
+        creatorId,
+        score: 0,
+        lastInteractionTimestamp: new Date().toISOString(),
+        interactions: { likes: 0, comments: 0, saves: 0 }
+      };
+
+      const nextInteractions = {
+        likes: existing.interactions?.likes || 0,
+        comments: existing.interactions?.comments || 0,
+        saves: existing.interactions?.saves || 0,
+      };
+      if (type === 'like') nextInteractions.likes += 1;
+      if (type === 'comment') nextInteractions.comments += 1;
+      if (type === 'save') nextInteractions.saves += 1;
+
+      const nextRecord: CreatorScore = {
+        creatorId,
+        score: (existing.score || 0) + pointsToAdd,
+        lastInteractionTimestamp: new Date().toISOString(),
+        interactions: nextInteractions
+      };
+
+      const nextMap = {
+        ...prev,
+        [creatorId]: nextRecord
+      };
+
+      try {
+        localStorage.setItem('sb_creator_scores', JSON.stringify(nextMap));
+      } catch (_) {}
+
+      return nextMap;
+    });
+  };
+
   const reactToPost = async (postId: string, reaction: AcademicReactionType) => {
     const targetPost = posts.find(p => p.id === postId);
     if (!targetPost) return;
@@ -1438,6 +1719,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     if (newReaction) {
       playSound('like');
+      // Feed Algorithm Update: The more a user interacts (likes, comments, saves) with a creator's posts, the higher that creator's point score goes
+      const creatorId = !targetPost.isAnonymous ? (targetPost.authorId || targetPost.user?.id) : undefined;
+      if (creatorId) {
+        recordCreatorInteraction(creatorId, 'like');
+      }
     } else {
       playSound('pop');
     }
@@ -1518,6 +1804,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const updatedPost: Post = { ...targetPost, comments: [...targetPost.comments, newComment] };
     playSound('send');
+
+    // Feed Algorithm Update: Interaction (comment) increases creator score
+    const creatorId = !targetPost.isAnonymous ? (targetPost.authorId || targetPost.user?.id) : undefined;
+    if (creatorId) {
+      recordCreatorInteraction(creatorId, 'comment');
+    }
 
     // --- OPTIMISTIC LOCAL STATE UPDATE ---
     setPosts(prev => {
@@ -1696,6 +1988,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     if (isSaved) {
       playSound('pop');
+      // Feed Algorithm Update: Interaction (save) increases creator score
+      const creatorId = !targetPost.isAnonymous ? (targetPost.authorId || targetPost.user?.id) : undefined;
+      if (creatorId) {
+        recordCreatorInteraction(creatorId, 'save');
+      }
     } else {
       playSound('delete');
     }
@@ -1921,6 +2218,73 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const addReel = async (reelData: Partial<Reel> & { videoUrl: string; caption: string; subject: string }): Promise<Reel> => {
+    const currentUserId = user?.id || 'u_current';
+    const authorName = user?.name || 'StudyBook Creator';
+    const authorAvatar = user?.avatar || SILHOUETTE_AVATAR;
+
+    const newReel: Reel = {
+      id: reelData.id || `reel_${Date.now()}`,
+      tutorName: reelData.tutorName || authorName,
+      tutorAvatar: reelData.tutorAvatar || authorAvatar,
+      authorId: currentUserId,
+      videoUrl: reelData.videoUrl,
+      thumbnailUrl: reelData.thumbnailUrl,
+      caption: reelData.caption || '',
+      subject: reelData.subject || 'Math',
+      grade: reelData.grade || user?.grade || 'Grade 10',
+      audioTrack: reelData.audioTrack || `Original Audio - ${authorName}`,
+      likes: 0,
+      baseLikes: 0,
+      comments: 0,
+      hasLiked: false,
+      likedByUsers: [],
+      worksheet: reelData.worksheet,
+      createdAt: new Date().toISOString()
+    };
+
+    const normalized = normalizeReelForUser(newReel, currentUserId);
+
+    setReels(prev => [normalized, ...prev]);
+
+    if (isFirebaseConfigured) {
+      try {
+        const reelRef = doc(db, 'reels', newReel.id);
+        await setDoc(reelRef, cleanForFirestore(newReel));
+      } catch (err) {
+        console.warn('Failed to save new reel to Firestore:', err);
+      }
+    }
+
+    try {
+      const saved = localStorage.getItem('sb_reels');
+      const existing: Reel[] = saved ? JSON.parse(saved) : [];
+      localStorage.setItem('sb_reels', JSON.stringify([cleanForFirestore(newReel), ...existing]));
+    } catch (_) {}
+
+    return normalized;
+  };
+
+  const deleteReel = async (reelId: string) => {
+    setReels(prev => prev.filter(r => r.id !== reelId));
+
+    if (isFirebaseConfigured) {
+      try {
+        await deleteDoc(doc(db, 'reels', reelId));
+      } catch (err) {
+        console.warn('Failed to delete reel from Firestore:', err);
+      }
+    }
+
+    try {
+      const saved = localStorage.getItem('sb_reels');
+      if (saved) {
+        const existing: Reel[] = JSON.parse(saved);
+        localStorage.setItem('sb_reels', JSON.stringify(existing.filter((r: any) => r.id !== reelId)));
+      }
+    } catch (_) {}
+  };
+
   const createStudyGroup = async (name: string, description?: string, category?: string) => {
     const groupId = `g_${Date.now()}`;
     const newG: StudyGroup = {
@@ -1937,22 +2301,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const newChat: GroupChat = {
       groupId: groupId,
       groupName: name,
-      messages: [
-        {
-          id: `msg_init_${Date.now()}`,
-          sender: {
-            id: 'system',
-            name: 'StudyBook Community Team',
-            avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=150',
-            role: 'creator',
-            streak: 0,
-            streakLevel: 'none',
-            badges: []
-          },
-          content: `Welcome to the study group "${name}"! Feel free to discuss topics, share academic resources, and schedule group study sessions!`,
-          timestamp: 'Just now'
-        }
-      ]
+      messages: []
     };
 
     setGroups(prev => [...prev, newG]);
@@ -1961,6 +2310,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (found) return prev;
       return [...prev, newChat];
     });
+
+    recordGroupInteraction(groupId, 'join');
 
     if (isFirebaseConfigured) {
       try {
@@ -2002,6 +2353,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const sendGroupMessage = async (groupId: string, text: string) => {
     const targetChat = groupChats.find(c => c.groupId === groupId);
     if (!targetChat) return;
+
+    recordGroupInteraction(groupId, 'message');
 
     const newMsg: Message = {
       id: `m_msg_${Date.now()}`,
@@ -2769,6 +3122,12 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
   const sendFriendRequest = async (targetUser: { id: string; name: string; avatar: string; email?: string; role?: string; institution?: string }) => {
     if (!targetUser.id || targetUser.id === user.id) return;
 
+    // Block Rule: If a user blocks someone (or is blocked by them), they cannot view that profile, send a friend request, or follow them.
+    if (isBlockedMutual(targetUser.id)) {
+      alert("Action restricted: You cannot send a friend request to this user due to privacy blocking restrictions.");
+      return;
+    }
+
     if (friends.some(f => f.id === targetUser.id)) return;
 
     const newReq: FriendRequest = {
@@ -2898,6 +3257,15 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
     return false;
   };
 
+  const isBlockedMutual = (targetUserId?: string): boolean => {
+    if (!targetUserId) return false;
+    if (isUserBlocked(targetUserId)) return true;
+    if (isBlockedByAuthor(targetUserId)) return true;
+    const targetObj = communityUsers.find(u => u.id === targetUserId);
+    if (targetObj?.blockedUserIds && targetObj.blockedUserIds.includes(user.id)) return true;
+    return false;
+  };
+
   const blockUser = async (targetId: string, targetName: string, targetAvatar?: string) => {
     if (!targetId || targetId === user.id) return;
 
@@ -2994,6 +3362,108 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
       }
     }
 
+    playSound('pop');
+  };
+
+  // Facebook Style User Profile & Follow Actions
+  const toggleFollowUser = async (targetUserId: string): Promise<{ success: boolean; message?: string }> => {
+    if (!targetUserId || targetUserId === user.id) {
+      return { success: false, message: "Cannot follow yourself." };
+    }
+
+    // Block Rule: If a user blocks someone (or is blocked by them), they cannot view that profile, send a friend request, or follow them.
+    if (isBlockedMutual(targetUserId)) {
+      alert("Action restricted: You cannot follow this user due to privacy blocking restrictions.");
+      return { success: false, message: "Blocked user restriction" };
+    }
+
+    const isAlreadyFollowing = followingIds.includes(targetUserId);
+    const nextFollowing = isAlreadyFollowing
+      ? followingIds.filter(id => id !== targetUserId)
+      : [...followingIds, targetUserId];
+
+    setFollowingIds(nextFollowing);
+    try {
+      localStorage.setItem('sb_following_ids', JSON.stringify(nextFollowing));
+    } catch (_) {}
+
+    // Update community user's follower count
+    setCommunityUsers(prev => prev.map(u => {
+      if (u.id === targetUserId) {
+        const currentCount = u.followersCount || 0;
+        const newCount = isAlreadyFollowing ? Math.max(0, currentCount - 1) : currentCount + 1;
+        const currentFollowers = Array.isArray(u.followedByUsers) ? u.followedByUsers : [];
+        const nextFollowers = isAlreadyFollowing
+          ? currentFollowers.filter(id => id !== user.id)
+          : [...currentFollowers, user.id];
+        return {
+          ...u,
+          followersCount: newCount,
+          followedByUsers: nextFollowers
+        };
+      }
+      return u;
+    }));
+
+    // Update current user's following count
+    setUser(prev => {
+      const updated = {
+        ...prev,
+        followingCount: nextFollowing.length,
+        followingUserIds: nextFollowing
+      };
+      try {
+        localStorage.setItem('sb_user', JSON.stringify(updated));
+      } catch (_) {}
+      return updated;
+    });
+
+    if (isAlreadyFollowing) {
+      playSound('pop');
+    } else {
+      playSound('like');
+    }
+
+    if (isFirebaseConfigured && user.id) {
+      try {
+        await updateDoc(doc(db, 'users', user.id), {
+          followingUserIds: nextFollowing,
+          followingCount: nextFollowing.length
+        });
+      } catch (err) {
+        console.warn('Failed to sync following to Firestore:', err);
+      }
+    }
+
+    return { success: true };
+  };
+
+  const toggleFollow = toggleFollowUser;
+
+  const openUserProfile = (userId: string) => {
+    playSound('tab');
+    setViewingProfileUserId(userId);
+    setActiveTab('profiles');
+  };
+
+  const updateUserProfile = async (updates: Partial<User>) => {
+    setUser(prev => {
+      const updated = { ...prev, ...updates };
+      try {
+        localStorage.setItem('sb_user', JSON.stringify(updated));
+      } catch (_) {}
+      return updated;
+    });
+
+    setCommunityUsers(prev => prev.map(u => u.id === user.id ? { ...u, ...updates } : u));
+
+    if (isFirebaseConfigured && user.id) {
+      try {
+        await setDoc(doc(db, 'users', user.id), cleanForFirestore(updates), { merge: true });
+      } catch (err) {
+        console.warn('Failed to update profile in Firestore:', err);
+      }
+    }
     playSound('pop');
   };
 
@@ -3199,6 +3669,25 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
       blockUser,
       unblockUser,
       isBlockedByAuthor,
+      isBlockedMutual,
+
+      communityUsers,
+      setCommunityUsers,
+      viewingProfileUserId,
+      setViewingProfileUserId,
+      openUserProfile,
+      updateUserProfile,
+
+      followingIds,
+      creatorScores,
+      toggleFollowUser,
+      toggleFollow,
+      recordCreatorInteraction,
+
+      joinedGroupIds,
+      groupInteractions,
+      recordGroupInteraction,
+      toggleJoinGroup,
       
       tutorRequests,
       requestTutorVerification,
@@ -3224,6 +3713,8 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
       addTutorReview,
       toggleEventGoing,
       toggleReelLike,
+      addReel,
+      deleteReel,
       createStudyGroup,
       addMarketplaceItem,
       sendGroupMessage,

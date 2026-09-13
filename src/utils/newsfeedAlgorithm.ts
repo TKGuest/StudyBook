@@ -211,7 +211,7 @@ export function getPersonalizedFeed(
   // Normalize pagination parameters
   let page = 1;
   let limit = 5;
-  let randomize = true;
+  let randomize = false;
   let cursor: string | undefined;
 
   if (typeof paginationOptions === 'boolean') {
@@ -224,7 +224,7 @@ export function getPersonalizedFeed(
   } else if (paginationOptions && typeof paginationOptions === 'object') {
     page = Math.max(1, paginationOptions.page ?? 1);
     limit = Math.max(1, paginationOptions.limit ?? 5);
-    randomize = paginationOptions.randomize !== false;
+    randomize = paginationOptions.randomize === true;
     cursor = paginationOptions.cursor;
   }
 
