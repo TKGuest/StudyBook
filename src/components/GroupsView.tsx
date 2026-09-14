@@ -1,8 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../context/AppContext';
-import { StudyGroup } from '../types';
+import { StudyGroup, GroupRole, GroupMember, GroupFile } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { playSound } from '../utils/soundEffects';
+import { 
+  getUserGroupRole, 
+  getRolePermissions, 
+  canUserRemoveSpam, 
+  canUserManageMembers, 
+  canUserPinFiles, 
+  canUserAssignLeader 
+} from '../utils/permissionUtils';
 import { 
   Users, 
   FileText, 
@@ -15,7 +23,17 @@ import {
   Plus, 
   EyeOff, 
   UserCheck,
-  X 
+  X,
+  Pin,
+  Trash2,
+  ShieldCheck,
+  ShieldAlert,
+  Star,
+  Crown,
+  UserMinus,
+  CheckCircle2,
+  Sparkles,
+  Shield
 } from 'lucide-react';
 
 export const GroupsView: React.FC = () => {
@@ -24,6 +42,7 @@ export const GroupsView: React.FC = () => {
     setGroups, 
     posts,
     addPost,
+    deletePost,
     groupChats, 
     sendGroupMessage, 
     createStudyGroup,
@@ -31,7 +50,13 @@ export const GroupsView: React.FC = () => {
     groupInteractions,
     recordGroupInteraction,
     toggleJoinGroup,
-    user 
+    user,
+    simulatedGroupRole,
+    setSimulatedGroupRole,
+    togglePinGroupFile,
+    deleteGroupFile,
+    updateGroupMemberRole,
+    removeGroupMember
   } = useApp();
 
   const [selectedGroupId, setSelectedGroupId] = useState<string>(() => {
@@ -56,7 +81,7 @@ export const GroupsView: React.FC = () => {
       localStorage.setItem('sb_selected_group_id', selectedGroupId);
     }
   }, [selectedGroupId]);
-  const [activeSubTab, setActiveSubTab] = useState<'feed' | 'files' | 'chat'>('feed');
+  const [activeSubTab, setActiveSubTab] = useState<'feed' | 'files' | 'chat' | 'members'>('feed');
   const [chatInput, setChatInput] = useState('');
   const [anonToggle, setAnonToggle] = useState(false);
   const [groupPostText, setGroupPostText] = useState('');
@@ -77,6 +102,14 @@ export const GroupsView: React.FC = () => {
 
   const activeGroup = groups.find(g => g.id === selectedGroupId) || groups[0];
   const activeChat = groupChats.find(c => c.groupId === selectedGroupId);
+
+  // Role-based permissions for current cohort
+  const effectiveRole: GroupRole = getUserGroupRole(activeGroup, user, simulatedGroupRole);
+  const permissions = getRolePermissions(effectiveRole);
+  const canRemoveSpam = canUserRemoveSpam(activeGroup, user, simulatedGroupRole);
+  const canPinFiles = canUserPinFiles(activeGroup, user, simulatedGroupRole);
+  const canManageMembers = canUserManageMembers(activeGroup, user, simulatedGroupRole);
+  const canAssignLeader = canUserAssignLeader(activeGroup, user, simulatedGroupRole);
 
   // Auto scroll chat to bottom
   useEffect(() => {
@@ -300,13 +333,15 @@ export const GroupsView: React.FC = () => {
 
     playSound('send');
     recordGroupInteraction(activeGroup.id, 'file');
-    const newFile = {
+    const newFile: GroupFile = {
       id: `f_${Date.now()}`,
       title: newFileTitle.endsWith('.pdf') || newFileTitle.endsWith('.docx') ? newFileTitle : `${newFileTitle}.${newFileType.toLowerCase()}`,
-      uploader: user.name,
-      date: new Date().toISOString().split('T')[0],
+      uploader: user.name || 'You',
+      uploaderId: user.id || 'u_current',
+      date: 'Today',
       size: `${(Math.random() * 5 + 1).toFixed(1)} MB`,
-      type: newFileType
+      type: newFileType,
+      isPinned: false
     };
 
     setGroups(prev => prev.map(g => {
@@ -422,28 +457,87 @@ export const GroupsView: React.FC = () => {
         <div className="relative h-44 shrink-0 bg-gray-200">
           <img src={activeGroup.coverImage} alt="Cover" className="w-full h-full object-cover" />
           <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent flex flex-col justify-end p-4">
-            <div className="flex items-center justify-between gap-3 mb-1.5">
-              <span className="text-[10px] font-bold bg-blue-600 text-white px-2 py-0.5 rounded-full w-max uppercase tracking-wider">{activeGroup.category}</span>
-              <button
-                onClick={() => toggleJoinGroup(activeGroup.id)}
-                className={`px-3 py-1 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm ${
-                  joinedGroupIds.includes(activeGroup.id)
-                    ? 'bg-emerald-500 hover:bg-emerald-600 text-white'
-                    : 'bg-white hover:bg-gray-100 text-gray-900'
-                }`}
-              >
-                {joinedGroupIds.includes(activeGroup.id) ? (
-                  <>
-                    <UserCheck className="h-3.5 w-3.5" />
-                    Joined ({groupInteractions[activeGroup.id]?.score || 15} activity pts)
-                  </>
-                ) : (
-                  <>
-                    <Plus className="h-3.5 w-3.5" />
-                    Join Group
-                  </>
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-1.5">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[10px] font-bold bg-blue-600 text-white px-2 py-0.5 rounded-full w-max uppercase tracking-wider">{activeGroup.category}</span>
+                
+                {/* Cohort Role Indicator */}
+                {effectiveRole === 'admin' && (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-extrabold bg-purple-600/90 text-white px-2.5 py-0.5 rounded-full shadow-xs border border-purple-300/40">
+                    <ShieldCheck className="h-3 w-3" /> Admin
+                  </span>
                 )}
-              </button>
+                {effectiveRole === 'leader' && (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-extrabold bg-amber-500/90 text-white px-2.5 py-0.5 rounded-full shadow-xs border border-amber-200/50">
+                    <Star className="h-3 w-3" /> Group Leader
+                  </span>
+                )}
+                {effectiveRole === 'member' && (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-slate-700/80 text-white px-2.5 py-0.5 rounded-full shadow-xs border border-white/20">
+                    <Users className="h-3 w-3" /> Member
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                {/* Real-time Role Tester / Switcher */}
+                <div className="flex items-center gap-1 bg-black/60 backdrop-blur-md px-2.5 py-1 rounded-full border border-white/15">
+                  <span className="text-[9px] uppercase tracking-wider text-gray-300 font-bold hidden sm:inline">Simulate Role:</span>
+                  {(['admin', 'leader', 'member'] as GroupRole[]).map(r => (
+                    <button
+                      key={r}
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        playSound('pop');
+                        setSimulatedGroupRole(simulatedGroupRole === r ? null : r);
+                      }}
+                      className={`px-2 py-0.5 text-[10px] font-bold rounded-full transition-all cursor-pointer ${
+                        effectiveRole === r
+                          ? 'bg-blue-600 text-white shadow-xs scale-105'
+                          : 'text-gray-300 hover:text-white bg-white/10 hover:bg-white/20'
+                      }`}
+                      title={`Simulate ${r === 'admin' ? 'Admin' : r === 'leader' ? 'Group Leader' : 'Standard Member'} powers`}
+                    >
+                      {r === 'admin' ? 'Admin' : r === 'leader' ? 'Leader' : 'Member'}
+                    </button>
+                  ))}
+                  {simulatedGroupRole && (
+                    <button 
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSimulatedGroupRole(null);
+                      }} 
+                      className="text-[9px] text-amber-300 hover:text-white underline cursor-pointer ml-1"
+                      title="Reset role simulation"
+                    >
+                      Reset
+                    </button>
+                  )}
+                </div>
+
+                <button
+                  onClick={() => toggleJoinGroup(activeGroup.id)}
+                  className={`px-3 py-1 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm ${
+                    joinedGroupIds.includes(activeGroup.id)
+                      ? 'bg-emerald-500 hover:bg-emerald-600 text-white'
+                      : 'bg-white hover:bg-gray-100 text-gray-900'
+                  }`}
+                >
+                  {joinedGroupIds.includes(activeGroup.id) ? (
+                    <>
+                      <UserCheck className="h-3.5 w-3.5" />
+                      Joined ({groupInteractions[activeGroup.id]?.score || 15} activity pts)
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="h-3.5 w-3.5" />
+                      Join Group
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
             <h2 className="font-display font-extrabold text-xl text-white tracking-tight">{activeGroup.name}</h2>
             <p className="text-xs text-gray-200 font-medium truncate mt-1">{activeGroup.description}</p>
@@ -464,11 +558,12 @@ export const GroupsView: React.FC = () => {
         )}
 
         {/* Sub Navigation inside Group */}
-        <div className="bg-white dark:bg-slate-800 border-b border-gray-150 dark:border-slate-750 px-4 flex gap-4 shrink-0">
+        <div className="bg-white dark:bg-slate-800 border-b border-gray-150 dark:border-slate-750 px-4 flex gap-4 shrink-0 overflow-x-auto">
           {[
             { id: 'feed', label: 'Discussion Board', icon: MessageCircle },
             { id: 'files', label: 'Study Resources', icon: FileText },
-            { id: 'chat', label: 'Group Chat', icon: MessageCircle }
+            { id: 'chat', label: 'Group Chat', icon: MessageCircle },
+            { id: 'members', label: 'Members & Roles', icon: Users }
           ].map(tab => {
             const isSel = activeSubTab === tab.id;
             const Icon = tab.icon;
@@ -536,56 +631,70 @@ export const GroupsView: React.FC = () => {
 
               {/* Group discussions */}
               <div className="space-y-4">
-                {posts.filter(p => p.groupId === activeGroup.id).map(p => (
-                  <div key={p.id} className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-150 dark:border-slate-700 p-4 shadow-xs space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2.5">
-                        <img 
-                          src={p.isAnonymous ? 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=150' : (p.user?.avatar || user.avatar)} 
-                          alt="Avatar" 
-                          className="h-8 w-8 rounded-full object-cover"
-                        />
-                        <div>
-                          <h4 className="text-xs font-bold text-gray-800 dark:text-white">
-                            {p.isAnonymous ? 'Anonymous Student' : (p.user?.name || p.authorName || 'Cohort Peer')}
-                          </h4>
-                          <p className="text-[10px] text-gray-400">
-                            {p.timestamp?.includes('T') ? new Date(p.timestamp).toLocaleDateString() : (p.timestamp || 'Just now')} • {p.subject}
-                          </p>
+                {posts.filter(p => p.groupId === activeGroup.id).length === 0 ? (
+                  <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-150 dark:border-slate-700 p-8 text-center text-gray-400 space-y-1">
+                    <MessageCircle className="h-8 w-8 mx-auto text-gray-300 dark:text-slate-600 mb-2" />
+                    <p className="text-xs font-semibold text-gray-600 dark:text-gray-300">No discussion questions yet</p>
+                    <p className="text-[10px]">Start the conversation above to collaborate with peers in {activeGroup.name}.</p>
+                  </div>
+                ) : (
+                  posts.filter(p => p.groupId === activeGroup.id).map(p => {
+                    const isAuthor = (p.authorId || p.user?.id) === user.id;
+                    const showModerationDelete = canRemoveSpam || isAuthor;
+
+                    return (
+                      <div key={p.id} className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-150 dark:border-slate-700 p-4 shadow-xs space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2.5">
+                            <img 
+                              src={p.isAnonymous ? 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=150' : (p.user?.avatar || user.avatar)} 
+                              alt="Avatar" 
+                              className="h-8 w-8 rounded-full object-cover"
+                            />
+                            <div>
+                              <h4 className="text-xs font-bold text-gray-800 dark:text-white">
+                                {p.isAnonymous ? 'Anonymous Student' : (p.user?.name || p.authorName || 'Cohort Peer')}
+                              </h4>
+                              <p className="text-[10px] text-gray-400">
+                                {p.timestamp?.includes('T') ? new Date(p.timestamp).toLocaleDateString() : (p.timestamp || 'Just now')} • {p.subject}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-300">
+                              Cohort Post
+                            </span>
+
+                            {/* Spam Removal button for Group Leaders & Admins */}
+                            {showModerationDelete && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (window.confirm(isAuthor ? 'Delete your post?' : 'Remove this spam post as Group Leader/Admin?')) {
+                                    deletePost(p.id);
+                                  }
+                                }}
+                                className="flex items-center gap-1 text-[10px] font-bold text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40 px-2 py-0.5 rounded-md transition-colors cursor-pointer"
+                                title={isAuthor ? 'Delete your post' : 'Remove spam (Admin/Leader permission)'}
+                              >
+                                <Trash2 className="h-3 w-3" />
+                                {canRemoveSpam && !isAuthor ? 'Remove Spam' : 'Delete'}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <p className="text-xs text-gray-700 dark:text-gray-200 leading-relaxed font-sans font-normal">
+                          {p.content}
+                        </p>
+                        <div className="flex items-center gap-3 pt-2 border-t border-gray-100 dark:border-slate-750 text-[11px] text-gray-400">
+                          <span>{p.comments?.length || 0} comments</span>
+                          <span>•</span>
+                          <span>{(p.reactions?.helpful || 0) + (p.reactions?.insightful || 0)} reactions</span>
                         </div>
                       </div>
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-300">
-                        Cohort Post
-                      </span>
-                    </div>
-                    <p className="text-xs text-gray-700 dark:text-gray-200 leading-relaxed font-sans font-normal">
-                      {p.content}
-                    </p>
-                    <div className="flex items-center gap-3 pt-2 border-t border-gray-100 dark:border-slate-750 text-[11px] text-gray-400">
-                      <span>{p.comments?.length || 0} comments</span>
-                      <span>•</span>
-                      <span>{(p.reactions?.helpful || 0) + (p.reactions?.insightful || 0)} reactions</span>
-                    </div>
-                  </div>
-                ))}
-
-                <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 p-4 shadow-sm space-y-3">
-                  <div className="flex gap-2 items-center text-[10px] text-blue-600 bg-blue-50 dark:bg-blue-950/40 dark:text-blue-300 w-max px-2.5 py-0.5 rounded-full font-bold">
-                    PINNED POST
-                  </div>
-                  <div className="flex gap-3">
-                    <div className="h-9 w-9 rounded-full bg-blue-100 flex items-center justify-center font-bold text-blue-600">
-                      G
-                    </div>
-                    <div>
-                      <h4 className="text-xs font-bold text-gray-800 dark:text-white">Cohort Admin</h4>
-                      <p className="text-[10px] text-gray-400 mt-0.5">Just now • General Guidelines</p>
-                    </div>
-                  </div>
-                  <p className="text-xs text-gray-700 dark:text-gray-200 leading-relaxed font-sans font-normal">
-                    Welcome everyone to our cohort! Please explore the shared study resources, keep discussions academically focused, and interact regularly to boost cohort discussions on your home feed.
-                  </p>
-                </div>
+                    );
+                  })
+                )}
               </div>
               </motion.div>
             )}
@@ -623,32 +732,87 @@ export const GroupsView: React.FC = () => {
                 </div>
               ) : (
                 <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 overflow-hidden shadow-sm divide-y divide-gray-100 dark:divide-slate-700">
-                  {activeGroup.files.map(file => (
-                    <div key={file.id} className="p-3.5 flex items-center justify-between gap-4 hover:bg-gray-50/50 dark:hover:bg-slate-750 transition-colors">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className="h-9 w-9 bg-red-100 text-red-600 rounded-lg flex items-center justify-center font-extrabold text-[10px] shrink-0">
-                          {file.type}
+                  {[...(activeGroup.files || [])].sort((a, b) => (b.isPinned ? 1 : 0) - (a.isPinned ? 1 : 0)).map(file => {
+                    const isUploader = file.uploaderId === user.id || file.uploader === user.name;
+                    const canDeleteThisFile = canRemoveSpam || isUploader;
+
+                    return (
+                      <div key={file.id} className={`p-3.5 flex items-center justify-between gap-4 transition-colors ${file.isPinned ? 'bg-amber-50/40 dark:bg-amber-950/20' : 'hover:bg-gray-50/50 dark:hover:bg-slate-750'}`}>
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className={`h-9 w-9 rounded-lg flex items-center justify-center font-extrabold text-[10px] shrink-0 ${file.isPinned ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300' : 'bg-red-100 text-red-600'}`}>
+                            {file.type}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <p className="text-xs font-bold text-gray-800 dark:text-white truncate">{file.title}</p>
+                              {file.isPinned && (
+                                <span className="inline-flex items-center gap-1 text-[9px] font-extrabold bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300 px-1.5 py-0.5 rounded-md shrink-0">
+                                  <Pin className="h-2.5 w-2.5 fill-amber-700 dark:fill-amber-300" />
+                                  Pinned
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[10px] text-gray-400 mt-0.5 flex items-center gap-1">
+                              <span>By {file.uploader}</span>
+                              <span>•</span>
+                              <span>{file.date}</span>
+                              <span>•</span>
+                              <span className="font-mono">{file.size}</span>
+                              {file.pinnedBy && (
+                                <>
+                                  <span>•</span>
+                                  <span className="text-amber-600 dark:text-amber-400">Pinned by {file.pinnedBy}</span>
+                                </>
+                              )}
+                            </p>
+                          </div>
                         </div>
-                        <div className="min-w-0">
-                          <p className="text-xs font-bold text-gray-800 dark:text-white truncate">{file.title}</p>
-                          <p className="text-[10px] text-gray-400 mt-1 flex items-center gap-1">
-                            <span>By {file.uploader}</span>
-                            <span>•</span>
-                            <span>{file.date}</span>
-                            <span>•</span>
-                            <span className="font-mono">{file.size}</span>
-                          </p>
+
+                        <div className="flex items-center gap-1 shrink-0">
+                          {/* Pin / Unpin Action for Leaders and Admins */}
+                          {canPinFiles && (
+                            <button
+                              type="button"
+                              onClick={() => togglePinGroupFile(activeGroup.id, file.id)}
+                              className={`p-2 rounded-full transition-colors cursor-pointer ${
+                                file.isPinned 
+                                  ? 'text-amber-600 bg-amber-100 dark:bg-amber-900/40 hover:bg-amber-200' 
+                                  : 'text-gray-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-slate-700'
+                              }`}
+                              title={file.isPinned ? 'Unpin file' : 'Pin file to top (Leader/Admin)'}
+                            >
+                              <Pin className={`h-3.5 w-3.5 ${file.isPinned ? 'fill-current' : ''}`} />
+                            </button>
+                          )}
+
+                          {/* Delete File Action (Admin, Leader, or Uploader) */}
+                          {canDeleteThisFile && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (window.confirm(isUploader ? 'Delete your uploaded file?' : 'Remove this file as Group Leader/Admin?')) {
+                                  deleteGroupFile(activeGroup.id, file.id);
+                                }
+                              }}
+                              className="p-2 text-gray-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-full transition-colors cursor-pointer"
+                              title={isUploader ? 'Delete your file' : 'Remove file (Admin/Leader)'}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+
+                          {/* Download File */}
+                          <button 
+                            onClick={() => alert(`Downloading document "${file.title}"...`)}
+                            className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-slate-700 rounded-full transition-colors cursor-pointer"
+                            title="Download file"
+                          >
+                            <Download className="h-4 w-4" />
+                          </button>
                         </div>
                       </div>
-                      <button 
-                        onClick={() => alert(`Downloading document "${file.title}"...`)}
-                        className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-slate-700 rounded-full transition-colors shrink-0"
-                        title="Download file"
-                      >
-                        <Download className="h-4 w-4" />
-                      </button>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
 
@@ -782,6 +946,239 @@ export const GroupsView: React.FC = () => {
                   <Send className="h-3.5 w-3.5" />
                 </button>
               </form>
+              </motion.div>
+            )}
+
+            {/* TAB: COHORT MEMBERS & ROLE GOVERNANCE */}
+            {activeSubTab === 'members' && (
+              <motion.div
+                key="members-tab"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -12 }}
+                transition={{ duration: 0.18 }}
+                className="max-w-3xl mx-auto space-y-6"
+              >
+                {/* Role Permissions Matrix Card */}
+                <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-150 dark:border-slate-700 p-5 shadow-xs space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 dark:border-slate-700 pb-3">
+                    <div>
+                      <h3 className="font-display font-extrabold text-sm text-gray-900 dark:text-white flex items-center gap-2">
+                        <ShieldCheck className="h-4 w-4 text-purple-600" />
+                        StudyBook Role-Based Governance
+                      </h3>
+                      <p className="text-[11px] text-gray-400 mt-0.5">
+                        Permission hierarchy: Admins and Leaders hold special management powers.
+                      </p>
+                    </div>
+                    <span className="text-[10px] font-extrabold px-2.5 py-1 rounded-full bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-300">
+                      Your role: {effectiveRole.toUpperCase()}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    {/* Admin Card */}
+                    <div className={`p-3.5 rounded-xl border transition-all ${effectiveRole === 'admin' ? 'bg-purple-50/50 dark:bg-purple-950/30 border-purple-200 dark:border-purple-800' : 'bg-gray-50/60 dark:bg-slate-750/50 border-gray-150 dark:border-slate-700'}`}>
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="p-1.5 rounded-lg bg-purple-100 text-purple-700 dark:bg-purple-900/60 dark:text-purple-300">
+                          <ShieldCheck className="h-3.5 w-3.5" />
+                        </span>
+                        <span className="text-xs font-extrabold text-gray-900 dark:text-white">Admin</span>
+                        {effectiveRole === 'admin' && <span className="text-[9px] font-bold text-purple-600 ml-auto">You</span>}
+                      </div>
+                      <ul className="text-[10px] space-y-1.5 text-gray-600 dark:text-gray-300">
+                        <li className="flex items-center gap-1.5">
+                          <CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0" />
+                          <span>Full cohort ownership</span>
+                        </li>
+                        <li className="flex items-center gap-1.5">
+                          <CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0" />
+                          <span>Promote / demote Leaders</span>
+                        </li>
+                        <li className="flex items-center gap-1.5">
+                          <CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0" />
+                          <span>Handle member access & removals</span>
+                        </li>
+                        <li className="flex items-center gap-1.5">
+                          <CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0" />
+                          <span>Remove spam discussions</span>
+                        </li>
+                        <li className="flex items-center gap-1.5">
+                          <CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0" />
+                          <span>Pin / unpin study files</span>
+                        </li>
+                      </ul>
+                    </div>
+
+                    {/* Group Leader Card */}
+                    <div className={`p-3.5 rounded-xl border transition-all ${effectiveRole === 'leader' ? 'bg-amber-50/50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800' : 'bg-gray-50/60 dark:bg-slate-750/50 border-gray-150 dark:border-slate-700'}`}>
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="p-1.5 rounded-lg bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-300">
+                          <Star className="h-3.5 w-3.5" />
+                        </span>
+                        <span className="text-xs font-extrabold text-gray-900 dark:text-white">Group Leader</span>
+                        {effectiveRole === 'leader' && <span className="text-[9px] font-bold text-amber-600 ml-auto">You</span>}
+                      </div>
+                      <ul className="text-[10px] space-y-1.5 text-gray-600 dark:text-gray-300">
+                        <li className="flex items-center gap-1.5">
+                          <CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0" />
+                          <span>Pin study files to top</span>
+                        </li>
+                        <li className="flex items-center gap-1.5">
+                          <CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0" />
+                          <span>Remove spam discussions</span>
+                        </li>
+                        <li className="flex items-center gap-1.5">
+                          <CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0" />
+                          <span>Handle member access</span>
+                        </li>
+                        <li className="flex items-center gap-1.5 text-gray-400">
+                          <X className="h-3 w-3 text-gray-400 shrink-0" />
+                          <span className="line-through">Cannot change Admin roles</span>
+                        </li>
+                      </ul>
+                    </div>
+
+                    {/* Standard Member Card */}
+                    <div className={`p-3.5 rounded-xl border transition-all ${effectiveRole === 'member' ? 'bg-blue-50/50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800' : 'bg-gray-50/60 dark:bg-slate-750/50 border-gray-150 dark:border-slate-700'}`}>
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="p-1.5 rounded-lg bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300">
+                          <Users className="h-3.5 w-3.5" />
+                        </span>
+                        <span className="text-xs font-extrabold text-gray-900 dark:text-white">Standard Member</span>
+                        {effectiveRole === 'member' && <span className="text-[9px] font-bold text-blue-600 ml-auto">You</span>}
+                      </div>
+                      <ul className="text-[10px] space-y-1.5 text-gray-600 dark:text-gray-300">
+                        <li className="flex items-center gap-1.5">
+                          <CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0" />
+                          <span>Participate in group chats</span>
+                        </li>
+                        <li className="flex items-center gap-1.5">
+                          <CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0" />
+                          <span>Post study questions</span>
+                        </li>
+                        <li className="flex items-center gap-1.5">
+                          <CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0" />
+                          <span>Upload revision files</span>
+                        </li>
+                        <li className="flex items-center gap-1.5 text-gray-400">
+                          <X className="h-3 w-3 text-gray-400 shrink-0" />
+                          <span className="line-through">No management actions</span>
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Cohort Roster List */}
+                <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-150 dark:border-slate-700 overflow-hidden shadow-xs">
+                  <div className="p-4 border-b border-gray-150 dark:border-slate-700 flex justify-between items-center bg-gray-50/60 dark:bg-slate-750/60">
+                    <div>
+                      <h4 className="font-display font-extrabold text-xs text-gray-900 dark:text-white">
+                        Cohort Member Roster ({(activeGroup.members || []).length || activeGroup.memberCount || 1} members)
+                      </h4>
+                      <p className="text-[10px] text-gray-400 mt-0.5">
+                        Manage member roles, leader promotions, and cohort access.
+                      </p>
+                    </div>
+                    {!canManageMembers && (
+                      <span className="text-[10px] text-gray-400 italic">
+                        Viewing as Standard Member
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="divide-y divide-gray-100 dark:divide-slate-700">
+                    {(activeGroup.members || []).map(member => {
+                      const memberRole = member.role || activeGroup.memberRoles?.[member.id] || 'member';
+                      const isCurrentUser = member.id === user.id;
+
+                      return (
+                        <div key={member.id} className="p-3.5 flex items-center justify-between gap-3 hover:bg-gray-50/50 dark:hover:bg-slate-750 transition-colors">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <img 
+                              src={member.avatar} 
+                              alt={member.name} 
+                              className="h-9 w-9 rounded-full object-cover shrink-0 border border-gray-200 dark:border-slate-700" 
+                            />
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-bold text-gray-900 dark:text-white truncate">
+                                  {member.name} {isCurrentUser && '(You)'}
+                                </span>
+
+                                {/* Role Badge */}
+                                {memberRole === 'admin' && (
+                                  <span className="inline-flex items-center gap-1 text-[9px] font-extrabold bg-purple-100 text-purple-700 dark:bg-purple-900/60 dark:text-purple-300 px-2 py-0.5 rounded-full">
+                                    <ShieldCheck className="h-2.5 w-2.5" /> Admin
+                                  </span>
+                                )}
+                                {memberRole === 'leader' && (
+                                  <span className="inline-flex items-center gap-1 text-[9px] font-extrabold bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-300 px-2 py-0.5 rounded-full">
+                                    <Star className="h-2.5 w-2.5" /> Group Leader
+                                  </span>
+                                )}
+                                {memberRole === 'member' && (
+                                  <span className="inline-flex items-center gap-1 text-[9px] font-medium bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300 px-2 py-0.5 rounded-full">
+                                    Member
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[10px] text-gray-400 mt-0.5">
+                                {member.grade || 'Student'} • Joined {member.joinedAt || 'Recently'}
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Management Controls */}
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {/* Admin-only: Promote to Leader / Demote to Member */}
+                            {canAssignLeader && !isCurrentUser && memberRole !== 'admin' && (
+                              <>
+                                {memberRole === 'member' ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => updateGroupMemberRole(activeGroup.id, member.id, 'leader')}
+                                    className="text-[10px] font-bold bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 dark:hover:bg-amber-900/60 text-amber-700 dark:text-amber-300 px-2.5 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
+                                    title="Promote to Group Leader"
+                                  >
+                                    <Star className="h-3 w-3" />
+                                    Promote to Leader
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => updateGroupMemberRole(activeGroup.id, member.id, 'member')}
+                                    className="text-[10px] font-bold bg-gray-100 hover:bg-gray-200 dark:bg-slate-700 dark:hover:bg-slate-650 text-gray-700 dark:text-gray-300 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
+                                    title="Demote to Member"
+                                  >
+                                    Demote to Member
+                                  </button>
+                                )}
+                              </>
+                            )}
+
+                            {/* Admins and Leaders can remove members (cannot remove admins or self) */}
+                            {canManageMembers && !isCurrentUser && memberRole !== 'admin' && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (window.confirm(`Remove ${member.name} from ${activeGroup.name}?`)) {
+                                    removeGroupMember(activeGroup.id, member.id);
+                                  }
+                                }}
+                                className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors cursor-pointer"
+                                title="Remove from cohort"
+                              >
+                                <UserMinus className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
               </motion.div>
             )}
           </AnimatePresence>

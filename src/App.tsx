@@ -19,6 +19,7 @@ import { AuthScreen } from './components/AuthScreen';
 import { OnboardingScreen } from './components/OnboardingScreen';
 import { RightSidebar } from './components/RightSidebar';
 import { FloatingChats } from './components/FloatingChats';
+import { SinglePostView } from './components/SinglePostView';
 import { isFirebaseConfigured } from './lib/firebase';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -40,6 +41,8 @@ const AppContent: React.FC = () => {
     settings, 
     user,
     openUserProfile,
+    selectedPostId,
+    closeSinglePost,
     isFirebaseConnected, 
     isFirebaseLoading,
     isOfflineBypass,
@@ -121,16 +124,29 @@ const AppContent: React.FC = () => {
         {/* Main Feed/Interaction Area */}
         <main className={`flex-1 w-full overflow-hidden relative flex flex-col min-h-0 ${activeTab === 'friends' ? 'h-full bg-white dark:bg-[#18191a]' : 'bg-[#F0F2F5] dark:bg-slate-900'}`}>
           <AnimatePresence mode="wait">
-            <motion.div
-              key={activeTab}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.18, ease: 'easeOut' }}
-              className="h-full w-full flex-1 flex flex-col min-h-0"
-            >
-              {renderActiveView()}
-            </motion.div>
+            {selectedPostId ? (
+              <motion.div
+                key={`post-${selectedPostId}`}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.18, ease: 'easeOut' }}
+                className="h-full w-full flex-1 flex flex-col min-h-0"
+              >
+                <SinglePostView postId={selectedPostId} onBack={closeSinglePost} />
+              </motion.div>
+            ) : (
+              <motion.div
+                key={activeTab}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.18, ease: 'easeOut' }}
+                className="h-full w-full flex-1 flex flex-col min-h-0"
+              >
+                {renderActiveView()}
+              </motion.div>
+            )}
           </AnimatePresence>
         </main>
 

@@ -14,9 +14,13 @@
   "dependencies": {
     "@google/genai": "^2.4.0",
     "@tailwindcss/vite": "^4.1.14",
+    "@uploadcare/react-uploader": "^1.17.0",
+    "@uploadcare/upload-client": "^6.21.0",
     "@vitejs/plugin-react": "^5.0.4",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
+    "filestack-js": "^3.51.6",
+    "filestack-react": "^7.0.1",
     "firebase": "^12.16.0",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",

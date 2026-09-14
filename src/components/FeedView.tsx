@@ -47,9 +47,11 @@ import {
   ArrowUpDown,
   Activity,
   Loader2,
-  Film
+  Film,
+  FileCheck
 } from 'lucide-react';
 import { CreateReelModal } from './CreateReelModal';
+import { StudyPostComposer } from './StudyPostComposer';
 
 const formatSubjectDisplay = (subject?: string): string => {
   if (!subject) return 'General';
@@ -126,7 +128,9 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
     followingIds,
     creatorScores,
     joinedGroupIds,
-    groupInteractions
+    groupInteractions,
+    groups,
+    openSinglePost
   } = useApp();
 
   const [newPostText, setNewPostText] = useState('');
@@ -230,6 +234,20 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
       if (!isMember) return false;
     }
 
+    // 5. Post moderation queue:
+    // Pending posts only appear to their author or group moderators
+    if (post.status === 'pending') {
+      const isAuthor = post.authorId === user.id || post.user?.id === user.id;
+      const targetGroup = post.groupId ? groups.find(g => g.id === post.groupId) : null;
+      const isModerator = targetGroup ? (
+        targetGroup.adminUserIds?.includes(user.id) ||
+        targetGroup.leaderUserIds?.includes(user.id) ||
+        targetGroup.memberRoles?.[user.id] === 'admin' ||
+        targetGroup.memberRoles?.[user.id] === 'leader'
+      ) : false;
+      if (!isAuthor && !isModerator) return false;
+    }
+
     return true;
   });
 
@@ -326,12 +344,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
 
   const handleDownloadAttachment = (attachment: { title: string; url: string; type: string }) => {
     if (attachment.url && attachment.url !== '#') {
-      const link = document.createElement('a');
-      link.href = attachment.url;
-      link.download = attachment.title;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      window.open(attachment.url, '_blank', 'noopener,noreferrer');
     } else {
       const content = `StudyBook Academic File Document\nTitle: ${attachment.title}\nType: ${attachment.type.toUpperCase()}\nStatus: Verified Complete`;
       const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
@@ -721,58 +734,29 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
         )}
       </AnimatePresence>
 
-      {/* Post Creator Box (Facebook style trigger) */}
+      {/* Main Social Media StudyPostComposer with Filestack Automated Cloud Upload */}
       {!savedOnly && (
-        <div className="bg-white dark:bg-slate-800 rounded-xl border border-gray-150 dark:border-slate-700 p-4 shadow-sm space-y-3">
-          <div className="flex gap-3 items-center">
-            <img 
-              src={settings.incognitoMode ? 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=150' : user.avatar} 
-              alt="Avatar" 
-              className="h-10 w-10 rounded-full object-cover shrink-0"
-            />
-            <button
-              onClick={() => setCreatePostModalOpen(true)}
-              className="flex-1 rounded-full bg-gray-100 dark:bg-slate-900 px-4 py-2.5 text-left text-xs sm:text-sm text-gray-500 dark:text-gray-400 hover:bg-gray-200/60 dark:hover:bg-slate-750 transition-all cursor-pointer border-none focus:outline-none"
-            >
-              {settings.incognitoMode ? 'You are in study incognito mode...' : `Hello ${user.name.split(' ')[0] || 'Student'}!`} What are you self-studying or sharing today?
-            </button>
-          </div>
+        <div className="space-y-2.5">
+          <StudyPostComposer defaultSubject={activeSubjectFilter !== 'All' ? activeSubjectFilter : 'Math'} />
           
-          <hr className="border-gray-100 dark:border-slate-750" />
-          
-          {/* Short Options row resembling Facebook: live photo, feeling, document */}
-          <div className="flex items-center justify-around text-[11px] sm:text-xs text-gray-500 dark:text-gray-400 pt-0.5">
-            <button 
-              onClick={() => { setCreatePostModalOpen(true); setShowAttachmentForm(true); setAttachType('pdf'); }}
-              className="flex items-center gap-2 hover:bg-gray-100 dark:hover:bg-slate-750 py-1.5 px-3 rounded-lg cursor-pointer transition-all font-semibold"
-            >
-              <FileText className="w-4 h-4 text-red-500" />
-              <span>Upload PDF</span>
-            </button>
-            
-            <button 
-              onClick={() => { setCreatePostModalOpen(true); setShowAttachmentForm(true); setAttachType('link'); }}
-              className="flex items-center gap-2 hover:bg-gray-100 dark:hover:bg-slate-750 py-1.5 px-3 rounded-lg cursor-pointer transition-all font-semibold"
-            >
-              <Video className="w-4 h-4 text-red-600" />
-              <span>Video / Link URL</span>
-            </button>
-            
-            <button 
-              onClick={() => setIsCreateReelOpen(true)}
-              className="flex items-center gap-2 hover:bg-gray-100 dark:hover:bg-slate-750 py-1.5 px-3 rounded-lg cursor-pointer transition-all font-semibold"
-            >
-              <Film className="w-4 h-4 text-pink-500" />
-              <span>Reel</span>
-            </button>
-            
-            <button 
-              onClick={() => { setCreatePostModalOpen(true); setIsAnonymous(true); }}
-              className="flex items-center gap-2 hover:bg-gray-100 dark:hover:bg-slate-750 py-1.5 px-3 rounded-lg cursor-pointer transition-all font-semibold"
-            >
-              <Lock className="w-4 h-4 text-purple-500" />
-              <span>Ask Secretly</span>
-            </button>
+          <div className="flex items-center justify-between px-2 text-xs text-gray-500 dark:text-gray-400">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setIsCreateReelOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg hover:bg-pink-50 dark:hover:bg-pink-950/40 text-pink-600 dark:text-pink-400 font-semibold transition-colors cursor-pointer"
+              >
+                <Film className="h-3.5 w-3.5" />
+                <span>Create Reel</span>
+              </button>
+              <button
+                onClick={() => setCreatePostModalOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-800 text-gray-600 dark:text-gray-300 font-semibold transition-colors cursor-pointer"
+              >
+                <SlidersHorizontal className="h-3.5 w-3.5" />
+                <span>More Post Options</span>
+              </button>
+            </div>
+            <span className="text-[10px] text-gray-400 font-medium">⚡ Powered by Filestack Cloud</span>
           </div>
         </div>
       )}
@@ -1171,7 +1155,13 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
 
                         {/* Line 2: Timestamp • Grade Tag • Subject Tag */}
                         <div className="flex items-center gap-2 text-[11px] text-gray-500 dark:text-gray-400 mt-1 flex-wrap">
-                          <span>{new Date(post.timestamp).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                          <button
+                            onClick={() => openSinglePost(post.id)}
+                            className="hover:underline hover:text-blue-600 dark:hover:text-blue-400 transition-colors cursor-pointer"
+                            title="Open single post view (/post/[id])"
+                          >
+                            {new Date(post.timestamp).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                          </button>
                           <span className="text-gray-300 dark:text-slate-600">•</span>
 
                           {/* Grade Badge Tag */}
@@ -1234,62 +1224,108 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
 
                   {/* Attachment Block (If any) */}
                   {post.attachment && (
-                    <div className="border border-gray-150 dark:border-slate-700 rounded-xl overflow-hidden flex items-center justify-between p-3.5 bg-gray-50/50 dark:bg-slate-850 hover:bg-gray-100/50 dark:hover:bg-slate-800/50 transition-colors">
-                      <div className="flex items-center gap-3 min-w-0">
-                        {post.attachment.type === 'pdf' && (
-                          <div className="h-10 w-10 bg-red-100 text-red-600 rounded-xl flex items-center justify-center font-bold text-xs shrink-0">
-                            PDF
+                    <div className="mt-2">
+                      {post.attachment.type === 'image' ? (
+                        <div className="rounded-xl overflow-hidden border border-gray-200 dark:border-slate-700 bg-gray-100 dark:bg-slate-900 group relative">
+                          <img 
+                            src={post.attachment.url} 
+                            alt={post.attachment.title}
+                            className="w-full max-h-[440px] object-contain cursor-pointer transition-transform duration-200 group-hover:scale-[1.01]"
+                            onClick={() => window.open(post.attachment?.url, '_blank')}
+                          />
+                          <div className="p-2.5 flex items-center justify-between text-xs text-gray-600 dark:text-gray-300 bg-gray-50/90 dark:bg-slate-800/90 border-t border-gray-150 dark:border-slate-700">
+                            <span className="font-semibold truncate flex items-center gap-1.5">
+                              <FileCheck className="h-4 w-4 text-emerald-500" />
+                              {post.attachment.title}
+                            </span>
+                            <a 
+                              href={post.attachment.url} 
+                              target="_blank" 
+                              rel="noreferrer" 
+                              className="text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 font-bold text-xs"
+                            >
+                              <ExternalLink className="h-3.5 w-3.5" /> Full Size
+                            </a>
                           </div>
-                        )}
-                        {post.attachment.type === 'doc' && (
-                          <div className="h-10 w-10 bg-blue-100 text-blue-600 rounded-xl flex items-center justify-center font-bold text-xs shrink-0">
-                            DOC
-                          </div>
-                        )}
-                        {post.attachment.type === 'link' && (
-                          <div className="h-10 w-10 bg-slate-100 text-slate-600 rounded-xl flex items-center justify-center shrink-0">
-                            <ExternalLink className="h-5 w-5" />
-                          </div>
-                        )}
-                        {post.attachment.type === 'youtube' && (
-                          <div className="h-10 w-10 bg-red-100 text-red-600 rounded-xl flex items-center justify-center shrink-0">
-                            <Youtube className="h-5 w-5 fill-red-600" />
-                          </div>
-                        )}
-
-                        <div className="min-w-0">
-                          <p className="text-xs font-semibold text-gray-800 dark:text-white truncate leading-snug">
-                            {post.attachment.title}
-                          </p>
-                          <span className="text-[10px] text-gray-400 mt-1 block">
-                            {post.attachment.size ? `${post.attachment.size} • Free Download` : 'Linked study website'}
-                          </span>
                         </div>
-                      </div>
-
-                      {/* Download CTA buttons */}
-                      {post.attachment.type === 'pdf' || post.attachment.type === 'doc' ? (
-                        <button 
-                          onClick={() => post.attachment && handleDownloadAttachment(post.attachment)}
-                          className="flex items-center gap-1.5 bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-300 font-bold px-3 py-1.5 rounded-lg text-xs hover:bg-blue-100 transition-colors cursor-pointer"
-                        >
-                          <Download className="h-3.5 w-3.5" />
-                          Download
-                        </button>
+                      ) : post.attachment.type === 'video' ? (
+                        <div className="rounded-xl overflow-hidden border border-gray-200 dark:border-slate-700 bg-black">
+                          <video 
+                            src={post.attachment.url} 
+                            controls 
+                            className="w-full max-h-[400px] object-contain"
+                          />
+                        </div>
                       ) : (
-                        <a 
-                          href={
-                            post.attachment.url && post.attachment.url !== '#' 
-                              ? post.attachment.url 
-                              : `https://www.google.com/search?q=${encodeURIComponent(post.attachment.title)}`
-                          }
-                          target="_blank"
-                          rel="noreferrer"
-                          className="flex items-center gap-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-gray-600 dark:text-gray-300 font-bold px-3 py-1.5 rounded-lg text-xs transition-colors cursor-pointer"
-                        >
-                          <ExternalLink className="h-3.5 w-3.5" />
-                          Visit
-                        </a>
+                        <div className="border border-gray-150 dark:border-slate-700 rounded-xl overflow-hidden flex items-center justify-between p-3.5 bg-gray-50/50 dark:bg-slate-850 hover:bg-gray-100/50 dark:hover:bg-slate-800/50 transition-colors">
+                          <div className="flex items-center gap-3 min-w-0">
+                            {post.attachment.type === 'pdf' && (
+                              <div className="h-10 w-10 bg-red-100 text-red-600 rounded-xl flex items-center justify-center font-bold text-xs shrink-0">
+                                PDF
+                              </div>
+                            )}
+                            {post.attachment.type === 'doc' && (
+                              post.attachment.title.toLowerCase().match(/\.(pptx|ppt)$/) ? (
+                                <div className="h-10 w-10 bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 rounded-xl flex items-center justify-center font-bold text-xs shrink-0">
+                                  PPT
+                                </div>
+                              ) : (
+                                <div className="h-10 w-10 bg-blue-100 text-blue-600 rounded-xl flex items-center justify-center font-bold text-xs shrink-0">
+                                  DOC
+                                </div>
+                              )
+                            )}
+                            {post.attachment.type === 'link' && (
+                              <div className="h-10 w-10 bg-slate-100 text-slate-600 rounded-xl flex items-center justify-center shrink-0">
+                                <ExternalLink className="h-5 w-5" />
+                              </div>
+                            )}
+                            {post.attachment.type === 'youtube' && (
+                              <div className="h-10 w-10 bg-red-100 text-red-600 rounded-xl flex items-center justify-center shrink-0">
+                                <Youtube className="h-5 w-5 fill-red-600" />
+                              </div>
+                            )}
+                            {post.attachment.type === 'file' && (
+                              <div className="h-10 w-10 bg-emerald-100 text-emerald-600 rounded-xl flex items-center justify-center shrink-0">
+                                <FileCheck className="h-5 w-5" />
+                              </div>
+                            )}
+
+                            <div className="min-w-0">
+                              <p className="text-xs font-semibold text-gray-800 dark:text-white truncate leading-snug">
+                                {post.attachment.title}
+                              </p>
+                              <span className="text-[10px] text-gray-400 mt-1 block">
+                                {post.attachment.size ? `${post.attachment.size} • ${post.attachment.url?.includes('ucarecdn.com') ? 'Uploadcare Cloud Storage' : 'Verified Cloud Storage'}` : 'Linked study website'}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Download CTA buttons */}
+                          {post.attachment.type === 'pdf' || post.attachment.type === 'doc' || post.attachment.type === 'file' ? (
+                            <button 
+                              onClick={() => post.attachment && handleDownloadAttachment(post.attachment)}
+                              className="flex items-center gap-1.5 bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-300 font-bold px-3 py-1.5 rounded-lg text-xs hover:bg-blue-100 transition-colors cursor-pointer"
+                            >
+                              <Download className="h-3.5 w-3.5" />
+                              Download
+                            </button>
+                          ) : (
+                            <a 
+                              href={
+                                post.attachment.url && post.attachment.url !== '#' 
+                                  ? post.attachment.url 
+                                  : `https://www.google.com/search?q=${encodeURIComponent(post.attachment.title)}`
+                              }
+                              target="_blank"
+                              rel="noreferrer"
+                              className="flex items-center gap-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-gray-600 dark:text-gray-300 font-bold px-3 py-1.5 rounded-lg text-xs transition-colors cursor-pointer"
+                            >
+                              <ExternalLink className="h-3.5 w-3.5" />
+                              Visit
+                            </a>
+                          )}
+                        </div>
                       )}
                     </div>
                   )}

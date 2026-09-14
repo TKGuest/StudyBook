@@ -1,6 +1,8 @@
 import React, { useState, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { playSound } from '../utils/soundEffects';
+import { PickerOverlay } from 'filestack-react';
+import { FILESTACK_API_KEY } from '../lib/filestack';
 import {
   X,
   Upload,
@@ -15,8 +17,8 @@ import {
   Globe,
   Sparkles,
   RefreshCw,
-  Hash,
-  HelpCircle
+  HelpCircle,
+  CloudUpload
 } from 'lucide-react';
 
 interface CreateReelModalProps {
@@ -30,37 +32,26 @@ const PRESET_STUDY_VIDEOS = [
     title: '📐 Math: Visual Proofs',
     url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
     subject: 'Math',
-    caption: 'Visual proof of quadratic formulas & geometry! 📐 Watch step-by-step shortcuts. #Math #VisualProofs #Geometry'
+    caption: 'Visual proof of quadratic formulas & geometry! 📐 Watch step-by-step shortcuts.'
   },
   {
     title: '⚡ Physics: Angular Momentum',
     url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4',
     subject: 'Physics',
-    caption: 'Why gyroscopes & bicycles stay upright! ⚡ Conservation of momentum explained in 45s. #Physics #Mechanics'
+    caption: 'Why gyroscopes & bicycles stay upright! ⚡ Conservation of momentum explained in 45s.'
   },
   {
     title: '🧪 Chemistry: Color Kinetics',
     url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4',
     subject: 'Chemistry',
-    caption: 'Watch this oscillating chemical clock reaction! 🧪 RedOx reactions and electron transfers. #Chemistry #Science'
+    caption: 'Watch this oscillating chemical clock reaction! 🧪 RedOx reactions and electron transfers.'
   },
   {
     title: '📚 English: Essay Hooks',
     url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyBlazes.mp4',
     subject: 'English',
-    caption: '3 argumentative essay transition hooks that examiners love! 📚 Stop using "Nowadays". #English #EssayTips'
+    caption: '3 argumentative essay transition hooks that examiners love! 📚 Stop using "Nowadays".'
   }
-];
-
-const POPULAR_HASHTAGS = [
-  '#Math',
-  '#Physics',
-  '#Chemistry',
-  '#Biology',
-  '#English',
-  '#StudyTips',
-  '#ExamPrep',
-  '#FormulaShortcuts'
 ];
 
 export const CreateReelModal: React.FC<CreateReelModalProps> = ({ isOpen, onClose, onSuccess }) => {
@@ -78,6 +69,7 @@ export const CreateReelModal: React.FC<CreateReelModalProps> = ({ isOpen, onClos
   const [worksheetSize, setWorksheetSize] = useState('1.5 MB');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [showFilestackPicker, setShowFilestackPicker] = useState(false);
 
   // Video preview player states
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -86,6 +78,20 @@ export const CreateReelModal: React.FC<CreateReelModalProps> = ({ isOpen, onClos
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
+
+  const handleFilestackUploadDone = (res: any) => {
+    setShowFilestackPicker(false);
+    if (res?.filesUploaded && res.filesUploaded.length > 0) {
+      const file = res.filesUploaded[0];
+      setVideoUrl(file.url);
+      setVideoFileName(file.filename || 'Cloud Video');
+      setErrorMsg('');
+      playSound('pop');
+      if (!caption) {
+        setCaption(`Quick study summary on ${subject}! 📚 #StudyTips #${subject}`);
+      }
+    }
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -134,12 +140,6 @@ export const CreateReelModal: React.FC<CreateReelModalProps> = ({ isOpen, onClos
     videoRef.current.muted = nextMuted;
     setIsMuted(nextMuted);
     playSound('toggle');
-  };
-
-  const handleAddHashtag = (tag: string) => {
-    if (caption.includes(tag)) return;
-    setCaption(prev => (prev ? `${prev.trim()} ${tag}` : tag));
-    playSound('pop');
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -197,11 +197,8 @@ export const CreateReelModal: React.FC<CreateReelModalProps> = ({ isOpen, onClos
               <Film className="h-4 w-4" />
             </div>
             <div>
-              <h2 className="text-base font-bold font-display text-gray-900 dark:text-white flex items-center gap-2">
+              <h2 className="text-base font-bold font-display text-gray-900 dark:text-white">
                 Create Educational Reel
-                <span className="text-[10px] font-semibold bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full uppercase tracking-wider">
-                  Facebook Style
-                </span>
               </h2>
               <p className="text-xs text-gray-500 dark:text-neutral-400">Share a short bite-sized lesson, experiment, or study technique</p>
             </div>
@@ -282,28 +279,45 @@ export const CreateReelModal: React.FC<CreateReelModalProps> = ({ isOpen, onClos
                   </div>
                   <div>
                     <p className="text-xs font-bold text-neutral-200">No video selected</p>
-                    <p className="text-[11px] text-neutral-400 mt-1">Upload a video or pick a sample study clip</p>
+                    <p className="text-[11px] text-neutral-400 mt-1">Upload video or pick a sample study clip</p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="px-3 py-1.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md transition-all cursor-pointer"
-                  >
-                    Select File
-                  </button>
+                  <div className="flex flex-col gap-2 w-full max-w-[200px]">
+                    <button
+                      type="button"
+                      onClick={() => setShowFilestackPicker(true)}
+                      className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                    >
+                      <CloudUpload className="h-4 w-4" />
+                      Upload to Cloud
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="px-3 py-1.5 rounded-xl bg-neutral-800 hover:bg-neutral-750 text-neutral-300 font-semibold text-xs border border-neutral-700 transition-all cursor-pointer"
+                    >
+                      Browse Local Video
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
 
             {/* Change video button if already picked */}
             {videoUrl && (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowFilestackPicker(true)}
+                  className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 cursor-pointer"
+                >
+                  <CloudUpload className="h-3.5 w-3.5" /> Upload Different Video (Filestack)
+                </button>
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 cursor-pointer"
+                  className="text-xs font-semibold text-gray-500 hover:underline flex items-center gap-1 cursor-pointer"
                 >
-                  <RefreshCw className="h-3 w-3" /> Change Video File
+                  <RefreshCw className="h-3 w-3" /> Local File
                 </button>
               </div>
             )}
@@ -374,23 +388,6 @@ export const CreateReelModal: React.FC<CreateReelModalProps> = ({ isOpen, onClos
                 placeholder="Explain the concept in a few sentences... (e.g. Quick breakdown of Newton's 3rd Law using ice skate demos! ⛸️)"
                 className="w-full p-3 rounded-xl text-xs bg-gray-50 dark:bg-neutral-800 border border-gray-300 dark:border-neutral-700 focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-white resize-none"
               />
-
-              {/* Hashtag helper pills */}
-              <div className="flex flex-wrap gap-1 items-center pt-0.5">
-                <span className="text-[10px] font-semibold text-gray-400 flex items-center gap-0.5">
-                  <Hash className="h-2.5 w-2.5" /> Tags:
-                </span>
-                {POPULAR_HASHTAGS.map(tag => (
-                  <button
-                    key={tag}
-                    type="button"
-                    onClick={() => handleAddHashtag(tag)}
-                    className="px-2 py-0.5 text-[10px] rounded-full bg-gray-100 dark:bg-neutral-800 hover:bg-blue-100 dark:hover:bg-blue-900/40 text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-300 transition-colors font-medium border border-gray-200 dark:border-neutral-700 cursor-pointer"
-                  >
-                    {tag}
-                  </button>
-                ))}
-              </div>
             </div>
 
             {/* Subject and Target Grade in row */}
@@ -533,6 +530,25 @@ export const CreateReelModal: React.FC<CreateReelModalProps> = ({ isOpen, onClos
           </form>
         </div>
       </div>
+
+      {/* Filestack Cloud Video Picker Overlay */}
+      {showFilestackPicker && (
+        <PickerOverlay
+          apikey={FILESTACK_API_KEY}
+          onSuccess={handleFilestackUploadDone}
+          onError={(err: any) => {
+            console.error('Filestack video upload error:', err);
+            setErrorMsg('Failed to upload video to cloud. Please try again.');
+            setShowFilestackPicker(false);
+          }}
+          pickerOptions={{
+            accept: ['video/*'],
+            maxFiles: 1,
+            fromSources: ['local_file_system', 'url', 'googledrive', 'dropbox', 'instagram'],
+            modalSize: [800, 600]
+          }}
+        />
+      )}
     </div>
   );
 };

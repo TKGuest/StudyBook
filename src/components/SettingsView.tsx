@@ -5,7 +5,7 @@ import { isFirebaseConfigured, auth, db } from '../lib/firebase';
 import { setDoc, doc } from 'firebase/firestore';
 import { SILHOUETTE_AVATAR } from '../data/mockData';
 import { motion, AnimatePresence } from 'motion/react';
-import { User, TutorRequest, GRADE_LEVELS, GradeLevel } from '../types';
+import { User, TutorRequest, GRADE_LEVELS, GradeLevel, GlobalAlgorithmConfig, DEFAULT_GLOBAL_ALGORITHM_CONFIG } from '../types';
 import { playSound, SoundType } from '../utils/soundEffects';
 import { calculateFreshnessValue, simulateFreshnessDecayTest, ALGORITHM_CONFIG } from '../utils/feedAlgorithm';
 
@@ -28,7 +28,9 @@ export const SettingsView: React.FC = () => {
     deleteTutorRequest,
     blockedUsers,
     blockUser,
-    unblockUser
+    unblockUser,
+    globalAlgorithmConfig,
+    updateGlobalAlgorithmConfig
   } = useApp();
   
   // Profile editor states
@@ -59,6 +61,50 @@ export const SettingsView: React.FC = () => {
 
   const currentEmail = user.email || localStorage.getItem('sb_current_email') || auth.currentUser?.email || '';
   const isAdmin = user.role === 'admin' || currentEmail.toLowerCase() === 'billkute030709@gmail.com';
+  const isOwnerAdmin = currentEmail.toLowerCase() === 'billkute030709@gmail.com';
+
+  const [algoConfigForm, setAlgoConfigForm] = useState<GlobalAlgorithmConfig>(globalAlgorithmConfig || DEFAULT_GLOBAL_ALGORITHM_CONFIG);
+  const [isSavingAlgo, setIsSavingAlgo] = useState(false);
+
+  React.useEffect(() => {
+    if (globalAlgorithmConfig) {
+      setAlgoConfigForm(globalAlgorithmConfig);
+    }
+  }, [globalAlgorithmConfig]);
+
+  const handleSaveGlobalAlgorithm = async () => {
+    if (!isOwnerAdmin) {
+      showToast('Only billkute030709@gmail.com can customize the global algorithm!', 'error');
+      return;
+    }
+    setIsSavingAlgo(true);
+    try {
+      const res = await updateGlobalAlgorithmConfig(algoConfigForm);
+      if (res.success) {
+        showToast(res.message || 'Global algorithm config updated and active globally!', 'success');
+      } else {
+        showToast(res.message || 'Failed to update algorithm config', 'error');
+      }
+    } catch (e: any) {
+      showToast(e.message || 'Error updating config', 'error');
+    } finally {
+      setIsSavingAlgo(false);
+    }
+  };
+
+  const handleResetGlobalAlgorithm = async () => {
+    if (!isOwnerAdmin) return;
+    setIsSavingAlgo(true);
+    try {
+      await updateGlobalAlgorithmConfig(DEFAULT_GLOBAL_ALGORITHM_CONFIG);
+      setAlgoConfigForm(DEFAULT_GLOBAL_ALGORITHM_CONFIG);
+      showToast('Global algorithm reset to system defaults!', 'info');
+    } catch (e: any) {
+      showToast(e.message || 'Error resetting config', 'error');
+    } finally {
+      setIsSavingAlgo(false);
+    }
+  };
 
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
     setToast({ message, type });
@@ -630,149 +676,337 @@ export const SettingsView: React.FC = () => {
         </div>
       </div>
 
-      {/* BLOCK 3: FEED ALGORITHM & FRESHNESS VALUE VERIFICATION */}
-      <div id="algorithm-verification-section" className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-150 dark:border-slate-700 p-5 space-y-4 shadow-sm">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-150 dark:border-slate-700 pb-3">
-          <div className="space-y-1">
-            <h3 className="font-display font-bold text-sm text-gray-800 dark:text-white flex items-center gap-1.5">
-              <Zap className="h-4.5 w-4.5 text-amber-500 fill-amber-500/20" />
-              Algorithm Freshness Value & Ranking Verification
-            </h3>
-            <p className="text-[11px] text-gray-400 font-medium leading-relaxed">
-              Verify how StudyBook's personalized algorithm ranks posts using Freshness Decay (-2.5 pts/hr) and Grade Matching (+35 pts boost).
-            </p>
-          </div>
-          <span className="px-2.5 py-1 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 font-bold rounded-lg text-xs border border-emerald-200 dark:border-emerald-800 flex items-center gap-1 self-start sm:self-auto shrink-0">
-            <Activity className="h-3.5 w-3.5 animate-pulse" />
-            Freshness Decay Active (-2.5 pt/hr)
-          </span>
-        </div>
-
-        {/* Algorithm Score Formula Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div className="p-3 bg-amber-50/50 dark:bg-amber-950/20 rounded-xl border border-amber-200/70 dark:border-amber-900/40 space-y-1">
-            <div className="flex items-center justify-between text-[11px] font-bold text-amber-700 dark:text-amber-300">
-              <span>🕒 Freshness Value</span>
-              <span>50 → 0 pts</span>
-            </div>
-            <p className="text-[10px] text-amber-900/70 dark:text-amber-300/70 leading-normal">
-              Recent posts start with <strong>50 points</strong> and decay at <strong>-2.5 pts per hour</strong>. Floor at 0 pts after 20 hours.
-            </p>
-          </div>
-
-          <div className="p-3 bg-indigo-50/50 dark:bg-indigo-950/20 rounded-xl border border-indigo-200/70 dark:border-indigo-900/40 space-y-1">
-            <div className="flex items-center justify-between text-[11px] font-bold text-indigo-700 dark:text-indigo-300">
-              <span>🎓 Grade Matching</span>
-              <span>+35.0 pts</span>
-            </div>
-            <p className="text-[10px] text-indigo-900/70 dark:text-indigo-300/70 leading-normal">
-              Posts matching your active grade (<strong>{selectedGrade || user.grade || 'Grade 10'}</strong>) are boosted directly to the top.
-            </p>
-          </div>
-
-          <div className="p-3 bg-blue-50/50 dark:bg-blue-950/20 rounded-xl border border-blue-200/70 dark:border-blue-900/40 space-y-1">
-            <div className="flex items-center justify-between text-[11px] font-bold text-blue-700 dark:text-blue-300">
-              <span>👍 Popularity & Subject</span>
-              <span>Variable</span>
-            </div>
-            <p className="text-[10px] text-blue-900/70 dark:text-blue-300/70 leading-normal">
-              Verified solutions (+8), insightful remarks (+4), helpful reactions (+2), and subject priority weights.
-            </p>
-          </div>
-        </div>
-
-        {/* Live Interactive Freshness Tester */}
-        <div className="p-4 bg-gray-50 dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-700 space-y-3">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div>
-              <h4 className="text-xs font-bold text-gray-800 dark:text-gray-200">
-                Interactive Freshness Decay Simulator
-              </h4>
-              <p className="text-[10px] text-gray-400">
-                Move the slider to simulate post age and check the resulting Freshness Value.
+      {/* BLOCK 3: FEED ALGORITHM & FRESHNESS VALUE VERIFICATION - Gated exclusively for billkute030709@gmail.com */}
+      {isOwnerAdmin && (
+        <div id="algorithm-verification-section" className="bg-white dark:bg-slate-800 rounded-2xl border-2 border-amber-300 dark:border-amber-700/60 p-5 space-y-5 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-150 dark:border-slate-700 pb-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="px-2 py-0.5 bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 text-[10px] font-extrabold uppercase tracking-wide rounded-md border border-amber-300 dark:border-amber-800">
+                  Global System Setting
+                </span>
+                <span className="px-2 py-0.5 bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 text-[10px] font-bold rounded-md">
+                  Customizable only by billkute030709@gmail.com
+                </span>
+              </div>
+              <h3 className="font-display font-bold text-base text-gray-900 dark:text-white flex items-center gap-2">
+                <Zap className="h-5 w-5 text-amber-500 fill-amber-500/20" />
+                Algorithm Freshness Value & Ranking Verification
+              </h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+                Control the global ranking algorithm weights and freshness decay rates. Changes made here apply across the entire platform.
               </p>
             </div>
-            <div className="text-right">
-              <span className="text-xs font-mono font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 px-2.5 py-1 rounded-md border border-blue-200 dark:border-blue-800">
-                Post Age: {testHoursAgo} {testHoursAgo === 1 ? 'hour' : 'hours'} ago
-              </span>
+            <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
+              <button
+                type="button"
+                onClick={handleResetGlobalAlgorithm}
+                disabled={isSavingAlgo}
+                className="px-3 py-1.5 text-xs font-semibold text-gray-600 dark:text-gray-300 bg-gray-100 hover:bg-gray-200 dark:bg-slate-700 dark:hover:bg-slate-650 rounded-xl transition-all flex items-center gap-1.5"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${isSavingAlgo ? 'animate-spin' : ''}`} />
+                Reset Defaults
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveGlobalAlgorithm}
+                disabled={isSavingAlgo}
+                className="px-4 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-sm transition-all flex items-center gap-1.5"
+              >
+                <Save className="h-3.5 w-3.5" />
+                {isSavingAlgo ? 'Saving...' : 'Save Global Config'}
+              </button>
             </div>
           </div>
 
-          {/* Slider input */}
-          <input
-            type="range"
-            min="0"
-            max="24"
-            step="0.5"
-            value={testHoursAgo}
-            onChange={(e) => setTestHoursAgo(parseFloat(e.target.value))}
-            className="w-full accent-blue-600 cursor-pointer"
-          />
+          {/* Configuration Inputs Panel */}
+          <div className="bg-amber-50/40 dark:bg-amber-950/15 p-4 rounded-xl border border-amber-200/60 dark:border-amber-900/30 space-y-4">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
+              <Sliders className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+              Global Parameters Customization
+            </h4>
 
-          {/* Real-time Calculation Result */}
-          {(() => {
-            const decay = Math.min(50, testHoursAgo * 2.5);
-            const freshness = Math.max(0, 50 - testHoursAgo * 2.5);
-            const percent = (freshness / 50) * 100;
-            return (
-              <div className="space-y-2 pt-1">
-                <div className="flex justify-between items-center text-xs font-semibold">
-                  <span className="text-gray-600 dark:text-gray-300 flex items-center gap-1.5">
-                    <span>Base: 50.0 pts</span>
-                    <span className="text-red-500 font-mono">- {decay.toFixed(1)} pts decay ({testHoursAgo}h × 2.5)</span>
-                  </span>
-                  <span className="font-mono font-extrabold text-sm text-amber-600 dark:text-amber-400">
-                    Freshness: {freshness.toFixed(1)} / 50.0 pts
-                  </span>
-                </div>
-
-                {/* Progress bar visual */}
-                <div className="w-full h-3 bg-gray-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                  <div 
-                    className={`h-full transition-all duration-150 ${
-                      percent > 60 ? 'bg-emerald-500' : percent > 25 ? 'bg-amber-500' : 'bg-red-500'
-                    }`}
-                    style={{ width: `${percent}%` }}
-                  />
-                </div>
-
-                <div className="text-[10px] text-gray-400 flex justify-between font-mono">
-                  <span>0h (50 pts, Newest)</span>
-                  <span>10h (25 pts, Half)</span>
-                  <span>20h+ (0 pts, Decay Floor)</span>
-                </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+              <div className="bg-white dark:bg-slate-900 p-3 rounded-lg border border-gray-200 dark:border-slate-700 space-y-1">
+                <label className="text-[11px] font-semibold text-gray-700 dark:text-gray-300">
+                  Base Freshness (Pts)
+                </label>
+                <input
+                  type="number"
+                  step="1"
+                  min="0"
+                  max="200"
+                  value={algoConfigForm.freshnessMaxScore}
+                  onChange={(e) => setAlgoConfigForm(prev => ({ ...prev, freshnessMaxScore: parseFloat(e.target.value) || 0 }))}
+                  className="w-full px-2.5 py-1.5 font-mono text-xs rounded-md border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-gray-900 dark:text-white"
+                />
+                <span className="text-[10px] text-gray-400 block">Initial points for new post</span>
               </div>
-            );
-          })()}
-        </div>
 
-        {/* Verification Matrix Table */}
-        <div className="border border-gray-200 dark:border-slate-700 rounded-xl overflow-hidden text-xs">
-          <div className="bg-gray-100 dark:bg-slate-750 px-3 py-2 font-bold text-gray-700 dark:text-gray-200 flex justify-between">
-            <span>Freshness Value Decay Verification Benchmark Table</span>
-            <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-normal">Algorithm Rule: 50 - (hrs × 2.5)</span>
-          </div>
-          <div className="divide-y divide-gray-150 dark:divide-slate-700 font-mono text-[11px]">
-            {[
-              { hours: 0, decay: 0, points: 50.0, status: 'Peak Freshness (Recent post)' },
-              { hours: 2, decay: 5.0, points: 45.0, status: 'Slight decay (-5.0 pts)' },
-              { hours: 4, decay: 10.0, points: 40.0, status: 'Moderate decay (-10.0 pts)' },
-              { hours: 8, decay: 20.0, points: 30.0, status: 'Active decay (-20.0 pts)' },
-              { hours: 12, decay: 30.0, points: 20.0, status: 'Older post (-30.0 pts)' },
-              { hours: 20, decay: 50.0, points: 0.0, status: 'Decay floor reached (0 pts)' },
-              { hours: 24, decay: 50.0, points: 0.0, status: 'Permanent floor clamped at 0' }
-            ].map(item => (
-              <div key={item.hours} className="px-3 py-1.5 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-slate-750/50">
-                <span className="w-24 text-gray-600 dark:text-gray-300 font-semibold">{item.hours} hrs ago</span>
-                <span className="w-28 text-red-500">-{item.decay.toFixed(1)} pts</span>
-                <span className="w-24 font-bold text-gray-900 dark:text-white">{item.points.toFixed(1)} pts</span>
-                <span className="text-[10px] text-gray-400 text-right flex-1">{item.status}</span>
+              <div className="bg-white dark:bg-slate-900 p-3 rounded-lg border border-gray-200 dark:border-slate-700 space-y-1">
+                <label className="text-[11px] font-semibold text-gray-700 dark:text-gray-300">
+                  Decay Rate (Pts/Hour)
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max="20"
+                  value={algoConfigForm.freshnessDecayRatePerHour}
+                  onChange={(e) => setAlgoConfigForm(prev => ({ ...prev, freshnessDecayRatePerHour: parseFloat(e.target.value) || 0 }))}
+                  className="w-full px-2.5 py-1.5 font-mono text-xs rounded-md border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-gray-900 dark:text-white"
+                />
+                <span className="text-[10px] text-gray-400 block">Deducted every hour of age</span>
               </div>
-            ))}
+
+              <div className="bg-white dark:bg-slate-900 p-3 rounded-lg border border-gray-200 dark:border-slate-700 space-y-1">
+                <label className="text-[11px] font-semibold text-gray-700 dark:text-gray-300">
+                  Grade Match Boost (Pts)
+                </label>
+                <input
+                  type="number"
+                  step="1"
+                  min="0"
+                  max="200"
+                  value={algoConfigForm.gradeMatchingScore}
+                  onChange={(e) => setAlgoConfigForm(prev => ({ ...prev, gradeMatchingScore: parseFloat(e.target.value) || 0 }))}
+                  className="w-full px-2.5 py-1.5 font-mono text-xs rounded-md border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-gray-900 dark:text-white"
+                />
+                <span className="text-[10px] text-gray-400 block">Boost when post matches grade</span>
+              </div>
+
+              <div className="bg-white dark:bg-slate-900 p-3 rounded-lg border border-gray-200 dark:border-slate-700 space-y-1">
+                <label className="text-[11px] font-semibold text-gray-700 dark:text-gray-300">
+                  Followed Creator Boost (Pts)
+                </label>
+                <input
+                  type="number"
+                  step="1"
+                  min="0"
+                  max="200"
+                  value={algoConfigForm.followCreatorBoost}
+                  onChange={(e) => setAlgoConfigForm(prev => ({ ...prev, followCreatorBoost: parseFloat(e.target.value) || 0 }))}
+                  className="w-full px-2.5 py-1.5 font-mono text-xs rounded-md border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-gray-900 dark:text-white"
+                />
+                <span className="text-[10px] text-gray-400 block">Posts from creators you follow</span>
+              </div>
+
+              <div className="bg-white dark:bg-slate-900 p-3 rounded-lg border border-gray-200 dark:border-slate-700 space-y-1">
+                <label className="text-[11px] font-semibold text-gray-700 dark:text-gray-300">
+                  Joined Group Boost (Pts)
+                </label>
+                <input
+                  type="number"
+                  step="1"
+                  min="0"
+                  max="200"
+                  value={algoConfigForm.groupMemberPostBoost}
+                  onChange={(e) => setAlgoConfigForm(prev => ({ ...prev, groupMemberPostBoost: parseFloat(e.target.value) || 0 }))}
+                  className="w-full px-2.5 py-1.5 font-mono text-xs rounded-md border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-gray-900 dark:text-white"
+                />
+                <span className="text-[10px] text-gray-400 block">Posts from study groups joined</span>
+              </div>
+
+              <div className="bg-white dark:bg-slate-900 p-3 rounded-lg border border-gray-200 dark:border-slate-700 space-y-1">
+                <label className="text-[11px] font-semibold text-gray-700 dark:text-gray-300">
+                  Verified Solution (Pts)
+                </label>
+                <input
+                  type="number"
+                  step="1"
+                  min="0"
+                  max="100"
+                  value={algoConfigForm.verifiedSolutionScore}
+                  onChange={(e) => setAlgoConfigForm(prev => ({ ...prev, verifiedSolutionScore: parseFloat(e.target.value) || 0 }))}
+                  className="w-full px-2.5 py-1.5 font-mono text-xs rounded-md border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-gray-900 dark:text-white"
+                />
+                <span className="text-[10px] text-gray-400 block">Badge for teacher solutions</span>
+              </div>
+
+              <div className="bg-white dark:bg-slate-900 p-3 rounded-lg border border-gray-200 dark:border-slate-700 space-y-1">
+                <label className="text-[11px] font-semibold text-gray-700 dark:text-gray-300">
+                  Per Helpful Reaction (Pts)
+                </label>
+                <input
+                  type="number"
+                  step="0.5"
+                  min="0"
+                  max="50"
+                  value={algoConfigForm.reactionScore}
+                  onChange={(e) => setAlgoConfigForm(prev => ({ ...prev, reactionScore: parseFloat(e.target.value) || 0 }))}
+                  className="w-full px-2.5 py-1.5 font-mono text-xs rounded-md border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-gray-900 dark:text-white"
+                />
+                <span className="text-[10px] text-gray-400 block">Points per like / heart</span>
+              </div>
+
+              <div className="bg-white dark:bg-slate-900 p-3 rounded-lg border border-gray-200 dark:border-slate-700 space-y-1">
+                <label className="text-[11px] font-semibold text-gray-700 dark:text-gray-300">
+                  Per Helpful Comment (Pts)
+                </label>
+                <input
+                  type="number"
+                  step="0.5"
+                  min="0"
+                  max="50"
+                  value={algoConfigForm.commentScore}
+                  onChange={(e) => setAlgoConfigForm(prev => ({ ...prev, commentScore: parseFloat(e.target.value) || 0 }))}
+                  className="w-full px-2.5 py-1.5 font-mono text-xs rounded-md border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-gray-900 dark:text-white"
+                />
+                <span className="text-[10px] text-gray-400 block">Points per student answer</span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-1">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={algoConfigForm.randomizeBuckets}
+                  onChange={(e) => setAlgoConfigForm(prev => ({ ...prev, randomizeBuckets: e.target.checked }))}
+                  className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-gray-300"
+                />
+                <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+                  Enable dynamic 5-post bucket shuffle (prevents predictable feeds)
+                </span>
+              </label>
+              {algoConfigForm.updatedAt && (
+                <span className="text-[10px] text-gray-400">
+                  Last updated: {new Date(algoConfigForm.updatedAt).toLocaleString()}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Algorithm Score Formula Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="p-3 bg-amber-50/50 dark:bg-amber-950/20 rounded-xl border border-amber-200/70 dark:border-amber-900/40 space-y-1">
+              <div className="flex items-center justify-between text-[11px] font-bold text-amber-700 dark:text-amber-300">
+                <span>🕒 Freshness Value</span>
+                <span>{algoConfigForm.freshnessMaxScore} → 0 pts</span>
+              </div>
+              <p className="text-[10px] text-amber-900/70 dark:text-amber-300/70 leading-normal">
+                Recent posts start with <strong>{algoConfigForm.freshnessMaxScore} points</strong> and decay at <strong>-{algoConfigForm.freshnessDecayRatePerHour} pts per hour</strong>. Floor at 0 pts after {(algoConfigForm.freshnessMaxScore / (algoConfigForm.freshnessDecayRatePerHour || 1)).toFixed(1)} hours.
+              </p>
+            </div>
+
+            <div className="p-3 bg-indigo-50/50 dark:bg-indigo-950/20 rounded-xl border border-indigo-200/70 dark:border-indigo-900/40 space-y-1">
+              <div className="flex items-center justify-between text-[11px] font-bold text-indigo-700 dark:text-indigo-300">
+                <span>🎓 Grade Matching</span>
+                <span>+{algoConfigForm.gradeMatchingScore.toFixed(1)} pts</span>
+              </div>
+              <p className="text-[10px] text-indigo-900/70 dark:text-indigo-300/70 leading-normal">
+                Posts matching your active grade (<strong>{selectedGrade || user.grade || 'Grade 10'}</strong>) are boosted directly to the top.
+              </p>
+            </div>
+
+            <div className="p-3 bg-blue-50/50 dark:bg-blue-950/20 rounded-xl border border-blue-200/70 dark:border-blue-900/40 space-y-1">
+              <div className="flex items-center justify-between text-[11px] font-bold text-blue-700 dark:text-blue-300">
+                <span>👍 Popularity & Community</span>
+                <span>Custom Weights</span>
+              </div>
+              <p className="text-[10px] text-blue-900/70 dark:text-blue-300/70 leading-normal">
+                Solutions (+{algoConfigForm.verifiedSolutionScore}), followed creators (+{algoConfigForm.followCreatorBoost}), group boost (+{algoConfigForm.groupMemberPostBoost}), reactions (+{algoConfigForm.reactionScore}).
+              </p>
+            </div>
+          </div>
+
+          {/* Live Interactive Freshness Tester */}
+          <div className="p-4 bg-gray-50 dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-700 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <h4 className="text-xs font-bold text-gray-800 dark:text-gray-200">
+                  Interactive Freshness Decay Simulator
+                </h4>
+                <p className="text-[10px] text-gray-400">
+                  Move the slider to simulate post age and check the resulting Freshness Value based on your active global parameters.
+                </p>
+              </div>
+              <div className="text-right">
+                <span className="text-xs font-mono font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 px-2.5 py-1 rounded-md border border-blue-200 dark:border-blue-800">
+                  Post Age: {testHoursAgo} {testHoursAgo === 1 ? 'hour' : 'hours'} ago
+                </span>
+              </div>
+            </div>
+
+            {/* Slider input */}
+            <input
+              type="range"
+              min="0"
+              max="24"
+              step="0.5"
+              value={testHoursAgo}
+              onChange={(e) => setTestHoursAgo(parseFloat(e.target.value))}
+              className="w-full accent-blue-600 cursor-pointer"
+            />
+
+            {/* Real-time Calculation Result */}
+            {(() => {
+              const maxPts = algoConfigForm.freshnessMaxScore;
+              const rate = algoConfigForm.freshnessDecayRatePerHour;
+              const decay = Math.min(maxPts, testHoursAgo * rate);
+              const freshness = Math.max(0, maxPts - testHoursAgo * rate);
+              const percent = maxPts > 0 ? (freshness / maxPts) * 100 : 0;
+              return (
+                <div className="space-y-2 pt-1">
+                  <div className="flex justify-between items-center text-xs font-semibold">
+                    <span className="text-gray-600 dark:text-gray-300 flex items-center gap-1.5">
+                      <span>Base: {maxPts.toFixed(1)} pts</span>
+                      <span className="text-red-500 font-mono">- {decay.toFixed(1)} pts decay ({testHoursAgo}h × {rate})</span>
+                    </span>
+                    <span className="font-mono font-extrabold text-sm text-amber-600 dark:text-amber-400">
+                      Freshness: {freshness.toFixed(1)} / {maxPts.toFixed(1)} pts
+                    </span>
+                  </div>
+
+                  {/* Progress bar visual */}
+                  <div className="w-full h-3 bg-gray-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                    <div 
+                      className={`h-full transition-all duration-150 ${
+                        percent > 60 ? 'bg-emerald-500' : percent > 25 ? 'bg-amber-500' : 'bg-red-500'
+                      }`}
+                      style={{ width: `${percent}%` }}
+                    />
+                  </div>
+
+                  <div className="text-[10px] text-gray-400 flex justify-between font-mono">
+                    <span>0h ({maxPts.toFixed(0)} pts, Newest)</span>
+                    <span>{(maxPts / (2 * (rate || 1))).toFixed(1)}h ({(maxPts / 2).toFixed(1)} pts, Half)</span>
+                    <span>{(maxPts / (rate || 1)).toFixed(1)}h+ (0 pts, Decay Floor)</span>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+
+          {/* Verification Matrix Table */}
+          <div className="border border-gray-200 dark:border-slate-700 rounded-xl overflow-hidden text-xs">
+            <div className="bg-gray-100 dark:bg-slate-750 px-3 py-2 font-bold text-gray-700 dark:text-gray-200 flex justify-between">
+              <span>Freshness Value Decay Verification Benchmark Table</span>
+              <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-normal">
+                Formula: Math.max(0, {algoConfigForm.freshnessMaxScore} - (hrs × {algoConfigForm.freshnessDecayRatePerHour}))
+              </span>
+            </div>
+            <div className="divide-y divide-gray-150 dark:divide-slate-700 font-mono text-[11px]">
+              {[0, 2, 4, 8, 12, 16, 20, 24].map(hours => {
+                const maxPts = algoConfigForm.freshnessMaxScore;
+                const rate = algoConfigForm.freshnessDecayRatePerHour;
+                const decay = Math.min(maxPts, hours * rate);
+                const points = Math.max(0, maxPts - hours * rate);
+                const isZero = points === 0;
+                return (
+                  <div key={hours} className="px-3 py-1.5 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-slate-750/50">
+                    <span className="w-24 text-gray-600 dark:text-gray-300 font-semibold">{hours} hrs ago</span>
+                    <span className="w-28 text-red-500">-{decay.toFixed(1)} pts</span>
+                    <span className="w-24 font-bold text-gray-900 dark:text-white">{points.toFixed(1)} pts</span>
+                    <span className="text-[10px] text-gray-400 text-right flex-1">
+                      {hours === 0 ? 'Peak Freshness (Recent post)' : isZero ? 'Decay floor reached (0 pts)' : `Decayed (-${decay.toFixed(1)} pts)`}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* BLOCK 4: SPECIAL SETTINGS TOGGLES */}
       <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-150 dark:border-slate-700 p-4 space-y-4 shadow-sm divide-y divide-gray-100 dark:divide-slate-700">

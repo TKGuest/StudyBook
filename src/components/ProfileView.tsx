@@ -269,28 +269,6 @@ export const ProfileView: React.FC = () => {
                 )}
               </div>
 
-              {/* Academic Highlights / Stats Bar */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                <div className="bg-white dark:bg-slate-850 p-3 rounded-xl border border-gray-200 dark:border-slate-750 text-center">
-                  <div className="text-[10px] text-gray-400 uppercase font-semibold">Published Notes</div>
-                  <div className="text-base font-extrabold text-gray-900 dark:text-white mt-0.5">{userPosts.length}</div>
-                </div>
-                <div className="bg-white dark:bg-slate-850 p-3 rounded-xl border border-gray-200 dark:border-slate-750 text-center">
-                  <div className="text-[10px] text-gray-400 uppercase font-semibold">Helpful Reactions</div>
-                  <div className="text-base font-extrabold text-blue-600 dark:text-blue-400 mt-0.5">{totalReactionsReceived}</div>
-                </div>
-                <div className="bg-white dark:bg-slate-850 p-3 rounded-xl border border-gray-200 dark:border-slate-750 text-center">
-                  <div className="text-[10px] text-gray-400 uppercase font-semibold">Grade Level</div>
-                  <div className="text-base font-extrabold text-indigo-600 dark:text-indigo-400 mt-0.5">{profileUser.grade || 'Grade 10'}</div>
-                </div>
-                <div className="bg-white dark:bg-slate-850 p-3 rounded-xl border border-gray-200 dark:border-slate-750 text-center">
-                  <div className="text-[10px] text-gray-400 uppercase font-semibold">Saved Focus Topics</div>
-                  <div className="text-base font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5">
-                    {profileUser.subjects?.length || 0}
-                  </div>
-                </div>
-              </div>
-
             </div>
 
           </div>

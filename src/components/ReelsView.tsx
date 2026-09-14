@@ -203,12 +203,12 @@ export const ReelsView: React.FC = () => {
 
   return (
     <div className="relative w-full h-[calc(100vh-57px)] bg-neutral-950 text-white flex justify-center items-center overflow-hidden">
-      {/* Facebook Reels Top Banner */}
+      {/* Educational Reels Top Banner */}
       <div className="absolute top-3 left-4 z-30 flex items-center gap-2 bg-black/50 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-white/10 shadow-lg">
         <div className="h-6 w-6 rounded-full bg-gradient-to-tr from-pink-500 via-red-500 to-yellow-400 flex items-center justify-center p-0.5">
           <Film className="h-3.5 w-3.5 text-white" />
         </div>
-        <span className="text-xs font-bold font-display tracking-wide text-white">Facebook Reels</span>
+        <span className="text-xs font-bold font-display tracking-wide text-white">Educational Reels</span>
       </div>
 
       {/* Top Right Create / Upload Reel Button */}
@@ -414,9 +414,6 @@ export const ReelsView: React.FC = () => {
                   />
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-bold text-white shadow-sm">{reel.tutorName}</span>
-                    <span className="text-[10px] text-blue-300 font-semibold bg-blue-900/60 px-2 py-0.5 rounded-full border border-blue-400/30">
-                      {reel.subject}
-                    </span>
                   </div>
                 </div>
 

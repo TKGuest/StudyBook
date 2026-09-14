@@ -1,9 +1,30 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { User, Post, StudyGroup, TutorPage, Reel, MarketplaceItem, GroupChat, AppSettings, AcademicReactionType, Comment, Message, BinderFolder, TutorRequest, RequestHistoryLog, Friend, FriendRequest, DirectMessage, DirectChat, BlockedUser, CreatorScore } from '../types';
+import { User, Post, StudyGroup, GroupRole, GroupMember, GroupFile, TutorPage, Reel, MarketplaceItem, GroupChat, AppSettings, AcademicReactionType, Comment, Message, BinderFolder, TutorRequest, RequestHistoryLog, Friend, FriendRequest, DirectMessage, DirectChat, BlockedUser, CreatorScore, GroupSettings, GroupJoinRequest, GlobalAlgorithmConfig, DEFAULT_GLOBAL_ALGORITHM_CONFIG } from '../types';
 import { currentUser, initialPosts, initialGroups, initialTutors, initialReels, initialMarketplaceItems, initialGroupChats, defaultSettings, SILHOUETTE_AVATAR, initialFriends, initialFriendRequests, initialDirectChats, initialCommunityUsers } from '../data/mockData';
 import { ALGORITHM_CONFIG } from '../utils/feedAlgorithm';
 import { playSound } from '../utils/soundEffects';
 import { isPlaceholderBinhChat, consolidateDirectChats, isFakeOrBotTutor } from '../utils/chatUtils';
+import { 
+  canUserRemoveSpam, 
+  canUserManageMembers, 
+  canUserPinFiles, 
+  canUserAssignLeader, 
+  getUserGroupRole,
+  canUserPostInGroup,
+  canUserChatInGroup,
+  canUserJoinFreely,
+  doesUserPostRequireApproval,
+  validateAdminLeaveGuardrail,
+  canUserDeleteGroup,
+  canUserModifySettings,
+  canUserReviewJoinRequests,
+  canUserApprovePosts
+} from '../utils/permissionUtils';
+import {
+  extractPostIdFromUrl,
+  pushPostUrl,
+  pushHomeUrl
+} from '../utils/urlRouter';
 import { auth, db, isFirebaseConfigured } from '../lib/firebase';
 import { 
   onAuthStateChanged, 
@@ -62,12 +83,13 @@ interface AppContextType {
   addPost: (
     content: string, 
     subject: string, 
-    attachmentType?: 'pdf'|'doc'|'link'|'youtube', 
+    attachmentType?: 'pdf'|'doc'|'link'|'youtube'|'image'|'video'|'file', 
     attachmentTitle?: string, 
     isAnonymous?: boolean, 
     attachmentUrl?: string, 
     grade?: string,
-    groupInfo?: { groupId: string; groupName: string; groupAvatar?: string }
+    groupInfo?: { groupId: string; groupName: string; groupAvatar?: string },
+    attachmentSize?: string
   ) => void;
   deletePost: (postId: string) => Promise<void>;
   reactToPost: (postId: string, reaction: AcademicReactionType) => void;
@@ -82,6 +104,29 @@ interface AppContextType {
   addReel: (reelData: Partial<Reel> & { videoUrl: string; caption: string; subject: string }) => Promise<Reel>;
   deleteReel: (reelId: string) => Promise<void>;
   createStudyGroup: (name: string, description?: string, category?: string) => Promise<string>;
+  
+  // Group Roles & Governance
+  simulatedGroupRole: GroupRole | null;
+  setSimulatedGroupRole: (role: GroupRole | null) => void;
+  togglePinGroupFile: (groupId: string, fileId: string) => Promise<void>;
+  deleteGroupFile: (groupId: string, fileId: string) => Promise<void>;
+  updateGroupMemberRole: (groupId: string, memberId: string, newRole: GroupRole) => Promise<void>;
+  removeGroupMember: (groupId: string, memberId: string) => Promise<void>;
+  transferAdminOwnership: (groupId: string, newAdminId: string) => Promise<{ success: boolean; message?: string }>;
+  leaveStudyGroup: (groupId: string) => Promise<{ success: boolean; message?: string }>;
+  deleteStudyGroup: (groupId: string) => Promise<{ success: boolean; message?: string }>;
+  updateGroupSettings: (groupId: string, newSettings: Partial<GroupSettings>) => Promise<void>;
+  requestJoinGroup: (groupId: string) => Promise<{ status: 'joined' | 'pending'; message: string }>;
+  approveJoinRequest: (groupId: string, requestId: string) => Promise<void>;
+  rejectJoinRequest: (groupId: string, requestId: string) => Promise<void>;
+  approvePendingPost: (postId: string) => Promise<void>;
+  rejectPendingPost: (postId: string) => Promise<void>;
+
+  // Single Post URL Routing
+  selectedPostId: string | null;
+  openSinglePost: (postId: string) => void;
+  closeSinglePost: () => void;
+
   addMarketplaceItem: (item: Omit<MarketplaceItem, 'id' | 'seller' | 'distance'>) => void;
   sendGroupMessage: (groupId: string, text: string) => void;
   exportResume: () => void;
@@ -169,6 +214,13 @@ interface AppContextType {
   }>;
   recordGroupInteraction: (groupId: string, actionType: 'join' | 'message' | 'post' | 'file' | 'reaction') => void;
   toggleJoinGroup: (groupId: string) => void;
+
+  // Global Algorithm Configuration (Customizable strictly by billkute030709@gmail.com)
+  globalAlgorithmConfig: GlobalAlgorithmConfig;
+  updateGlobalAlgorithmConfig: (config: Partial<GlobalAlgorithmConfig>) => Promise<{ success: boolean; message?: string }>;
+
+  // Messenger Group Chat creation (with friends only)
+  createGroupChat: (groupName: string, friendIds: string[]) => Promise<DirectChat | null>;
 }
 
 const safeGetTime = (ts?: string) => {
@@ -412,6 +464,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [activeFolderId, setActiveFolderId] = useState<string | undefined>(undefined);
   const [openChatIds, setOpenChatIds] = useState<string[]>([]);
 
+  // Single Post URL Routing State
+  const [selectedPostId, setSelectedPostId] = useState<string | null>(() => {
+    return extractPostIdFromUrl();
+  });
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const postId = extractPostIdFromUrl();
+      setSelectedPostId(postId);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  const openSinglePost = useCallback((postId: string) => {
+    setSelectedPostId(postId);
+    pushPostUrl(postId);
+  }, []);
+
+  const closeSinglePost = useCallback(() => {
+    setSelectedPostId(null);
+    pushHomeUrl();
+  }, []);
+
   const openChatWindow = (groupId: string) => {
     setOpenChatIds(prev => {
       if (prev.includes(groupId)) return prev;
@@ -494,9 +570,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [groups, setGroups] = useState<StudyGroup[]>(() => {
     try {
       const saved = localStorage.getItem('sb_groups');
-      return saved ? JSON.parse(saved) : initialGroups;
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].members && parsed[0].members.length > 0) {
+          return parsed;
+        }
+      }
+      return initialGroups;
     } catch (_) { return initialGroups; }
   });
+
+  const [simulatedGroupRole, setSimulatedGroupRole] = useState<GroupRole | null>(null);
 
   const [tutors, setTutors] = useState<TutorPage[]>(() => {
     try {
@@ -783,6 +867,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return saved ? JSON.parse(saved) : defaultSettings;
     } catch (_) { return defaultSettings; }
   });
+
+  // Global Algorithm Configuration state
+  const [globalAlgorithmConfig, setGlobalAlgorithmConfig] = useState<GlobalAlgorithmConfig>(() => {
+    try {
+      const saved = localStorage.getItem('sb_global_algorithm_config');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return { ...DEFAULT_GLOBAL_ALGORITHM_CONFIG, ...parsed };
+      }
+    } catch (_) {}
+    return DEFAULT_GLOBAL_ALGORITHM_CONFIG;
+  });
+
+  // Real-time synchronization for global algorithm configuration
+  useEffect(() => {
+    if (!isFirebaseConfigured) return;
+    try {
+      const unsubscribe = onSnapshot(doc(db, 'globalConfig', 'algorithm'), (snap) => {
+        if (snap.exists()) {
+          const data = snap.data() as Partial<GlobalAlgorithmConfig>;
+          setGlobalAlgorithmConfig(prev => {
+            const merged = { ...DEFAULT_GLOBAL_ALGORITHM_CONFIG, ...prev, ...data };
+            try { localStorage.setItem('sb_global_algorithm_config', JSON.stringify(merged)); } catch (_) {}
+            return merged;
+          });
+        }
+      }, (err) => {
+        console.warn('Snapshot listener on globalConfig/algorithm failed:', err);
+      });
+      return () => unsubscribe();
+    } catch (e) {
+      console.warn('Error setting up algorithm config listener:', e);
+    }
+  }, []);
 
   const getFoldersForUser = (userId: string): BinderFolder[] => {
     const activeUid = userId || 'guest';
@@ -1544,12 +1662,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const addPost = async (
     content: string, 
     subject: string, 
-    attachmentType?: 'pdf'|'doc'|'link'|'youtube', 
+    attachmentType?: 'pdf'|'doc'|'link'|'youtube'|'image'|'video'|'file', 
     attachmentTitle?: string,
     isAnonymous?: boolean,
     attachmentUrl?: string,
     grade?: string,
-    groupInfo?: { groupId: string; groupName: string; groupAvatar?: string }
+    groupInfo?: { groupId: string; groupName: string; groupAvatar?: string },
+    attachmentSize?: string
   ) => {
     const currentUserId = user.id || auth.currentUser?.uid || 'guest';
     const authorName = isAnonymous ? 'Anonymous Scholar' : (user.name || 'User');
@@ -1589,12 +1708,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         groupName: groupInfo.groupName,
         groupAvatar: groupInfo.groupAvatar
       } : {}),
-      ...(attachmentType && attachmentTitle ? {
+      ...(attachmentType && (attachmentTitle || attachmentUrl) ? {
         attachment: {
           type: attachmentType,
-          title: attachmentTitle,
+          title: attachmentTitle || (attachmentType === 'image' ? 'Attached Photo' : 'Attached File'),
           url: attachmentUrl || '#',
-          size: attachmentType === 'pdf' ? '1.5 MB' : attachmentType === 'doc' ? '850 KB' : undefined
+          size: attachmentSize || (attachmentType === 'pdf' ? '1.5 MB' : attachmentType === 'doc' ? '850 KB' : attachmentType === 'image' ? 'Image File' : undefined)
         }
       } : {})
     };
@@ -1628,12 +1747,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const currentUserId = user.id || auth.currentUser?.uid || 'guest';
     const postOwnerId = targetPost.authorId || targetPost.user?.id;
     const currentEmail = user.email || localStorage.getItem('sb_current_email') || auth.currentUser?.email || '';
-    const isAdmin = user.role === 'admin' || currentEmail.toLowerCase() === 'billkute030709@gmail.com';
+    const isAppAdmin = user.role === 'admin' || currentEmail.toLowerCase() === 'billkute030709@gmail.com';
+    const isOwner = postOwnerId && postOwnerId === currentUserId;
 
-    // Permission check: Owner OR Admin
-    if (!isAdmin && postOwnerId && postOwnerId !== currentUserId) {
+    // Check if user is Group Admin or Leader for this group's post
+    let isGroupModerator = false;
+    if (targetPost.groupId) {
+      const group = groups.find(g => g.id === targetPost.groupId);
+      if (group) {
+        isGroupModerator = canUserRemoveSpam(group, user, simulatedGroupRole);
+      }
+    }
+
+    // Permission check: Owner OR App Admin OR Group Admin/Leader (spam removal)
+    if (!isAppAdmin && !isOwner && !isGroupModerator) {
       console.warn(`Permission denied: User ${currentUserId} cannot delete post owned by ${postOwnerId}`);
-      alert('You can only delete posts created by yourself!');
+      alert('You can only delete your own posts, or remove spam if you are a Group Admin or Leader!');
       return;
     }
 
@@ -2287,6 +2416,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const createStudyGroup = async (name: string, description?: string, category?: string) => {
     const groupId = `g_${Date.now()}`;
+    const currentUserId = user.id || 'u_current';
     const newG: StudyGroup = {
       id: groupId,
       name,
@@ -2294,6 +2424,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       description: description || 'A new study group co-created by learners.',
       category: category || 'General',
       memberCount: 1,
+      membersCount: 1,
+      adminUserIds: [currentUserId],
+      leaderUserIds: [],
+      memberUserIds: [currentUserId],
+      memberRoles: {
+        [currentUserId]: 'admin'
+      },
+      members: [
+        {
+          id: currentUserId,
+          name: user.name || 'You',
+          avatar: user.avatar || SILHOUETTE_AVATAR,
+          role: 'admin',
+          grade: user.grade,
+          joinedAt: 'Cohort Founder'
+        }
+      ],
       files: [],
       events: []
     };
@@ -2323,6 +2470,563 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     return groupId;
+  };
+
+  const togglePinGroupFile = async (groupId: string, fileId: string) => {
+    const targetGroup = groups.find(g => g.id === groupId);
+    if (!targetGroup) return;
+
+    if (!canUserPinFiles(targetGroup, user, simulatedGroupRole)) {
+      alert('Only Group Leaders and Admins can pin or unpin study files!');
+      return;
+    }
+
+    playSound('pop');
+
+    setGroups(prev => {
+      const next = prev.map(g => {
+        if (g.id !== groupId) return g;
+        const nextFiles = (g.files || []).map(f => {
+          if (f.id !== fileId) return f;
+          const nextPinned = !f.isPinned;
+          return {
+            ...f,
+            isPinned: nextPinned,
+            pinnedBy: nextPinned ? (user.name || 'Group Admin') : undefined,
+            pinnedAt: nextPinned ? 'Just now' : undefined
+          };
+        });
+        return { ...g, files: nextFiles };
+      });
+      try { localStorage.setItem('sb_groups', JSON.stringify(next)); } catch (_) {}
+      return next;
+    });
+
+    if (isFirebaseConfigured) {
+      try {
+        const groupRef = doc(db, 'groups', groupId);
+        const groupSnap = await getDoc(groupRef);
+        if (groupSnap.exists()) {
+          const groupData = groupSnap.data() as StudyGroup;
+          const updatedFiles = (groupData.files || []).map(f => {
+            if (f.id !== fileId) return f;
+            const nextPinned = !f.isPinned;
+            return {
+              ...f,
+              isPinned: nextPinned,
+              pinnedBy: nextPinned ? (user.name || 'Group Admin') : undefined,
+              pinnedAt: nextPinned ? 'Just now' : undefined
+            };
+          });
+          await updateDoc(groupRef, { files: updatedFiles });
+        }
+      } catch (err) {
+        console.warn('Failed to update pinned file in Firestore:', err);
+      }
+    }
+  };
+
+  const deleteGroupFile = async (groupId: string, fileId: string) => {
+    const targetGroup = groups.find(g => g.id === groupId);
+    if (!targetGroup) return;
+
+    const targetFile = targetGroup.files?.find(f => f.id === fileId);
+    const isUploader = targetFile && (targetFile.uploaderId === user.id || targetFile.uploader === user.name);
+    const isMod = canUserRemoveSpam(targetGroup, user, simulatedGroupRole);
+
+    if (!isUploader && !isMod) {
+      alert('You can only delete files you uploaded, or delete files if you are a Group Leader or Admin!');
+      return;
+    }
+
+    playSound('delete');
+
+    setGroups(prev => {
+      const next = prev.map(g => {
+        if (g.id !== groupId) return g;
+        return {
+          ...g,
+          files: (g.files || []).filter(f => f.id !== fileId)
+        };
+      });
+      try { localStorage.setItem('sb_groups', JSON.stringify(next)); } catch (_) {}
+      return next;
+    });
+
+    if (isFirebaseConfigured) {
+      try {
+        const groupRef = doc(db, 'groups', groupId);
+        const groupSnap = await getDoc(groupRef);
+        if (groupSnap.exists()) {
+          const groupData = groupSnap.data() as StudyGroup;
+          const updatedFiles = (groupData.files || []).filter(f => f.id !== fileId);
+          await updateDoc(groupRef, { files: updatedFiles });
+        }
+      } catch (err) {
+        console.warn('Failed to delete file from group in Firestore:', err);
+      }
+    }
+  };
+
+  const updateGroupMemberRole = async (groupId: string, memberId: string, newRole: GroupRole) => {
+    const targetGroup = groups.find(g => g.id === groupId);
+    if (!targetGroup) return;
+
+    if (!canUserAssignLeader(targetGroup, user, simulatedGroupRole)) {
+      alert('Only Group Admins have the permission to promote or change member roles!');
+      return;
+    }
+
+    playSound('pop');
+
+    setGroups(prev => {
+      const next = prev.map(g => {
+        if (g.id !== groupId) return g;
+        const currentRoles = { ...(g.memberRoles || {}) };
+        currentRoles[memberId] = newRole;
+
+        const currentMembers = (g.members || []).map(m => {
+          if (m.id === memberId) {
+            return { ...m, role: newRole };
+          }
+          return m;
+        });
+
+        // Sync leaderUserIds and adminUserIds
+        const adminIds = new Set(g.adminUserIds || []);
+        const leaderIds = new Set(g.leaderUserIds || []);
+
+        if (newRole === 'admin') {
+          adminIds.add(memberId);
+          leaderIds.delete(memberId);
+        } else if (newRole === 'leader') {
+          leaderIds.add(memberId);
+          adminIds.delete(memberId);
+        } else {
+          adminIds.delete(memberId);
+          leaderIds.delete(memberId);
+        }
+
+        return {
+          ...g,
+          memberRoles: currentRoles,
+          members: currentMembers,
+          adminUserIds: Array.from(adminIds),
+          leaderUserIds: Array.from(leaderIds)
+        };
+      });
+      try { localStorage.setItem('sb_groups', JSON.stringify(next)); } catch (_) {}
+      return next;
+    });
+
+    if (isFirebaseConfigured) {
+      try {
+        const groupRef = doc(db, 'groups', groupId);
+        await updateDoc(groupRef, {
+          [`memberRoles.${memberId}`]: newRole
+        });
+      } catch (err) {
+        console.warn('Failed to update member role in Firestore:', err);
+      }
+    }
+  };
+
+  const removeGroupMember = async (groupId: string, memberId: string) => {
+    const targetGroup = groups.find(g => g.id === groupId);
+    if (!targetGroup) return;
+
+    if (!canUserManageMembers(targetGroup, user, simulatedGroupRole)) {
+      alert('Only Group Leaders and Admins can manage or remove cohort members!');
+      return;
+    }
+
+    playSound('delete');
+
+    setGroups(prev => {
+      const next = prev.map(g => {
+        if (g.id !== groupId) return g;
+        const updatedMembers = (g.members || []).filter(m => m.id !== memberId);
+        const updatedMemberIds = (g.memberUserIds || []).filter(id => id !== memberId);
+        const updatedRoles = { ...(g.memberRoles || {}) };
+        delete updatedRoles[memberId];
+
+        return {
+          ...g,
+          memberCount: Math.max(1, (g.memberCount || 1) - 1),
+          membersCount: Math.max(1, (g.membersCount || 1) - 1),
+          members: updatedMembers,
+          memberUserIds: updatedMemberIds,
+          memberRoles: updatedRoles,
+          adminUserIds: (g.adminUserIds || []).filter(id => id !== memberId),
+          leaderUserIds: (g.leaderUserIds || []).filter(id => id !== memberId)
+        };
+      });
+      try { localStorage.setItem('sb_groups', JSON.stringify(next)); } catch (_) {}
+      return next;
+    });
+
+    if (isFirebaseConfigured) {
+      try {
+        const groupRef = doc(db, 'groups', groupId);
+        await updateDoc(groupRef, {
+          memberUserIds: arrayRemove(memberId),
+          [`memberRoles.${memberId}`]: deleteField()
+        });
+      } catch (err) {
+        console.warn('Failed to remove group member from Firestore:', err);
+      }
+    }
+  };
+
+  const transferAdminOwnership = async (groupId: string, newAdminId: string): Promise<{ success: boolean; message?: string }> => {
+    const targetGroup = groups.find(g => g.id === groupId);
+    if (!targetGroup) return { success: false, message: 'Group not found' };
+
+    const role = getUserGroupRole(targetGroup, user, simulatedGroupRole);
+    if (role !== 'admin') {
+      return { success: false, message: 'Only an existing Admin can transfer group ownership.' };
+    }
+
+    const newAdminMember = targetGroup.members?.find(m => m.id === newAdminId);
+    const isLeader = targetGroup.leaderUserIds?.includes(newAdminId) || targetGroup.memberRoles?.[newAdminId] === 'leader';
+    if (!isLeader) {
+      return { success: false, message: 'Admin ownership must be passed to an active Group Leader.' };
+    }
+
+    playSound('pop');
+
+    setGroups(prev => {
+      const next = prev.map(g => {
+        if (g.id !== groupId) return g;
+        const currentRoles = { ...(g.memberRoles || {}) };
+        currentRoles[newAdminId] = 'admin';
+        currentRoles[user.id] = 'leader';
+
+        const currentMembers = (g.members || []).map(m => {
+          if (m.id === newAdminId) return { ...m, role: 'admin' as GroupRole };
+          if (m.id === user.id) return { ...m, role: 'leader' as GroupRole };
+          return m;
+        });
+
+        const adminIds = new Set(g.adminUserIds || []);
+        const leaderIds = new Set(g.leaderUserIds || []);
+        adminIds.add(newAdminId);
+        adminIds.delete(user.id);
+        leaderIds.add(user.id);
+        leaderIds.delete(newAdminId);
+
+        return {
+          ...g,
+          memberRoles: currentRoles,
+          members: currentMembers,
+          adminUserIds: Array.from(adminIds),
+          leaderUserIds: Array.from(leaderIds)
+        };
+      });
+      try { localStorage.setItem('sb_groups', JSON.stringify(next)); } catch (_) {}
+      return next;
+    });
+
+    if (isFirebaseConfigured) {
+      try {
+        const groupRef = doc(db, 'groups', groupId);
+        await updateDoc(groupRef, {
+          [`memberRoles.${newAdminId}`]: 'admin',
+          [`memberRoles.${user.id}`]: 'leader',
+          adminUserIds: arrayUnion(newAdminId),
+          leaderUserIds: arrayUnion(user.id)
+        });
+      } catch (err) {
+        console.warn('Failed to update group ownership in Firestore:', err);
+      }
+    }
+
+    return { success: true, message: `Successfully transferred Admin ownership to ${newAdminMember?.name || 'Group Leader'}.` };
+  };
+
+  const leaveStudyGroup = async (groupId: string): Promise<{ success: boolean; message?: string }> => {
+    const targetGroup = groups.find(g => g.id === groupId);
+    if (!targetGroup) return { success: false, message: 'Group not found' };
+
+    const guardrail = validateAdminLeaveGuardrail(targetGroup, user, simulatedGroupRole);
+    if (!guardrail.canLeave) {
+      return { 
+        success: false, 
+        message: guardrail.reason || 'An Admin cannot leave the group unless they explicitly pass Admin ownership over to one of the active Group Leaders first.'
+      };
+    }
+
+    playSound('delete');
+
+    setJoinedGroupIds(prev => prev.filter(id => id !== groupId));
+    setGroups(prev => {
+      const next = prev.map(g => {
+        if (g.id !== groupId) return g;
+        const updatedMembers = (g.members || []).filter(m => m.id !== user.id);
+        const updatedMemberIds = (g.memberUserIds || []).filter(id => id !== user.id);
+        const updatedRoles = { ...(g.memberRoles || {}) };
+        delete updatedRoles[user.id];
+
+        return {
+          ...g,
+          isMember: false,
+          memberCount: Math.max(0, (g.memberCount || 1) - 1),
+          membersCount: Math.max(0, (g.membersCount || 1) - 1),
+          members: updatedMembers,
+          memberUserIds: updatedMemberIds,
+          memberRoles: updatedRoles,
+          adminUserIds: (g.adminUserIds || []).filter(id => id !== user.id),
+          leaderUserIds: (g.leaderUserIds || []).filter(id => id !== user.id)
+        };
+      });
+      try { localStorage.setItem('sb_groups', JSON.stringify(next)); } catch (_) {}
+      return next;
+    });
+
+    if (isFirebaseConfigured) {
+      try {
+        const groupRef = doc(db, 'groups', groupId);
+        await updateDoc(groupRef, {
+          memberUserIds: arrayRemove(user.id),
+          [`memberRoles.${user.id}`]: deleteField()
+        });
+      } catch (err) {
+        console.warn('Failed to leave group in Firestore:', err);
+      }
+    }
+
+    return { success: true, message: 'You have left the study group.' };
+  };
+
+  const deleteStudyGroup = async (groupId: string): Promise<{ success: boolean; message?: string }> => {
+    const targetGroup = groups.find(g => g.id === groupId);
+    if (!targetGroup) return { success: false, message: 'Group not found' };
+
+    if (!canUserDeleteGroup(targetGroup, user, simulatedGroupRole)) {
+      return { success: false, message: 'Admins have exclusive destructive power to delete the entire group and all associated posts.' };
+    }
+
+    playSound('delete');
+
+    setGroups(prev => {
+      const next = prev.filter(g => g.id !== groupId);
+      try { localStorage.setItem('sb_groups', JSON.stringify(next)); } catch (_) {}
+      return next;
+    });
+
+    setPosts(prev => {
+      const next = prev.filter(p => p.groupId !== groupId);
+      try { localStorage.setItem('sb_posts', JSON.stringify(next)); } catch (_) {}
+      return next;
+    });
+
+    setGroupChats(prev => {
+      const next = prev.filter(c => c.groupId !== groupId);
+      try { localStorage.setItem('sb_group_chats', JSON.stringify(next)); } catch (_) {}
+      return next;
+    });
+
+    setJoinedGroupIds(prev => prev.filter(id => id !== groupId));
+
+    if (isFirebaseConfigured) {
+      try {
+        await deleteDoc(doc(db, 'groups', groupId));
+      } catch (err) {
+        console.warn('Failed to delete group from Firestore:', err);
+      }
+    }
+
+    return { success: true, message: 'Group and all associated posts were permanently deleted.' };
+  };
+
+  const updateGroupSettings = async (groupId: string, newSettings: Partial<GroupSettings>) => {
+    const targetGroup = groups.find(g => g.id === groupId);
+    if (!targetGroup) return;
+
+    if (!canUserModifySettings(targetGroup, user, simulatedGroupRole)) {
+      alert('Only Group Leaders and Admins can configure group settings!');
+      return;
+    }
+
+    playSound('pop');
+
+    setGroups(prev => {
+      const next = prev.map(g => {
+        if (g.id !== groupId) return g;
+        return {
+          ...g,
+          settings: {
+            whoCanPost: g.settings?.whoCanPost || 'all',
+            whoCanChat: g.settings?.whoCanChat || 'all',
+            joinPolicy: g.settings?.joinPolicy || 'free',
+            requirePostApproval: Boolean(g.settings?.requirePostApproval),
+            ...newSettings
+          }
+        };
+      });
+      try { localStorage.setItem('sb_groups', JSON.stringify(next)); } catch (_) {}
+      return next;
+    });
+
+    if (isFirebaseConfigured) {
+      try {
+        const groupRef = doc(db, 'groups', groupId);
+        await updateDoc(groupRef, {
+          settings: {
+            ...(targetGroup.settings || {}),
+            ...newSettings
+          }
+        });
+      } catch (err) {
+        console.warn('Failed to update group settings in Firestore:', err);
+      }
+    }
+  };
+
+  const requestJoinGroup = async (groupId: string): Promise<{ status: 'joined' | 'pending'; message: string }> => {
+    const targetGroup = groups.find(g => g.id === groupId);
+    if (!targetGroup) return { status: 'joined', message: 'Group not found' };
+
+    const freely = canUserJoinFreely(targetGroup);
+    if (freely) {
+      toggleJoinGroup(groupId);
+      return { status: 'joined', message: 'You have joined the group!' };
+    }
+
+    const currentReqs = targetGroup.pendingJoinRequests || [];
+    if (currentReqs.some(r => r.userId === user.id)) {
+      return { status: 'pending', message: 'Your join request is already awaiting Admin or Group Leader review.' };
+    }
+
+    const newReq: GroupJoinRequest = {
+      id: `gjr_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      groupId,
+      userId: user.id || 'u_current',
+      userName: user.name || 'Student',
+      userAvatar: user.avatar || SILHOUETTE_AVATAR,
+      userGrade: user.grade || 'Grade 10',
+      requestedAt: new Date().toISOString()
+    };
+
+    const updatedReqs = [...currentReqs, newReq];
+    setGroups(prev => prev.map(g => g.id === groupId ? { ...g, pendingJoinRequests: updatedReqs } : g));
+
+    if (isFirebaseConfigured) {
+      try {
+        await updateDoc(doc(db, 'groups', groupId), {
+          pendingJoinRequests: updatedReqs
+        });
+      } catch (e) {
+        console.warn('Failed to submit join request to Firestore:', e);
+      }
+    }
+    playSound('pop');
+    return { status: 'pending', message: 'Join request sent! An Admin or Group Leader must approve your entry.' };
+  };
+
+  const approveJoinRequest = async (groupId: string, requestId: string) => {
+    const targetGroup = groups.find(g => g.id === groupId);
+    if (!targetGroup) return;
+
+    if (!canUserReviewJoinRequests(targetGroup, user, simulatedGroupRole)) {
+      alert('Only Admins and Group Leaders can approve join requests.');
+      return;
+    }
+
+    const req = targetGroup.pendingJoinRequests?.find(r => r.id === requestId);
+    if (!req) return;
+
+    playSound('pop');
+
+    setGroups(prev => prev.map(g => {
+      if (g.id !== groupId) return g;
+      const updatedReqs = (g.pendingJoinRequests || []).filter(r => r.id !== requestId);
+      const newMember: GroupMember = {
+        id: req.userId,
+        name: req.userName,
+        avatar: req.userAvatar,
+        role: 'member',
+        grade: req.userGrade || 'Grade 10',
+        joinedAt: new Date().toLocaleDateString()
+      };
+      const memberIds = Array.from(new Set([...(g.memberUserIds || []), req.userId]));
+      const memberRoles = { ...(g.memberRoles || {}), [req.userId]: 'member' as GroupRole };
+      const members = [...(g.members || []), newMember];
+
+      return {
+        ...g,
+        memberCount: members.length,
+        membersCount: members.length,
+        members,
+        memberUserIds: memberIds,
+        memberRoles,
+        pendingJoinRequests: updatedReqs
+      };
+    }));
+
+    if (isFirebaseConfigured) {
+      try {
+        await updateDoc(doc(db, 'groups', groupId), {
+          memberUserIds: arrayUnion(req.userId),
+          [`memberRoles.${req.userId}`]: 'member',
+          pendingJoinRequests: (targetGroup.pendingJoinRequests || []).filter(r => r.id !== requestId)
+        });
+      } catch (err) {
+        console.warn('Failed to approve join request in Firestore:', err);
+      }
+    }
+  };
+
+  const rejectJoinRequest = async (groupId: string, requestId: string) => {
+    const targetGroup = groups.find(g => g.id === groupId);
+    if (!targetGroup) return;
+
+    if (!canUserReviewJoinRequests(targetGroup, user, simulatedGroupRole)) {
+      alert('Only Admins and Group Leaders can review join requests.');
+      return;
+    }
+
+    playSound('delete');
+
+    setGroups(prev => prev.map(g => {
+      if (g.id !== groupId) return g;
+      return {
+        ...g,
+        pendingJoinRequests: (g.pendingJoinRequests || []).filter(r => r.id !== requestId)
+      };
+    }));
+
+    if (isFirebaseConfigured) {
+      try {
+        await updateDoc(doc(db, 'groups', groupId), {
+          pendingJoinRequests: (targetGroup.pendingJoinRequests || []).filter(r => r.id !== requestId)
+        });
+      } catch (err) {
+        console.warn('Failed to reject join request in Firestore:', err);
+      }
+    }
+  };
+
+  const approvePendingPost = async (postId: string) => {
+    playSound('pop');
+
+    setPosts(prev => prev.map(p => {
+      if (p.id !== postId) return p;
+      return { ...p, status: 'approved' };
+    }));
+
+    if (isFirebaseConfigured) {
+      try {
+        await updateDoc(doc(db, 'posts', postId), { status: 'approved' });
+      } catch (err) {
+        console.warn('Failed to approve post in Firestore:', err);
+      }
+    }
+  };
+
+  const rejectPendingPost = async (postId: string) => {
+    playSound('delete');
+    await deletePost(postId);
   };
 
   const addMarketplaceItem = async (item: Omit<MarketplaceItem, 'id' | 'seller' | 'distance'>) => {
@@ -3579,7 +4283,7 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
       senderId: user.id || 'guest',
       senderName: user.name || 'StudyBook Learner',
       senderAvatar: user.avatar || SILHOUETTE_AVATAR,
-      receiverId: chatId.replace('dm_', '').replace(user.id || 'guest', '').replace('_', ''),
+      receiverId: chatId.startsWith('gc_') || chatId.startsWith('group_') ? 'group' : chatId.replace('dm_', '').replace(user.id || 'guest', '').replace('_', ''),
       content: content.trim(),
       timestamp: 'Just now',
       read: false
@@ -3629,8 +4333,112 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
     setOpenChatIds(prev => prev.filter(id => id !== chatId));
   };
 
+  const updateGlobalAlgorithmConfig = async (newConfig: Partial<GlobalAlgorithmConfig>): Promise<{ success: boolean; message?: string }> => {
+    const currentEmail = (user.email || localStorage.getItem('sb_current_email') || auth.currentUser?.email || '').toLowerCase();
+    if (currentEmail !== 'billkute030709@gmail.com') {
+      return { success: false, message: 'Only billkute030709@gmail.com is authorized to modify global algorithm settings.' };
+    }
+
+    const updated: GlobalAlgorithmConfig = {
+      ...globalAlgorithmConfig,
+      ...newConfig,
+      updatedAt: new Date().toISOString(),
+      updatedBy: 'billkute030709@gmail.com'
+    };
+
+    setGlobalAlgorithmConfig(updated);
+    try {
+      localStorage.setItem('sb_global_algorithm_config', JSON.stringify(updated));
+    } catch (_) {}
+
+    if (isFirebaseConfigured) {
+      try {
+        await setDoc(doc(db, 'globalConfig', 'algorithm'), cleanForFirestore(updated), { merge: true });
+      } catch (err) {
+        console.warn('Failed to save global algorithm config to Firestore:', err);
+      }
+    }
+
+    return { success: true, message: 'Global algorithm configuration updated and applied successfully!' };
+  };
+
+  const createGroupChat = async (groupName: string, friendIds: string[]): Promise<DirectChat | null> => {
+    if (!groupName.trim()) {
+      throw new Error('Group chat name is required');
+    }
+    if (!Array.isArray(friendIds) || friendIds.length === 0) {
+      throw new Error('Please select at least one friend to add to the group chat.');
+    }
+
+    // Only allow friends to be added
+    const selectedFriends = friends.filter(f => friendIds.includes(f.id));
+    if (selectedFriends.length === 0) {
+      throw new Error('Added members must be on your friends list.');
+    }
+
+    const newChatId = `gc_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const newChat: DirectChat = {
+      id: newChatId,
+      isGroupChat: true,
+      groupName: groupName.trim(),
+      adminId: user.id || 'u_current',
+      participants: [
+        {
+          id: user.id || 'u_current',
+          name: user.name || 'You',
+          avatar: user.avatar || SILHOUETTE_AVATAR,
+          email: user.email,
+          role: user.role
+        },
+        ...selectedFriends.map(f => ({
+          id: f.id,
+          name: f.name,
+          avatar: f.avatar || SILHOUETTE_AVATAR,
+          email: f.email,
+          role: f.role
+        }))
+      ],
+      messages: [
+        {
+          id: `dm_msg_${Date.now()}`,
+          senderId: user.id || 'u_current',
+          senderName: user.name || 'You',
+          senderAvatar: user.avatar || SILHOUETTE_AVATAR,
+          receiverId: 'group',
+          content: `👋 Created group chat "${groupName.trim()}" with ${selectedFriends.map(f => f.name).join(', ')}.`,
+          timestamp: 'Just now',
+          read: true
+        }
+      ],
+      lastUpdated: new Date().toISOString()
+    };
+
+    setDirectChats(prev => {
+      const updated = [newChat, ...prev];
+      const consolidated = consolidateDirectChats(updated, user.id || 'u_current', user.name || '');
+      try {
+        localStorage.setItem('sb_direct_chats', JSON.stringify(consolidated));
+      } catch (_) {}
+      return consolidated;
+    });
+
+    if (isFirebaseConfigured) {
+      try {
+        await setDoc(doc(db, 'directChats', newChatId), cleanForFirestore(newChat));
+      } catch (e) {
+        console.warn('Firebase save group chat failed:', e);
+      }
+    }
+
+    playSound('pop');
+    return newChat;
+  };
+
   return (
     <AppContext.Provider value={{
+      globalAlgorithmConfig,
+      updateGlobalAlgorithmConfig,
+      createGroupChat,
       activeTab,
       setActiveTab,
       user,
@@ -3716,6 +4524,24 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
       addReel,
       deleteReel,
       createStudyGroup,
+      simulatedGroupRole,
+      setSimulatedGroupRole,
+      togglePinGroupFile,
+      deleteGroupFile,
+      updateGroupMemberRole,
+      removeGroupMember,
+      transferAdminOwnership,
+      leaveStudyGroup,
+      deleteStudyGroup,
+      updateGroupSettings,
+      requestJoinGroup,
+      approveJoinRequest,
+      rejectJoinRequest,
+      approvePendingPost,
+      rejectPendingPost,
+      selectedPostId,
+      openSinglePost,
+      closeSinglePost,
       addMarketplaceItem,
       sendGroupMessage,
       exportResume,

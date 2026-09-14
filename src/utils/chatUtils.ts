@@ -9,6 +9,8 @@ import { DirectChat, DirectMessage } from '../types';
  */
 export const isIgnoredOrBotChat = (chat: any, currentUserId?: string, currentUserName?: string): boolean => {
   if (!chat) return true;
+  // Group chats created by users should never be filtered out as bot chat
+  if (chat.isGroupChat) return false;
   const idLower = String(chat.id || '').toLowerCase();
   
   // Check banned IDs
@@ -173,6 +175,46 @@ export const consolidateDirectChats = (
 
   for (const chat of filtered) {
     if (!chat || !Array.isArray(chat.participants) || chat.participants.length === 0) continue;
+
+    // Handle user-created group chats (not 1-on-1 DMs)
+    if (chat.isGroupChat || (chat as any).groupName) {
+      const existingGroupIndex = entries.findIndex(e => e.chat.id === chat.id);
+      if (existingGroupIndex === -1) {
+        entries.push({
+          ids: new Set([chat.id]),
+          emails: new Set(),
+          names: new Set([chat.groupName || 'Group Chat']),
+          chat: {
+            ...chat,
+            messages: Array.isArray(chat.messages) ? [...chat.messages] : []
+          },
+          otherParticipant: {
+            id: chat.id,
+            name: chat.groupName || 'Group Chat',
+            avatar: chat.groupAvatar || ''
+          }
+        });
+      } else {
+        const target = entries[existingGroupIndex];
+        const existingMsgSignatures = new Set(
+          target.chat.messages.map(m => `${m.id}_${m.content}_${m.timestamp}`)
+        );
+        const incomingMsgs = Array.isArray(chat.messages) ? chat.messages : [];
+        for (const msg of incomingMsgs) {
+          const sig = `${msg.id}_${msg.content}_${msg.timestamp}`;
+          if (!existingMsgSignatures.has(sig)) {
+            target.chat.messages.push(msg);
+            existingMsgSignatures.add(sig);
+          }
+        }
+        const existingTime = new Date(target.chat.lastUpdated || 0).getTime();
+        const thisTime = new Date(chat.lastUpdated || 0).getTime();
+        if (thisTime > existingTime) {
+          target.chat.lastUpdated = chat.lastUpdated;
+        }
+      }
+      continue;
+    }
 
     // Find the OTHER person in this conversation
     let other = chat.participants.find(p => {

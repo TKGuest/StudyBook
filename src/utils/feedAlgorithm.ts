@@ -1,7 +1,25 @@
-import { Post, AlgorithmScoreBreakdown, GRADE_LEVELS, User, CreatorScore } from '../types';
+import { Post, AlgorithmScoreBreakdown, GRADE_LEVELS, User, CreatorScore, GlobalAlgorithmConfig, DEFAULT_GLOBAL_ALGORITHM_CONFIG } from '../types';
 import { randomizeInBucketsOfFive, shuffleArray } from './newsfeedAlgorithm';
 
 export { randomizeInBucketsOfFive, shuffleArray };
+
+/**
+ * Retrieve the active algorithm configuration (from localStorage or defaults, with optional overrides)
+ */
+export function getActiveGlobalAlgorithmConfig(override?: Partial<GlobalAlgorithmConfig>): GlobalAlgorithmConfig {
+  let stored: Partial<GlobalAlgorithmConfig> = {};
+  try {
+    const raw = typeof window !== 'undefined' ? localStorage.getItem('sb_global_algorithm_config') : null;
+    if (raw) stored = JSON.parse(raw);
+  } catch (e) {
+    // ignore
+  }
+  return {
+    ...DEFAULT_GLOBAL_ALGORITHM_CONFIG,
+    ...stored,
+    ...(override || {})
+  };
+}
 
 /**
  * Feed Algorithm Configuration:
@@ -112,14 +130,18 @@ export function calculateCreatorPointsAndDecay(
  */
 export function calculateFreshnessValue(
   timestamp: string | number | Date,
-  basePoints: number = ALGORITHM_CONFIG.BASE_FRESHNESS,
-  decayPerHour: number = ALGORITHM_CONFIG.DECAY_PER_HOUR
+  basePoints?: number,
+  decayPerHour?: number
 ): {
   freshnessScore: number;
   hoursAgo: number;
   decayAmount: number;
   postDate: Date;
 } {
+  const globalCfg = getActiveGlobalAlgorithmConfig();
+  const effectiveBase = typeof basePoints === 'number' ? basePoints : globalCfg.baseFreshness;
+  const effectiveDecay = typeof decayPerHour === 'number' ? decayPerHour : globalCfg.decayPerHour;
+
   let postDate = new Date(timestamp);
   if (isNaN(postDate.getTime())) {
     postDate = new Date();
@@ -129,11 +151,11 @@ export function calculateFreshnessValue(
   const diffMs = Math.max(0, now - postDate.getTime());
   const hoursAgo = diffMs / (1000 * 60 * 60);
 
-  // Exact formula: 50 points - (hoursAgo * 2.5)
-  const rawDecay = hoursAgo * decayPerHour;
-  const rawFreshness = basePoints - rawDecay;
+  // Exact formula: basePoints - (hoursAgo * decayPerHour)
+  const rawDecay = hoursAgo * effectiveDecay;
+  const rawFreshness = effectiveBase - rawDecay;
   const freshnessScore = Math.max(0, Math.round(rawFreshness * 10) / 10);
-  const decayAmount = Math.min(basePoints, Math.round(rawDecay * 10) / 10);
+  const decayAmount = Math.min(effectiveBase, Math.round(rawDecay * 10) / 10);
 
   return {
     freshnessScore,
@@ -153,8 +175,11 @@ export function calculatePostScore(
   followingIds?: string[],
   creatorScores?: Record<string, CreatorScore>,
   joinedGroupIds?: string[],
-  groupInteractions?: Record<string, any>
+  groupInteractions?: Record<string, any>,
+  customAlgorithmConfig?: Partial<GlobalAlgorithmConfig>
 ): AlgorithmScoreBreakdown {
+  const cfg = getActiveGlobalAlgorithmConfig(customAlgorithmConfig);
+
   const user = typeof userOrGrade === 'string'
     ? { grade: userOrGrade }
     : (userOrGrade || {});
@@ -170,7 +195,7 @@ export function calculatePostScore(
   const activeGroupInteractions = groupInteractions || (user as any).groupInteractions || {};
 
   const postDate = post.createdDate || post.timestamp;
-  const { freshnessScore, hoursAgo, decayAmount } = calculateFreshnessValue(postDate);
+  const { freshnessScore, hoursAgo, decayAmount } = calculateFreshnessValue(postDate, cfg.baseFreshness, cfg.decayPerHour);
 
   // Check Grade match
   const postGrade = post.gradeLevel || post.grade || post.user?.grade;
@@ -183,9 +208,9 @@ export function calculatePostScore(
   if (normalizedUserGrade && normalizedPostGrade) {
     if (normalizedPostGrade === normalizedUserGrade) {
       isGradeMatch = true;
-      gradeMatchBoost = ALGORITHM_CONFIG.GRADE_MATCH_BOOST;
+      gradeMatchBoost = cfg.gradeMatchBoost;
     } else if (normalizedPostGrade === 'all' || normalizedPostGrade === 'all grades') {
-      gradeMatchBoost = ALGORITHM_CONFIG.ALL_GRADES_BOOST;
+      gradeMatchBoost = cfg.allGradesBoost;
     }
   }
 
@@ -193,7 +218,7 @@ export function calculatePostScore(
   const postLang = (post.language || 'English').trim().toLowerCase();
   let languageBoost = 0;
   if (postLang === 'all' || postLang === userLang.trim().toLowerCase()) {
-    languageBoost = ALGORITHM_CONFIG.LANGUAGE_MATCH_BOOST;
+    languageBoost = cfg.languageMatchBoost;
   }
 
   // Popularity Score from academic reactions and discussions
@@ -203,10 +228,10 @@ export function calculatePostScore(
   const commentsCount = post.comments?.length || 0;
 
   const rawPopularity = 
-    (helpful * ALGORITHM_CONFIG.HELPFUL_REACTION_WEIGHT) +
-    (insightful * ALGORITHM_CONFIG.INSIGHTFUL_REACTION_WEIGHT) +
-    (verified * ALGORITHM_CONFIG.VERIFIED_REACTION_WEIGHT) +
-    (commentsCount * ALGORITHM_CONFIG.COMMENT_WEIGHT) +
+    (helpful * cfg.helpfulReactionWeight) +
+    (insightful * cfg.insightfulReactionWeight) +
+    (verified * cfg.verifiedReactionWeight) +
+    (commentsCount * cfg.commentWeight) +
     ((post.likes || 0) * 2);
 
   // Logarithmic popularity scaling blended with freshness
@@ -310,7 +335,8 @@ export function sortFeedPosts(
   followingIds?: string[],
   creatorScores?: Record<string, CreatorScore>,
   joinedGroupIds?: string[],
-  groupInteractions?: Record<string, any>
+  groupInteractions?: Record<string, any>,
+  customAlgorithmConfig?: Partial<GlobalAlgorithmConfig>
 ): { post: Post; scoreBreakdown: AlgorithmScoreBreakdown }[] {
   const scoredPosts = posts.map(post => ({
     post,
@@ -321,7 +347,8 @@ export function sortFeedPosts(
       followingIds, 
       creatorScores,
       joinedGroupIds,
-      groupInteractions
+      groupInteractions,
+      customAlgorithmConfig
     )
   }));
 
