@@ -11,7 +11,8 @@ import {
   ShieldCheck, 
   Mail, 
   Send, 
-  UserCheck
+  UserCheck,
+  RotateCcw
 } from 'lucide-react';
 import { playSound } from '../utils/soundEffects';
 import { SILHOUETTE_AVATAR } from '../data/mockData';
@@ -24,6 +25,7 @@ export const FriendsView: React.FC = () => {
     sendFriendRequest, 
     acceptFriendRequest, 
     declineFriendRequest, 
+    cancelFriendRequest,
     getFriendshipStatus,
     openDirectChat,
     openUserProfile,
@@ -344,25 +346,55 @@ export const FriendsView: React.FC = () => {
                 </div>
               ) : (
                 <div className="space-y-2.5">
-                  {pendingSent.map(req => (
-                    <div 
-                      key={req.id}
-                      className="bg-white dark:bg-[#202122] border border-gray-200 dark:border-[#2f3031] rounded-2xl p-3.5 flex items-center justify-between gap-4"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="h-9 w-9 rounded-full bg-purple-100 dark:bg-purple-950/60 text-purple-600 dark:text-purple-300 flex items-center justify-center font-bold text-xs">
-                          {req.receiverId.substring(0, 2).toUpperCase()}
+                  {pendingSent.map(req => {
+                    const candidatePerson = potentialPeople.find(p => p.id === req.receiverId || (req.receiverEmail && p.email === req.receiverEmail));
+                    const displayName = req.receiverName && !req.receiverName.startsWith('u_') && !req.receiverName.startsWith('uGED')
+                      ? req.receiverName
+                      : (candidatePerson?.name || req.receiverName || req.receiverEmail || 'StudyBook Learner');
+                    const displayAvatar = req.receiverAvatar || candidatePerson?.avatar;
+
+                    return (
+                      <div 
+                        key={req.id}
+                        className="bg-white dark:bg-[#202122] border border-gray-200 dark:border-[#2f3031] rounded-2xl p-3.5 flex items-center justify-between gap-4 transition hover:border-purple-300 dark:hover:border-purple-800"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          {displayAvatar ? (
+                            <img 
+                              src={displayAvatar} 
+                              alt={displayName} 
+                              className="h-10 w-10 rounded-full object-cover border border-gray-200 dark:border-[#3a3b3c] shrink-0" 
+                            />
+                          ) : (
+                            <div className="h-10 w-10 rounded-full bg-gradient-to-tr from-purple-600 to-indigo-600 text-white flex items-center justify-center font-bold text-xs uppercase shadow-xs shrink-0">
+                              {displayName.substring(0, 2)}
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <p className="text-xs font-bold text-gray-900 dark:text-gray-100 truncate">
+                              Request sent to: {displayName}
+                            </p>
+                            <div className="flex items-center gap-2 text-[10px] text-gray-400 mt-0.5">
+                              <span>Sent {req.timestamp}</span>
+                              <span>•</span>
+                              <span className="text-amber-500 font-medium">Pending acceptance</span>
+                            </div>
+                          </div>
                         </div>
-                        <div>
-                          <p className="text-xs font-bold text-gray-800 dark:text-gray-200">Request sent to: {req.receiverId}</p>
-                          <span className="text-[10px] text-gray-400">Pending response</span>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button 
+                            type="button"
+                            onClick={() => cancelFriendRequest(req.id)}
+                            className="flex items-center gap-1 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 text-rose-600 dark:text-rose-400 text-xs font-semibold rounded-xl border border-rose-200/70 dark:border-rose-800/40 transition cursor-pointer"
+                            title="Revert and cancel this friend request"
+                          >
+                            <RotateCcw className="h-3.5 w-3.5" />
+                            <span>Cancel Request</span>
+                          </button>
                         </div>
                       </div>
-                      <span className="px-2.5 py-1 bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 text-[10px] font-semibold rounded-lg">
-                        Pending
-                      </span>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>

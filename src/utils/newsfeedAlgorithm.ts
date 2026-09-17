@@ -202,6 +202,29 @@ export function randomizeInBucketsOfFive<T>(items: T[], bucketSize: number = 5):
  * - Slices and returns ONLY the specific requested batch (page & limit or cursor)
  *   to ensure smooth memory consumption and fast response times like Facebook.
  */
+/**
+ * Strict Feed Isolation Guard:
+ * Group posts must NEVER appear in the public discovery feed of any user who is not an active member of that group.
+ */
+export function isPostEligibleForPublicFeed(
+  post: Post,
+  currentUserId?: string,
+  userJoinedGroupIds: string[] = []
+): boolean {
+  if (!post) return false;
+  if (post.groupId) {
+    const isMember = userJoinedGroupIds.includes(post.groupId) ||
+      post.authorId === currentUserId ||
+      post.user?.id === currentUserId;
+    if (!isMember) return false;
+  }
+  if (post.status === 'pending') {
+    const isAuthor = post.authorId === currentUserId || post.user?.id === currentUserId;
+    if (!isAuthor) return false;
+  }
+  return true;
+}
+
 export function getPersonalizedFeed(
   posts: Post[],
   user: UserProfile,
@@ -228,8 +251,12 @@ export function getPersonalizedFeed(
     cursor = paginationOptions.cursor;
   }
 
-  // Step 1: Score every post on the fly for the active user
-  const scoredPosts: ScoredPost[] = posts.map(post => {
+  // Step 0: Strict Feed Isolation Guard
+  const userJoinedGroupIds: string[] = Array.isArray((user as any).joinedGroupIds) ? (user as any).joinedGroupIds : [];
+  const eligiblePosts = posts.filter(post => isPostEligibleForPublicFeed(post, user.id, userJoinedGroupIds));
+
+  // Step 1: Score every eligible post on the fly for the active user
+  const scoredPosts: ScoredPost[] = eligiblePosts.map(post => {
     const { score, breakdown } = calculatePersonalRelevanceScore(post, user);
     return { post, score, breakdown };
   });

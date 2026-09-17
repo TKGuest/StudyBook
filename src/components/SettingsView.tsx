@@ -202,7 +202,7 @@ export const SettingsView: React.FC = () => {
     }));
   };
 
-  const handleToggleSetting = (key: 'incognitoMode' | 'spoilerProtection' | 'ttsEnabled' | 'showStreakToOthers' | 'allowDMsFromStrangers') => {
+  const handleToggleSetting = (key: 'incognitoMode' | 'spoilerProtection' | 'ttsEnabled' | 'showStreakToOthers' | 'allowDMsFromStrangers' | 'hideProfilePosts') => {
     playSound('toggle');
     setSettings(prev => {
       const next = {
@@ -224,6 +224,19 @@ export const SettingsView: React.FC = () => {
         setDoc(doc(db, 'users', user.id), { allowDMsFromStrangers: newVal }, { merge: true }).catch(console.warn);
       }
       showToast(newVal ? 'Direct messages from strangers enabled.' : 'Stranger direct messages disabled. Only approved friends can message you.', 'info');
+    }
+
+    if (key === 'hideProfilePosts') {
+      const newVal = !settings.hideProfilePosts;
+      setUser(prev => {
+        const nextUser = { ...prev, hideProfilePosts: newVal };
+        localStorage.setItem('sb_user', JSON.stringify(nextUser));
+        return nextUser;
+      });
+      if (isFirebaseConfigured && user.id) {
+        setDoc(doc(db, 'users', user.id), { hideProfilePosts: newVal }, { merge: true }).catch(console.warn);
+      }
+      showToast(newVal ? 'Profile posts hidden from non-friends. Friends can still view them, and they still appear on the algorithmic feed.' : 'Profile posts are now visible to everyone.', 'info');
     }
   };
 
@@ -540,6 +553,32 @@ export const SettingsView: React.FC = () => {
         <div className="pt-2 border-t border-gray-100 dark:border-slate-700/80 flex items-center gap-2 text-[11px] text-gray-500 dark:text-gray-400">
           <span className={`inline-block h-2 w-2 rounded-full ${settings.allowDMsFromStrangers !== false ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
           <span>{settings.allowDMsFromStrangers !== false ? 'Direct messages from all members are currently accepted.' : 'Stranger direct messages are disabled. Only approved friends can message you.'}</span>
+        </div>
+      </div>
+
+      {/* BLOCK 1.55: HIDE USER PROFILE POSTS FROM NON-FRIENDS */}
+      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-150 dark:border-slate-700 p-5 space-y-4 shadow-sm">
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-1">
+            <h3 className="font-display font-bold text-sm text-gray-800 dark:text-white flex items-center gap-1.5">
+              <EyeOff className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+              Hide Profile Posts from Non-Friends
+            </h3>
+            <p className="text-[11px] text-gray-400 font-medium leading-relaxed">
+              When enabled, only approved friends can see the posts on your profile page. Non-friends visiting your profile will see that your posts are private. Your posts will still appear normally in the global algorithm feed so students can benefit from your questions and answers.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => handleToggleSetting('hideProfilePosts')}
+            className={`w-11 h-6 rounded-full transition-colors relative shrink-0 focus:outline-none cursor-pointer ${settings.hideProfilePosts ? 'bg-blue-600' : 'bg-gray-200 dark:bg-slate-700'}`}
+          >
+            <span className={`absolute top-1 left-1 h-4 w-4 bg-white rounded-full transition-transform ${settings.hideProfilePosts ? 'translate-x-5' : ''}`}></span>
+          </button>
+        </div>
+        <div className="pt-2 border-t border-gray-100 dark:border-slate-700/80 flex items-center gap-2 text-[11px] text-gray-500 dark:text-gray-400">
+          <span className={`inline-block h-2 w-2 rounded-full ${settings.hideProfilePosts ? 'bg-amber-500' : 'bg-emerald-500'}`}></span>
+          <span>{settings.hideProfilePosts ? 'Profile timeline is private to non-friends. (Posts still discoverable in algorithm feed).' : 'Profile timeline posts are visible to everyone who visits your profile.'}</span>
         </div>
       </div>
 

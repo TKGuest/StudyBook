@@ -230,6 +230,7 @@ export const initialGroups: StudyGroup[] = [
     coverImage: 'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&q=80&w=600',
     description: 'Collaborative problem solving, homework discussions, and revision for Grade 10 Math and Physics.',
     category: 'Math & Science',
+    creatorId: 'u_current',
     memberCount: 28,
     membersCount: 28,
     countdownLabel: 'Mid-term Exams',
@@ -318,6 +319,7 @@ export const initialGroups: StudyGroup[] = [
     coverImage: 'https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?auto=format&fit=crop&q=80&w=600',
     description: 'Daily essay feedback, vocabulary building, and speaking practice for high school IELTS candidates.',
     category: 'Languages',
+    creatorId: 'u_maya',
     memberCount: 35,
     membersCount: 35,
     countdownLabel: 'IELTS Examination',
@@ -494,5 +496,6 @@ export const defaultSettings: AppSettings = {
   soundVolume: 0.7,
   showStreakToOthers: true,
   allowDMsFromStrangers: true,
+  hideProfilePosts: false,
   blockedUsers: []
 };

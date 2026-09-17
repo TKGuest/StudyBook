@@ -8,10 +8,13 @@ import {
   canUserRemoveSpam, 
   canUserManageMembers, 
   canUserPinFiles, 
-  canUserAssignLeader, 
+  canUserAssignLeader,
+  canUserAssignModerator, 
   getUserGroupRole,
   canUserPostInGroup,
+  checkUserCanPostInGroup,
   canUserChatInGroup,
+  checkUserCanChatInGroup,
   canUserJoinFreely,
   doesUserPostRequireApproval,
   validateAdminLeaveGuardrail,
@@ -116,6 +119,7 @@ interface AppContextType {
   leaveStudyGroup: (groupId: string) => Promise<{ success: boolean; message?: string }>;
   deleteStudyGroup: (groupId: string) => Promise<{ success: boolean; message?: string }>;
   updateGroupSettings: (groupId: string, newSettings: Partial<GroupSettings>) => Promise<void>;
+  updateGroupDetails: (groupId: string, updates: { name?: string; description?: string; coverImage?: string }) => Promise<{ success: boolean; message?: string }>;
   requestJoinGroup: (groupId: string) => Promise<{ status: 'joined' | 'pending'; message: string }>;
   approveJoinRequest: (groupId: string, requestId: string) => Promise<void>;
   rejectJoinRequest: (groupId: string, requestId: string) => Promise<void>;
@@ -171,6 +175,7 @@ interface AppContextType {
   sendFriendRequest: (targetUser: { id: string; name: string; avatar: string; email?: string; role?: string; institution?: string }) => Promise<void>;
   acceptFriendRequest: (requestId: string) => Promise<void>;
   declineFriendRequest: (requestId: string) => Promise<void>;
+  cancelFriendRequest: (requestId: string) => Promise<void>;
   removeFriend: (friendId: string) => Promise<void>;
   getFriendshipStatus: (targetUserId: string) => 'none' | 'pending_sent' | 'pending_received' | 'friends';
 
@@ -178,6 +183,11 @@ interface AppContextType {
   sendDirectMessage: (chatId: string, content: string) => Promise<void>;
   closeDirectChat: (chatId: string) => void;
   openDirectChatIds: string[];
+
+  // Pinning feature (up to 10 friends/groups)
+  pinnedChatIds: string[];
+  togglePinChat: (chatId: string, alternateId?: string) => { success: boolean; isPinned: boolean; message?: string };
+  isChatPinned: (chatId: string, alternateId?: string) => boolean;
 
   // Blocking & Privacy Management
   blockedUsers: BlockedUser[];
@@ -409,9 +419,132 @@ const normalizeTutorForUser = (t: TutorPage, userId: string): TutorPage => {
   };
 };
 
-const normalizeGroupForUser = (g: StudyGroup, userId: string): StudyGroup => {
-  const currentUserId = userId || 'guest';
+const BOT_MEMBER_IDS = new Set(['u_elena', 'u_marcus', 'u_maya', 'u_liam']);
+
+const normalizeGroupForUser = (g: StudyGroup, userOrId?: User | string | null): StudyGroup => {
+  const currentUserId = typeof userOrId === 'string' ? userOrId : (userOrId?.id || 'u_current');
+  const userObj = typeof userOrId === 'object' && userOrId ? userOrId : null;
+  const currentUserName = userObj?.name || (userObj?.email ? userObj.email.split('@')[0] : 'Bill Kute');
+  const currentUserAvatar = userObj?.avatar || SILHOUETTE_AVATAR;
+  const isGlobalAdmin = Boolean(userObj && (userObj.role === 'admin' || userObj.email?.toLowerCase() === 'billkute030709@gmail.com'));
   const isAuthenticatedUser = currentUserId !== 'guest' && currentUserId !== 'u_current';
+
+  // Normalize member lists & migrate old 'u_current' references
+  let memberUserIds: string[] = Array.isArray(g.memberUserIds) ? [...g.memberUserIds] : [];
+  let adminUserIds: string[] = Array.isArray(g.adminUserIds) ? [...g.adminUserIds] : [];
+  let leaderUserIds: string[] = Array.isArray(g.leaderUserIds) ? [...g.leaderUserIds] : [];
+  const memberRoles: Record<string, GroupRole> = { ...(g.memberRoles || {}) };
+
+  // Migrate 'u_current' to real user id if different
+  if (currentUserId && currentUserId !== 'u_current') {
+    if (adminUserIds.includes('u_current')) {
+      adminUserIds = adminUserIds.filter(id => id !== 'u_current');
+      if (!adminUserIds.includes(currentUserId)) adminUserIds.push(currentUserId);
+    }
+    if (memberUserIds.includes('u_current')) {
+      memberUserIds = memberUserIds.filter(id => id !== 'u_current');
+      if (!memberUserIds.includes(currentUserId)) memberUserIds.push(currentUserId);
+    }
+    if (leaderUserIds.includes('u_current')) {
+      leaderUserIds = leaderUserIds.filter(id => id !== 'u_current');
+    }
+    if (memberRoles['u_current']) {
+      memberRoles[currentUserId] = memberRoles['u_current'];
+      delete memberRoles['u_current'];
+    }
+  }
+
+  let creatorId = g.creatorId || 'u_current';
+  if (creatorId === 'u_current' && currentUserId !== 'u_current') {
+    creatorId = currentUserId;
+  }
+
+  const isUserAdminOfGroup = Boolean(
+    isGlobalAdmin ||
+    creatorId === currentUserId ||
+    adminUserIds.includes(currentUserId)
+  );
+
+  if (isUserAdminOfGroup) {
+    if (!adminUserIds.includes(currentUserId)) adminUserIds.push(currentUserId);
+    if (!memberUserIds.includes(currentUserId)) memberUserIds.push(currentUserId);
+    memberRoles[currentUserId] = 'admin';
+  }
+
+  // Make sure admin and leader ids are in memberUserIds
+  adminUserIds.forEach(id => {
+    if (!memberUserIds.includes(id)) memberUserIds.push(id);
+    if (!memberRoles[id]) memberRoles[id] = 'admin';
+  });
+  leaderUserIds.forEach(id => {
+    if (!memberUserIds.includes(id)) memberUserIds.push(id);
+    if (!memberRoles[id]) memberRoles[id] = 'moderator';
+  });
+
+  let members: GroupMember[] = Array.isArray(g.members) ? [...g.members] : [];
+
+  // Migrate members array 'u_current' or match existing current user
+  members = members.map(m => {
+    if (m.id === 'u_current' || m.id === currentUserId) {
+      return {
+        ...m,
+        id: currentUserId,
+        name: currentUserName,
+        avatar: currentUserAvatar,
+        role: isUserAdminOfGroup ? 'admin' : (memberRoles[currentUserId] || m.role || 'member')
+      };
+    }
+    return m;
+  });
+
+  // Ensure current user is in members list if admin or member
+  const shouldIncludeUserInMembers = isUserAdminOfGroup || g.isMember || memberUserIds.includes(currentUserId);
+  if (shouldIncludeUserInMembers && !members.some(m => m.id === currentUserId)) {
+    members.unshift({
+      id: currentUserId,
+      name: currentUserName,
+      avatar: currentUserAvatar,
+      role: isUserAdminOfGroup ? 'admin' : (memberRoles[currentUserId] || 'member'),
+      grade: userObj?.grade || 'Grade 10',
+      joinedAt: isUserAdminOfGroup ? 'Cohort Founder' : 'Recently'
+    });
+  }
+
+  // Ensure every member ID in memberUserIds has an entry in members array
+  memberUserIds.forEach(mId => {
+    if (!members.some(m => m.id === mId)) {
+      const assignedRole = memberRoles[mId] || (adminUserIds.includes(mId) ? 'admin' : leaderUserIds.includes(mId) ? 'moderator' : 'member');
+      members.push({
+        id: mId,
+        name: mId === currentUserId ? currentUserName : `Student (${mId.slice(0, 6)})`,
+        avatar: mId === currentUserId ? currentUserAvatar : SILHOUETTE_AVATAR,
+        role: assignedRole,
+        grade: 'Grade 10',
+        joinedAt: 'Recently'
+      });
+    }
+  });
+
+  // Filter out any fake bot cohort members
+  members = members.filter(m => !BOT_MEMBER_IDS.has(m.id));
+  memberUserIds = memberUserIds.filter(id => !BOT_MEMBER_IDS.has(id));
+  adminUserIds = adminUserIds.filter(id => !BOT_MEMBER_IDS.has(id));
+  leaderUserIds = leaderUserIds.filter(id => !BOT_MEMBER_IDS.has(id));
+
+  // Normalize roles on existing members
+  members = members.map(m => {
+    const roleFromMap = memberRoles[m.id];
+    const role = (roleFromMap === 'leader' ? 'moderator' : roleFromMap) || m.role || 'member';
+    return { ...m, role };
+  });
+
+  const isMember = Boolean(
+    shouldIncludeUserInMembers ||
+    memberUserIds.includes(currentUserId) ||
+    members.some(m => m.id === currentUserId) ||
+    g.isMember
+  );
+
   const normalizedEvents = (g.events || []).map(ev => {
     let attendeeUserIds: string[] = Array.isArray(ev.attendeeUserIds) ? [...ev.attendeeUserIds] : [];
     if (isAuthenticatedUser) {
@@ -431,8 +564,19 @@ const normalizeGroupForUser = (g: StudyGroup, userId: string): StudyGroup => {
     };
   });
 
+  const totalMemberCount = Math.max(members.length, memberUserIds.length, g.memberCount || 1, g.membersCount || 1);
+
   return {
     ...g,
+    creatorId,
+    isMember,
+    members,
+    memberUserIds,
+    adminUserIds,
+    leaderUserIds,
+    memberRoles,
+    memberCount: totalMemberCount,
+    membersCount: totalMemberCount,
     files: g.files || [],
     events: normalizedEvents
   };
@@ -861,6 +1005,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [openDirectChatIds, setOpenDirectChatIds] = useState<string[]>([]);
 
+  // Pinned chat IDs (up to 10 friends/groups)
+  const [pinnedChatIds, setPinnedChatIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('sb_pinned_chats');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed.slice(0, 10);
+      }
+      if (user?.pinnedChatIds && Array.isArray(user.pinnedChatIds)) {
+        return user.pinnedChatIds.slice(0, 10);
+      }
+    } catch (_) {}
+    return [];
+  });
+
   const [settings, setSettings] = useState<AppSettings>(() => {
     try {
       const saved = localStorage.getItem('sb_settings');
@@ -1132,7 +1291,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       } else {
         const loaded: StudyGroup[] = [];
         snapshot.forEach((d) => loaded.push(d.data() as StudyGroup));
-        const normalized = loaded.map(g => normalizeGroupForUser(g, user.id));
+        const normalized = loaded.map(g => normalizeGroupForUser(g, user));
         setGroups(normalized);
         localStorage.setItem('sb_groups', JSON.stringify(loaded));
       }
@@ -1142,12 +1301,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (saved) {
         try { 
           const loaded = JSON.parse(saved);
-          setGroups(loaded.map((g: StudyGroup) => normalizeGroupForUser(g, user.id))); 
+          setGroups(loaded.map((g: StudyGroup) => normalizeGroupForUser(g, user))); 
         } catch (_) { 
-          setGroups(initialGroups.map(g => normalizeGroupForUser(g, user.id))); 
+          setGroups(initialGroups.map(g => normalizeGroupForUser(g, user))); 
         }
       } else {
-        setGroups(initialGroups.map(g => normalizeGroupForUser(g, user.id)));
+        setGroups(initialGroups.map(g => normalizeGroupForUser(g, user)));
       }
     });
 
@@ -1375,6 +1534,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       console.warn('Firestore friends sync failed:', error);
     });
 
+    // J. Sync Community Users across accounts
+    const unsubscribeUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
+      if (!snapshot.empty) {
+        const loadedUsers: User[] = [];
+        snapshot.forEach((d) => {
+          const uData = d.data() as User;
+          if (uData && uData.id) {
+            loadedUsers.push(uData);
+          }
+        });
+        if (loadedUsers.length > 0) {
+          setCommunityUsers(prev => {
+            const map = new Map<string, User>();
+            prev.forEach(u => map.set(u.id, u));
+            loadedUsers.forEach(u => map.set(u.id, { ...map.get(u.id), ...u }));
+            return Array.from(map.values());
+          });
+        }
+      }
+    }, (error) => {
+      console.warn('Firestore users sync failed:', error);
+    });
+
     return () => {
       unsubscribePosts();
       unsubscribeGroups();
@@ -1385,6 +1567,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       unsubscribeDirectChats();
       unsubscribeFriendRequests();
       unsubscribeFriends();
+      unsubscribeUsers();
     };
   }, [isFirebaseConfigured, user.id]);
 
@@ -1393,8 +1576,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setPosts(prev => prev.map(p => normalizePostForUser(p, user.id)));
     setReels(prev => prev.map(r => normalizeReelForUser(r, user.id)));
     setTutors(prev => prev.map(t => normalizeTutorForUser(t, user.id)));
-    setGroups(prev => prev.map(g => normalizeGroupForUser(g, user.id)));
-  }, [user.id]);
+    setGroups(prev => prev.map(g => normalizeGroupForUser(g, user)));
+  }, [user]);
 
   // Auth Functions
   const isApiKeyError = (err: any) => {
@@ -1605,10 +1788,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Re-normalize state whenever active user ID changes to guarantee account isolation
   useEffect(() => {
     setPosts(prev => prev.map(p => normalizePostForUser(p, user.id)));
-    setGroups(prev => prev.map(g => normalizeGroupForUser(g, user.id)));
+    setGroups(prev => prev.map(g => normalizeGroupForUser(g, user)));
     setTutors(prev => prev.map(t => normalizeTutorForUser(t, user.id)));
     setReels(prev => prev.map(r => normalizeReelForUser(r, user.id)));
-  }, [user.id]);
+  }, [user]);
 
   useEffect(() => {
     try { localStorage.setItem('sb_posts', JSON.stringify(posts.map(cleanForFirestore))); } catch (_) {}
@@ -1685,6 +1868,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       badges: []
     } : user;
 
+    // Permission & Post Approval Verification for Group Posts
+    let postStatus: 'published' | 'pending' = 'published';
+    if (groupInfo?.groupId) {
+      const targetGroup = groups.find(g => g.id === groupInfo.groupId);
+      if (targetGroup) {
+        const authCheck = checkUserCanPostInGroup(targetGroup, user, simulatedGroupRole);
+        if (!authCheck.allowed) {
+          alert(authCheck.reason || 'Posting in this study group is restricted to Admins and Group Leaders.');
+          return;
+        }
+        if (authCheck.requiresApproval) {
+          postStatus = 'pending';
+        }
+      }
+    }
+
     const newPostData = {
       content,
       subject,
@@ -1692,6 +1891,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       authorId: currentUserId,
       authorName,
       user: authorUser,
+      status: postStatus,
       createdAt: serverTimestamp(),
       timestamp: new Date().toISOString(),
       userReactionsMap: {},
@@ -1737,6 +1937,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const localPost = normalizePostForUser(rawLocalPost as any, currentUserId);
       setPosts(prev => [localPost, ...prev]);
     }
+
+    if (postStatus === 'pending') {
+      alert('Your post has been submitted and is pending approval by a Group Admin or Leader.');
+    }
+
     playSound('send');
   };
 
@@ -2268,7 +2473,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     const rawGroup: StudyGroup = { ...targetGroup, events: updatedEvents };
-    const updatedGroup = normalizeGroupForUser(rawGroup, currentUserId);
+    const updatedGroup = normalizeGroupForUser(rawGroup, user);
 
     // --- OPTIMISTIC LOCAL STATE UPDATE ---
     setGroups(prev => prev.map(g => g.id === groupId ? updatedGroup : g));
@@ -2292,7 +2497,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             return { ...ev, attendeeUserIds: nextAttendees };
           });
         }
-        const finalGroupNormalized = normalizeGroupForUser({ ...rawGroup, events: finalGroupEvents }, currentUserId);
+        const finalGroupNormalized = normalizeGroupForUser({ ...rawGroup, events: finalGroupEvents }, user);
         await setDoc(groupRef, cleanForFirestore(finalGroupNormalized), { merge: true });
       } catch (err) {
         console.warn('Failed to update event going state in Firestore:', err);
@@ -2420,11 +2625,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const newG: StudyGroup = {
       id: groupId,
       name,
+      creatorId: currentUserId,
       coverImage: 'https://images.unsplash.com/photo-1434030216411-0b793f4b4173?auto=format&fit=crop&q=80&w=800',
       description: description || 'A new study group co-created by learners.',
       category: category || 'General',
       memberCount: 1,
       membersCount: 1,
+      isMember: true,
       adminUserIds: [currentUserId],
       leaderUserIds: [],
       memberUserIds: [currentUserId],
@@ -2452,6 +2659,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     setGroups(prev => [...prev, newG]);
+    setJoinedGroupIds(prev => Array.from(new Set([...prev, groupId])));
     setGroupChats(prev => {
       const found = prev.some(c => c.groupId === groupId);
       if (found) return prev;
@@ -2572,13 +2780,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const targetGroup = groups.find(g => g.id === groupId);
     if (!targetGroup) return;
 
-    if (!canUserAssignLeader(targetGroup, user, simulatedGroupRole)) {
-      alert('Only Group Admins have the permission to promote or change member roles!');
+    if (!canUserAssignModerator(targetGroup, user, simulatedGroupRole)) {
+      alert('Only Group Admins and Cohort Creators have permission to promote or change Moderator roles!');
       return;
     }
 
     playSound('pop');
 
+    let updatedMembersList: GroupMember[] = [];
     setGroups(prev => {
       const next = prev.map(g => {
         if (g.id !== groupId) return g;
@@ -2591,6 +2800,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           }
           return m;
         });
+        updatedMembersList = currentMembers;
 
         // Sync leaderUserIds and adminUserIds
         const adminIds = new Set(g.adminUserIds || []);
@@ -2599,7 +2809,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (newRole === 'admin') {
           adminIds.add(memberId);
           leaderIds.delete(memberId);
-        } else if (newRole === 'leader') {
+        } else if (newRole === 'leader' || newRole === 'moderator') {
           leaderIds.add(memberId);
           adminIds.delete(memberId);
         } else {
@@ -2622,8 +2832,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (isFirebaseConfigured) {
       try {
         const groupRef = doc(db, 'groups', groupId);
+        const groupSnap = await getDoc(groupRef);
+        let firestoreMembers: GroupMember[] = [];
+        let firestoreAdmins: string[] = [];
+        let firestoreLeaders: string[] = [];
+        if (groupSnap.exists()) {
+          const gd = groupSnap.data() as StudyGroup;
+          firestoreMembers = Array.isArray(gd.members) ? [...gd.members] : [];
+          firestoreAdmins = Array.isArray(gd.adminUserIds) ? [...gd.adminUserIds] : [];
+          firestoreLeaders = Array.isArray(gd.leaderUserIds) ? [...gd.leaderUserIds] : [];
+        }
+        firestoreMembers = firestoreMembers.map(m => m.id === memberId ? { ...m, role: newRole } : m);
+        if (newRole === 'admin') {
+          firestoreAdmins = Array.from(new Set([...firestoreAdmins, memberId]));
+          firestoreLeaders = firestoreLeaders.filter(id => id !== memberId);
+        } else if (newRole === 'leader' || newRole === 'moderator') {
+          firestoreLeaders = Array.from(new Set([...firestoreLeaders, memberId]));
+          firestoreAdmins = firestoreAdmins.filter(id => id !== memberId);
+        } else {
+          firestoreAdmins = firestoreAdmins.filter(id => id !== memberId);
+          firestoreLeaders = firestoreLeaders.filter(id => id !== memberId);
+        }
+
         await updateDoc(groupRef, {
-          [`memberRoles.${memberId}`]: newRole
+          [`memberRoles.${memberId}`]: newRole,
+          members: cleanForFirestore(firestoreMembers.length > 0 ? firestoreMembers : updatedMembersList),
+          adminUserIds: firestoreAdmins,
+          leaderUserIds: firestoreLeaders
         });
       } catch (err) {
         console.warn('Failed to update member role in Firestore:', err);
@@ -2883,6 +3118,47 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const updateGroupDetails = async (groupId: string, updates: { name?: string; description?: string; coverImage?: string }): Promise<{ success: boolean; message?: string }> => {
+    const targetGroup = groups.find(g => g.id === groupId);
+    if (!targetGroup) return { success: false, message: 'Group not found' };
+
+    const effectiveRole = getUserGroupRole(targetGroup, user, simulatedGroupRole);
+    if (effectiveRole !== 'admin') {
+      alert('Permission denied: Only the Group Admin can edit the group name, description, and banner.');
+      return { success: false, message: 'Only the Group Admin can edit cohort details.' };
+    }
+
+    playSound('pop');
+
+    const cleanUpdates: Partial<StudyGroup> = {};
+    if (updates.name !== undefined && updates.name.trim()) cleanUpdates.name = updates.name.trim();
+    if (updates.description !== undefined) cleanUpdates.description = updates.description.trim();
+    if (updates.coverImage !== undefined && updates.coverImage.trim()) cleanUpdates.coverImage = updates.coverImage.trim();
+
+    setGroups(prev => {
+      const next = prev.map(g => {
+        if (g.id !== groupId) return g;
+        return {
+          ...g,
+          ...cleanUpdates
+        };
+      });
+      try { localStorage.setItem('sb_groups', JSON.stringify(next)); } catch (_) {}
+      return next;
+    });
+
+    if (isFirebaseConfigured) {
+      try {
+        const groupRef = doc(db, 'groups', groupId);
+        await updateDoc(groupRef, cleanForFirestore(cleanUpdates));
+      } catch (err) {
+        console.warn('Failed to update group details in Firestore:', err);
+      }
+    }
+
+    return { success: true, message: 'Group details updated successfully!' };
+  };
+
   const requestJoinGroup = async (groupId: string): Promise<{ status: 'joined' | 'pending'; message: string }> => {
     const targetGroup = groups.find(g => g.id === groupId);
     if (!targetGroup) return { status: 'joined', message: 'Group not found' };
@@ -3058,22 +3334,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const targetChat = groupChats.find(c => c.groupId === groupId);
     if (!targetChat) return;
 
+    const targetGroup = groups.find(g => g.id === groupId);
+    if (targetGroup) {
+      const authCheck = checkUserCanChatInGroup(targetGroup, user, simulatedGroupRole);
+      if (!authCheck.allowed) {
+        alert(authCheck.reason || 'Group chat is restricted to Admins and Group Leaders.');
+        return;
+      }
+    }
+
     recordGroupInteraction(groupId, 'message');
 
+    const isoNow = new Date().toISOString();
     const newMsg: Message = {
       id: `m_msg_${Date.now()}`,
       sender: user,
       content: text,
-      timestamp: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+      timestamp: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+      createdAt: isoNow
     };
 
-    const updatedChat = {
+    const updatedChat: GroupChat = {
       ...targetChat,
-      messages: [...targetChat.messages, newMsg]
+      messages: [...targetChat.messages, newMsg],
+      lastUpdated: isoNow
     };
 
     // --- OPTIMISTIC LOCAL STATE UPDATE ---
     setGroupChats(prev => prev.map(c => c.groupId === groupId ? updatedChat : c));
+    try {
+      const all = groupChats.map(c => c.groupId === groupId ? updatedChat : c);
+      localStorage.setItem('sb_group_chats', JSON.stringify(all));
+    } catch (_) {}
 
     // --- FIREBASE WRITE WITH EXPLICIT TRY-CATCH ---
     if (isFirebaseConfigured) {
@@ -3834,6 +4126,7 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
 
     if (friends.some(f => f.id === targetUser.id)) return;
 
+    const formattedTime = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
     const newReq: FriendRequest = {
       id: `freq_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       senderId: user.id || 'guest',
@@ -3841,8 +4134,11 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
       senderAvatar: user.avatar || SILHOUETTE_AVATAR,
       senderEmail: user.email,
       receiverId: targetUser.id,
+      receiverName: targetUser.name,
+      receiverAvatar: targetUser.avatar,
+      receiverEmail: targetUser.email,
       status: 'pending',
-      timestamp: 'Just now'
+      timestamp: formattedTime
     };
 
     setFriendRequests(prev => {
@@ -3915,6 +4211,26 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
         await updateDoc(doc(db, 'friendRequests', requestId), { status: 'declined' });
       } catch (e) {
         console.warn('Firebase decline friend request failed:', e);
+      }
+    }
+  };
+
+  const cancelFriendRequest = async (requestId: string) => {
+    setFriendRequests(prev => {
+      const next = prev.filter(r => r.id !== requestId);
+      try {
+        localStorage.setItem('sb_friend_requests', JSON.stringify(next));
+      } catch (_) {}
+      return next;
+    });
+
+    playSound('delete');
+
+    if (isFirebaseConfigured) {
+      try {
+        await deleteDoc(doc(db, 'friendRequests', requestId));
+      } catch (e) {
+        console.warn('Firebase cancel friend request failed:', e);
       }
     }
   };
@@ -4278,6 +4594,8 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
       return;
     }
 
+    const isoNow = new Date().toISOString();
+    const formattedClockTime = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
     const newMsg: DirectMessage = {
       id: `dm_msg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       senderId: user.id || 'guest',
@@ -4285,7 +4603,8 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
       senderAvatar: user.avatar || SILHOUETTE_AVATAR,
       receiverId: chatId.startsWith('gc_') || chatId.startsWith('group_') ? 'group' : chatId.replace('dm_', '').replace(user.id || 'guest', '').replace('_', ''),
       content: content.trim(),
-      timestamp: 'Just now',
+      timestamp: formattedClockTime,
+      createdAt: isoNow,
       read: false
     };
 
@@ -4298,7 +4617,7 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
         const updatedChat: DirectChat = {
           ...existingChat,
           messages: [...existingChat.messages, newMsg],
-          lastUpdated: new Date().toISOString()
+          lastUpdated: isoNow
         };
         updatedList = [...prev];
         updatedList[targetIndex] = updatedChat;
@@ -4307,7 +4626,7 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
           id: chatId,
           participants: [{ id: user.id, name: user.name, avatar: user.avatar }],
           messages: [newMsg],
-          lastUpdated: new Date().toISOString()
+          lastUpdated: isoNow
         };
         updatedList = [...prev, newChat];
       }
@@ -4331,6 +4650,66 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
   const closeDirectChat = (chatId: string) => {
     setOpenDirectChatIds(prev => prev.filter(id => id !== chatId));
     setOpenChatIds(prev => prev.filter(id => id !== chatId));
+  };
+
+  const isChatPinned = (chatId: string, alternateId?: string): boolean => {
+    if (!chatId && !alternateId) return false;
+    return pinnedChatIds.some(id => {
+      const match1 = chatId && (id === chatId || id.replace('group_', '') === chatId || `group_${id}` === chatId);
+      const match2 = alternateId && (id === alternateId || id.replace('group_', '') === alternateId || `group_${id}` === alternateId);
+      return Boolean(match1 || match2);
+    });
+  };
+
+  const togglePinChat = (chatId: string, alternateId?: string): { success: boolean; isPinned: boolean; message?: string } => {
+    const currentlyPinned = isChatPinned(chatId, alternateId);
+    if (currentlyPinned) {
+      playSound('pop');
+      const nextPinned = pinnedChatIds.filter(id => 
+        id !== chatId && 
+        id !== alternateId && 
+        id.replace('group_', '') !== chatId && 
+        `group_${id}` !== chatId &&
+        (!alternateId || (id.replace('group_', '') !== alternateId && `group_${id}` !== alternateId))
+      );
+      setPinnedChatIds(nextPinned);
+      try { localStorage.setItem('sb_pinned_chats', JSON.stringify(nextPinned)); } catch (_) {}
+      
+      const updatedUser: User = { ...user, pinnedChatIds: nextPinned };
+      setUser(updatedUser);
+      try { localStorage.setItem('sb_user', JSON.stringify(updatedUser)); } catch (_) {}
+
+      if (isFirebaseConfigured && user.id) {
+        setDoc(doc(db, 'users', user.id), { pinnedChatIds: nextPinned }, { merge: true }).catch(err => {
+          console.warn('Failed to sync pinned chats to Firestore:', err);
+        });
+      }
+      return { success: true, isPinned: false, message: 'Unpinned conversation' };
+    } else {
+      if (pinnedChatIds.length >= 10) {
+        return { 
+          success: false, 
+          isPinned: false, 
+          message: 'Maximum limit of 10 pinned chats reached. Please unpin another chat first.' 
+        };
+      }
+      playSound('pop');
+      const targetIdToSave = chatId;
+      const nextPinned = [targetIdToSave, ...pinnedChatIds].slice(0, 10);
+      setPinnedChatIds(nextPinned);
+      try { localStorage.setItem('sb_pinned_chats', JSON.stringify(nextPinned)); } catch (_) {}
+
+      const updatedUser: User = { ...user, pinnedChatIds: nextPinned };
+      setUser(updatedUser);
+      try { localStorage.setItem('sb_user', JSON.stringify(updatedUser)); } catch (_) {}
+
+      if (isFirebaseConfigured && user.id) {
+        setDoc(doc(db, 'users', user.id), { pinnedChatIds: nextPinned }, { merge: true }).catch(err => {
+          console.warn('Failed to sync pinned chats to Firestore:', err);
+        });
+      }
+      return { success: true, isPinned: true, message: 'Pinned conversation to top' };
+    }
   };
 
   const updateGlobalAlgorithmConfig = async (newConfig: Partial<GlobalAlgorithmConfig>): Promise<{ success: boolean; message?: string }> => {
@@ -4464,6 +4843,7 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
       sendFriendRequest,
       acceptFriendRequest,
       declineFriendRequest,
+      cancelFriendRequest,
       removeFriend,
       getFriendshipStatus,
 
@@ -4471,6 +4851,10 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
       sendDirectMessage,
       closeDirectChat,
       openDirectChatIds,
+
+      pinnedChatIds,
+      togglePinChat,
+      isChatPinned,
 
       blockedUsers,
       isUserBlocked,
@@ -4534,6 +4918,7 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
       leaveStudyGroup,
       deleteStudyGroup,
       updateGroupSettings,
+      updateGroupDetails,
       requestJoinGroup,
       approveJoinRequest,
       rejectJoinRequest,

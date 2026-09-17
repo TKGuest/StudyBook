@@ -84,6 +84,7 @@ export interface User {
   hasCompletedOnboarding?: boolean;
   lastLoginDate?: string; // YYYY-MM-DD
   allowDMsFromStrangers?: boolean;
+  hideProfilePosts?: boolean;
   blockedUserIds?: string[];
   followersCount?: number;
   followingCount?: number;
@@ -91,6 +92,7 @@ export interface User {
   followingUserIds?: string[];
   subjects?: string[];
   joinedGroupIds?: string[];
+  pinnedChatIds?: string[];
   groupInteractions?: Record<string, {
     score: number;
     lastInteractionTimestamp?: string;
@@ -196,10 +198,11 @@ export interface Post {
   status?: 'approved' | 'pending' | 'rejected';
 }
 
-export type GroupRole = 'admin' | 'leader' | 'member';
+export type GroupRole = 'admin' | 'leader' | 'moderator' | 'member';
 export const GroupRole = {
   ADMIN: 'admin' as const,
   LEADER: 'leader' as const,
+  MODERATOR: 'moderator' as const,
   MEMBER: 'member' as const,
 };
 
@@ -211,6 +214,9 @@ export interface GroupJoinRequest {
   userAvatar: string;
   userEmail?: string;
   userGrade?: string;
+  name?: string;
+  avatar?: string;
+  grade?: string;
   requestedAt: string;
   status?: 'pending' | 'approved' | 'rejected';
 }
@@ -251,6 +257,7 @@ export interface StudyGroup {
   coverImage: string;
   description: string;
   category: string;
+  creatorId?: string;
   memberCount: number;
   membersCount?: number;
   members?: GroupMember[];
@@ -354,12 +361,14 @@ export interface Message {
   content: string;
   timestamp: string;
   isImage?: boolean;
+  createdAt?: string;
 }
 
 export interface GroupChat {
   groupId: string;
   groupName: string;
   messages: Message[];
+  lastUpdated?: string;
 }
 
 export interface Friend {
@@ -382,6 +391,9 @@ export interface FriendRequest {
   senderAvatar: string;
   senderEmail?: string;
   receiverId: string;
+  receiverName?: string;
+  receiverAvatar?: string;
+  receiverEmail?: string;
   status: 'pending' | 'accepted' | 'declined';
   timestamp: string;
 }
@@ -399,6 +411,7 @@ export interface DirectMessage {
   timestamp: string;
   isImage?: boolean;
   read?: boolean;
+  createdAt?: string;
 }
 
 export interface DirectChat {
@@ -489,5 +502,6 @@ export interface AppSettings {
   soundVolume?: number; // 0 to 1
   showStreakToOthers?: boolean;
   allowDMsFromStrangers?: boolean;
+  hideProfilePosts?: boolean;
   blockedUsers?: BlockedUser[];
 }

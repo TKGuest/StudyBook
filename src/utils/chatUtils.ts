@@ -328,33 +328,91 @@ export const consolidateDirectChats = (
   return entries.map(e => e.chat).sort((a, b) => {
     const lastMsgA = a.messages && a.messages.length > 0 ? a.messages[a.messages.length - 1].timestamp : a.lastUpdated;
     const lastMsgB = b.messages && b.messages.length > 0 ? b.messages[b.messages.length - 1].timestamp : b.lastUpdated;
-    const timeA = new Date(lastMsgA || 0).getTime();
-    const timeB = new Date(lastMsgB || 0).getTime();
-    return (isNaN(timeB) ? 0 : timeB) - (isNaN(timeA) ? 0 : timeA);
+    const timeA = getMessageTimestampNum(lastMsgA, a.lastUpdated);
+    const timeB = getMessageTimestampNum(lastMsgB, b.lastUpdated);
+    return timeB - timeA;
   });
 };
 
 /**
- * Format relative Messenger timestamp e.g. "Just now", "7m", "1h", "23h", "1d"
+ * Convert any chat timestamp (ISO string, "Just now", "15:58", etc.) to timestamp in milliseconds
  */
-export const formatMessengerTimestamp = (timestampStr?: string): string => {
-  if (!timestampStr) return '';
-  if (timestampStr === 'Just now') return 'Just now';
-  
-  const date = new Date(timestampStr);
-  if (isNaN(date.getTime())) return timestampStr;
+export const getMessageTimestampNum = (timestampStr?: string, fallbackIso?: string, createdAt?: string): number => {
+  let highest = 0;
 
-  const now = Date.now();
-  const diffMinutes = Math.floor((now - date.getTime()) / (60 * 1000));
+  if (createdAt) {
+    const ca = new Date(createdAt).getTime();
+    if (!isNaN(ca) && ca > 0) highest = Math.max(highest, ca);
+  }
 
-  if (diffMinutes < 1) return 'Just now';
-  if (diffMinutes < 60) return `${diffMinutes}m`;
-  
-  const diffHours = Math.floor(diffMinutes / 60);
-  if (diffHours < 24) return `${diffHours}h`;
+  if (fallbackIso) {
+    const fb = new Date(fallbackIso).getTime();
+    if (!isNaN(fb) && fb > 0) highest = Math.max(highest, fb);
+  }
 
-  const diffDays = Math.floor(diffHours / 24);
-  if (diffDays < 7) return `${diffDays}d`;
+  const str = (timestampStr || '').trim();
+  if (str === 'Just now' || str === 'Vừa xong') {
+    return Math.max(highest, Date.now());
+  }
 
-  return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  if (str) {
+    const t = new Date(str).getTime();
+    if (!isNaN(t) && t > 0) {
+      highest = Math.max(highest, t);
+    } else {
+      const timeMatch = str.match(/^(\d{1,2}):(\d{2})$/);
+      if (timeMatch) {
+        const d = new Date();
+        d.setHours(parseInt(timeMatch[1], 10), parseInt(timeMatch[2], 10), 0, 0);
+        highest = Math.max(highest, d.getTime());
+      }
+    }
+  }
+
+  return highest;
+};
+
+/**
+ * Format relative Messenger timestamp e.g. "16:32", "Yesterday", "Sep 15"
+ * Consistently displays formatted clock time for today's messages matching group chat behavior.
+ */
+export const formatMessengerTimestamp = (timestampStr?: string, fallbackIso?: string, createdAt?: string): string => {
+  const str = (timestampStr || '').trim();
+
+  // If timestamp is already a valid HH:mm clock time (e.g. "16:32") and no explicit iso override
+  if (/^\d{1,2}:\d{2}/.test(str) && !fallbackIso && !createdAt) {
+    return str;
+  }
+
+  // Check candidate date strings in order of precision: createdAt -> fallbackIso -> timestampStr
+  const candidate = createdAt || fallbackIso || (str !== 'Just now' && str !== 'Vừa xong' ? str : undefined);
+  if (candidate) {
+    const d = new Date(candidate);
+    if (!isNaN(d.getTime()) && d.getTime() > 0) {
+      const now = new Date();
+      const isToday = now.toDateString() === d.toDateString();
+      if (isToday) {
+        return d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+      }
+
+      const yesterday = new Date(now);
+      yesterday.setDate(now.getDate() - 1);
+      if (yesterday.toDateString() === d.toDateString()) {
+        return 'Yesterday';
+      }
+
+      return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    }
+  }
+
+  // If str is a formatted clock time
+  if (/^\d{1,2}:\d{2}/.test(str)) {
+    return str;
+  }
+
+  if (str === 'Just now' || str === 'Vừa xong') {
+    return new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+  }
+
+  return str;
 };

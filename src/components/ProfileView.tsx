@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { 
   Edit3, 
@@ -18,9 +18,19 @@ import {
   UserCheck,
   Calendar,
   Layers,
-  GraduationCap
+  GraduationCap,
+  Download,
+  FileText,
+  ExternalLink,
+  EyeOff,
+  Lock,
+  UserPlus,
+  Paperclip,
+  Upload,
+  Clock
 } from 'lucide-react';
 import { playSound } from '../utils/soundEffects';
+import { User } from '../types';
 
 const PRESET_COVERS = [
   { id: 'tech', name: 'Tech & Hardware', url: 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&q=80&w=1200' },
@@ -58,11 +68,57 @@ export const ProfileView: React.FC = () => {
     deletePost,
     reactToPost,
     addComment,
-    savePostToLibrary
+    savePostToLibrary,
+    viewingProfileUserId,
+    communityUsers,
+    friends,
+    getFriendshipStatus,
+    sendFriendRequest,
+    settings
   } = useApp();
 
-  // Profile view strictly displays the user's own profile
-  const profileUser = currentUser;
+  // Profile view displays current user or target profile if set
+  const profileUser: User = useMemo(() => {
+    if (!viewingProfileUserId || viewingProfileUserId === currentUser.id) {
+      return currentUser;
+    }
+    const foundCommunity = communityUsers?.find(u => u.id === viewingProfileUserId);
+    if (foundCommunity) return foundCommunity;
+    const foundFriend = friends?.find(f => f.id === viewingProfileUserId);
+    if (foundFriend) {
+      return {
+        id: foundFriend.id,
+        name: foundFriend.name,
+        email: foundFriend.email || `${foundFriend.name.toLowerCase().replace(/\s+/g, '')}@studybook.org`,
+        avatar: foundFriend.avatar,
+        grade: foundFriend.grade || 'Grade 10',
+        streak: 1,
+        streakLevel: 'none' as const,
+        badges: [],
+        bio: foundFriend.bio,
+        role: (foundFriend.role === 'tutor' || foundFriend.role === 'creator' || foundFriend.role === 'admin') ? foundFriend.role : 'student',
+        institution: foundFriend.institution
+      };
+    }
+    const foundPost = posts.find(p => p.authorId === viewingProfileUserId || p.user?.id === viewingProfileUserId);
+    if (foundPost?.user) return foundPost.user;
+    return {
+      id: viewingProfileUserId,
+      name: 'Fellow Student',
+      email: 'student@studybook.org',
+      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=250',
+      grade: 'Grade 10',
+      streak: 1,
+      streakLevel: 'none' as const,
+      badges: [],
+      role: 'student' as const
+    };
+  }, [viewingProfileUserId, currentUser, communityUsers, friends, posts]);
+
+  const isOwnProfile = profileUser.id === currentUser.id;
+  const friendshipStatus = getFriendshipStatus(profileUser.id);
+  const isFriend = friendshipStatus === 'friends';
+  const areProfilePostsHidden = !isOwnProfile && Boolean(profileUser.hideProfilePosts) && !isFriend;
 
   // Edit Profile Modal / Form State
   const [isEditingProfile, setIsEditingProfile] = useState(false);
@@ -86,11 +142,16 @@ export const ProfileView: React.FC = () => {
   // Quick post composition directly on profile timeline
   const [newPostContent, setNewPostContent] = useState('');
   const [newPostSubject, setNewPostSubject] = useState('General');
+  const [postAttachUrl, setPostAttachUrl] = useState('');
+  const [postAttachTitle, setPostAttachTitle] = useState('');
+  const [postAttachType, setPostAttachType] = useState<'pdf' | 'doc' | 'image' | 'video' | 'file'>('file');
+  const [postAttachSize, setPostAttachSize] = useState<string | undefined>(undefined);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Posts authored by current user
+  // Posts authored by profile user
   const userPosts = useMemo(() => {
-    return posts.filter(p => !p.isAnonymous && (p.authorId === currentUser.id || p.user?.id === currentUser.id));
-  }, [posts, currentUser.id]);
+    return posts.filter(p => !p.isAnonymous && (p.authorId === profileUser.id || p.user?.id === profileUser.id));
+  }, [posts, profileUser.id]);
 
   // Aggregate user engagement stats
   const totalReactionsReceived = useMemo(() => {
@@ -130,13 +191,72 @@ export const ProfileView: React.FC = () => {
     setIsEditingProfile(false);
   };
 
+  // Handle file selection in quick composer
+  const handleProfileFileChange = (file: File) => {
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    let type: 'pdf' | 'doc' | 'image' | 'video' | 'file' = 'file';
+    if (ext === 'pdf') type = 'pdf';
+    else if (['doc', 'docx', 'ppt', 'pptx', 'txt'].includes(ext || '')) type = 'doc';
+    else if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext || '')) type = 'image';
+    else if (['mp4', 'webm', 'mov'].includes(ext || '')) type = 'video';
+    
+    setPostAttachType(type);
+    setPostAttachTitle(file.name);
+    setPostAttachSize(`${(file.size / (1024 * 1024)).toFixed(1)} MB`);
+    
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      setPostAttachUrl(e.target?.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
   // Handle quick post creation on timeline
   const handleCreatePost = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newPostContent.trim()) return;
-    addPost(newPostContent.trim(), newPostSubject, undefined, undefined, false, undefined, currentUser.grade);
+    if (!newPostContent.trim() && !postAttachUrl) return;
+    
+    addPost(
+      newPostContent.trim() || `Shared ${postAttachTitle}`,
+      newPostSubject,
+      postAttachUrl ? postAttachType : undefined,
+      postAttachTitle || undefined,
+      false,
+      postAttachUrl || undefined,
+      currentUser.grade,
+      undefined,
+      postAttachSize
+    );
     setNewPostContent('');
+    setPostAttachUrl('');
+    setPostAttachTitle('');
+    setPostAttachSize(undefined);
     playSound('pop');
+  };
+
+  // Download attachment handler
+  const handleDownloadAttachment = (attachment: { title: string; url: string; type?: string }) => {
+    if (attachment.url && attachment.url !== '#' && !attachment.url.startsWith('data:')) {
+      window.open(attachment.url, '_blank', 'noopener,noreferrer');
+    } else if (attachment.url && attachment.url.startsWith('data:')) {
+      const link = document.createElement('a');
+      link.href = attachment.url;
+      link.download = attachment.title || 'document';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } else {
+      const content = `StudyBook Academic Resource\nTitle: ${attachment.title}\nType: ${attachment.type || 'DOCUMENT'}`;
+      const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = attachment.title || 'document.txt';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }
   };
 
   // Handle comment submit
@@ -169,13 +289,15 @@ export const ProfileView: React.FC = () => {
             <div className="absolute inset-0 bg-linear-to-t from-black/60 via-transparent to-transparent" />
 
             {/* Change Cover Photo Button */}
-            <button
-              onClick={() => setIsChangingCover(true)}
-              className="absolute right-3 sm:right-6 bottom-3 bg-black/60 hover:bg-black/80 text-white text-xs font-semibold px-3 py-1.5 rounded-xl backdrop-blur-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-md"
-            >
-              <Camera className="h-3.5 w-3.5" />
-              <span>Edit Cover</span>
-            </button>
+            {isOwnProfile && (
+              <button
+                onClick={() => setIsChangingCover(true)}
+                className="absolute right-3 sm:right-6 bottom-3 bg-black/60 hover:bg-black/80 text-white text-xs font-semibold px-3 py-1.5 rounded-xl backdrop-blur-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-md"
+              >
+                <Camera className="h-3.5 w-3.5" />
+                <span>Edit Cover</span>
+              </button>
+            )}
           </div>
 
           {/* Profile Info Header & Avatar Overlay */}
@@ -198,7 +320,7 @@ export const ProfileView: React.FC = () => {
                       {profileUser.name || 'Student'}
                     </h1>
                     <span className="text-xs font-semibold text-blue-600 bg-blue-50 dark:bg-blue-950/50 dark:text-blue-300 px-2 py-0.5 rounded-full border border-blue-200 dark:border-blue-800">
-                      You
+                      {isOwnProfile ? 'You' : (isFriend ? 'Friend' : 'Student')}
                     </span>
                     {profileUser.role === 'tutor' && (
                       <span className="inline-flex items-center text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 px-2 py-0.5 rounded-full">
@@ -222,15 +344,42 @@ export const ProfileView: React.FC = () => {
                 </div>
               </div>
 
-              {/* Action Buttons: Edit Profile */}
+              {/* Action Buttons: Edit Profile or Friend Actions */}
               <div className="flex items-center justify-center gap-2 mt-2 sm:mt-0">
-                <button
-                  onClick={handleOpenEdit}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white transition-all shadow-xs cursor-pointer"
-                >
-                  <Edit3 className="h-4 w-4" />
-                  Edit Profile
-                </button>
+                {isOwnProfile ? (
+                  <button
+                    onClick={handleOpenEdit}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white transition-all shadow-xs cursor-pointer"
+                  >
+                    <Edit3 className="h-4 w-4" />
+                    Edit Profile
+                  </button>
+                ) : isFriend ? (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 text-xs font-bold border border-emerald-200 dark:border-emerald-800">
+                    <UserCheck className="h-4 w-4" /> Friends
+                  </span>
+                ) : friendshipStatus === 'pending_sent' ? (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 text-xs font-semibold border border-amber-200 dark:border-amber-800">
+                    <Clock className="h-4 w-4 animate-pulse" /> Request Sent
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => {
+                      sendFriendRequest({
+                        id: profileUser.id,
+                        name: profileUser.name,
+                        avatar: profileUser.avatar,
+                        email: profileUser.email,
+                        role: profileUser.role,
+                        institution: profileUser.institution
+                      });
+                      playSound('pop');
+                    }}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition-all cursor-pointer"
+                  >
+                    <UserPlus className="h-4 w-4" /> Add Friend
+                  </button>
+                )}
               </div>
 
             </div>
@@ -244,12 +393,14 @@ export const ProfileView: React.FC = () => {
                   <span className="text-[11px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">
                     Bio & Academic Focus
                   </span>
-                  <button 
-                    onClick={handleOpenEdit}
-                    className="text-[11px] font-semibold text-blue-600 hover:underline flex items-center gap-1 cursor-pointer"
-                  >
-                    <Edit3 className="h-3 w-3" /> Edit
-                  </button>
+                  {isOwnProfile && (
+                    <button 
+                      onClick={handleOpenEdit}
+                      className="text-[11px] font-semibold text-blue-600 hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <Edit3 className="h-3 w-3" /> Edit
+                    </button>
+                  )}
                 </div>
 
                 <p className="text-xs sm:text-sm text-gray-700 dark:text-slate-200 leading-relaxed font-normal">
@@ -274,65 +425,167 @@ export const ProfileView: React.FC = () => {
           </div>
         </div>
 
-        {/* Quick Post Box on Timeline */}
-        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-200 dark:border-slate-700 p-4 shadow-xs">
-          <div className="flex items-center gap-2.5 mb-3">
-            <img src={profileUser.avatar} alt="You" className="h-9 w-9 rounded-full object-cover shrink-0" />
-            <span className="text-xs font-bold text-gray-700 dark:text-gray-200">
-              Share an academic update, study tip, or formula sheet
-            </span>
-          </div>
-
-          <form onSubmit={handleCreatePost} className="space-y-2.5">
-            <textarea
-              value={newPostContent}
-              onChange={(e) => setNewPostContent(e.target.value)}
-              placeholder="What are you studying today? Share insights with classmates..."
-              rows={2}
-              className="w-full p-2.5 text-xs bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 dark:text-white"
-            />
-            
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] text-gray-400 font-medium">Subject:</span>
-                <select
-                  value={newPostSubject}
-                  onChange={(e) => setNewPostSubject(e.target.value)}
-                  className="text-xs bg-gray-100 dark:bg-slate-700 border-none rounded-lg px-2 py-1 text-gray-700 dark:text-gray-200 focus:outline-none"
-                >
-                  <option value="General">General</option>
-                  <option value="Math">Math</option>
-                  <option value="Physics">Physics</option>
-                  <option value="Chemistry">Chemistry</option>
-                  <option value="Biology">Biology</option>
-                  <option value="Literature">Literature</option>
-                  <option value="History">History</option>
-                  <option value="Computer Science">Computer Science</option>
-                </select>
-              </div>
-
-              <button
-                type="submit"
-                disabled={!newPostContent.trim()}
-                className="px-4 py-1.5 text-xs font-bold bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl flex items-center gap-1.5 transition-all cursor-pointer shadow-xs"
-              >
-                <Send className="h-3.5 w-3.5" />
-                Post
-              </button>
+        {/* Profile Privacy Banner for Owner */}
+        {isOwnProfile && (currentUser.hideProfilePosts || settings.hideProfilePosts) && (
+          <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-blue-50/90 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/60 text-blue-900 dark:text-blue-200 text-xs shadow-xs">
+            <EyeOff className="h-4 w-4 shrink-0 text-blue-600 dark:text-blue-400" />
+            <div className="leading-snug">
+              <span className="font-bold">Profile Privacy Mode Active:</span> Your profile posts and files are hidden from non-friends visiting your profile directly. They still appear on the algorithmic Feed.
             </div>
-          </form>
-        </div>
+          </div>
+        )}
+
+        {/* Quick Post Box on Timeline (Only on Own Profile) */}
+        {isOwnProfile && (
+          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-200 dark:border-slate-700 p-4 shadow-xs space-y-3">
+            <div className="flex items-center gap-2.5">
+              <img src={profileUser.avatar} alt="You" className="h-9 w-9 rounded-full object-cover shrink-0" />
+              <span className="text-xs font-bold text-gray-700 dark:text-gray-200">
+                Share an academic update, study tip, formula sheet, or file
+              </span>
+            </div>
+
+            <form onSubmit={handleCreatePost} className="space-y-2.5">
+              <textarea
+                value={newPostContent}
+                onChange={(e) => setNewPostContent(e.target.value)}
+                placeholder="What are you studying today? Share notes or attach study files with classmates..."
+                rows={2}
+                className="w-full p-2.5 text-xs bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 dark:text-white"
+              />
+              
+              {/* Attached file chip */}
+              {postAttachTitle && (
+                <div className="flex items-center justify-between px-3 py-1.5 rounded-xl bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-900/60 text-xs text-blue-700 dark:text-blue-300">
+                  <span className="flex items-center gap-2 truncate">
+                    <FileText className="h-4 w-4 shrink-0 text-blue-600 dark:text-blue-400" />
+                    <span className="font-semibold truncate">{postAttachTitle}</span>
+                    {postAttachSize && <span className="text-[10px] text-gray-400 dark:text-slate-400 shrink-0">({postAttachSize})</span>}
+                  </span>
+                  <button 
+                    type="button" 
+                    onClick={() => {
+                      setPostAttachUrl('');
+                      setPostAttachTitle('');
+                      setPostAttachSize(undefined);
+                      if (fileInputRef.current) fileInputRef.current.value = '';
+                    }}
+                    className="p-1 hover:text-red-500 cursor-pointer text-gray-400 hover:text-red-500 transition-colors"
+                    title="Remove attachment"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between flex-wrap gap-2 pt-1">
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] text-gray-400 font-medium">Subject:</span>
+                    <select
+                      value={newPostSubject}
+                      onChange={(e) => setNewPostSubject(e.target.value)}
+                      className="text-xs bg-gray-100 dark:bg-slate-700 border-none rounded-lg px-2 py-1 text-gray-700 dark:text-gray-200 focus:outline-none"
+                    >
+                      <option value="General">General</option>
+                      <option value="Math">Math</option>
+                      <option value="Physics">Physics</option>
+                      <option value="Chemistry">Chemistry</option>
+                      <option value="Biology">Biology</option>
+                      <option value="Literature">Literature</option>
+                      <option value="History">History</option>
+                      <option value="Computer Science">Computer Science</option>
+                    </select>
+                  </div>
+
+                  {/* Hidden File Input */}
+                  <input 
+                    type="file" 
+                    ref={fileInputRef} 
+                    className="hidden" 
+                    accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.png,.jpg,.jpeg,.gif,.webp,.mp4"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleProfileFileChange(file);
+                    }} 
+                  />
+
+                  {/* Attach File Button */}
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex items-center gap-1.5 px-2.5 py-1 text-xs text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors cursor-pointer font-medium"
+                  >
+                    <Paperclip className="h-3.5 w-3.5 text-blue-500" />
+                    <span>{postAttachTitle ? 'Replace File' : 'Attach File'}</span>
+                  </button>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={!newPostContent.trim() && !postAttachUrl}
+                  className="px-4 py-1.5 text-xs font-bold bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl flex items-center gap-1.5 transition-all cursor-pointer shadow-xs"
+                >
+                  <Send className="h-3.5 w-3.5" />
+                  Post
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
 
         {/* Timeline Posts */}
         <div className="space-y-3">
           <div className="flex items-center justify-between px-1">
             <h3 className="font-display font-bold text-sm text-gray-800 dark:text-white flex items-center gap-1.5">
               <BookOpen className="h-4 w-4 text-blue-600" />
-              Your Posts & Study Notes ({userPosts.length})
+              {isOwnProfile ? 'Your Posts & Study Notes' : `${profileUser.name}'s Posts & Study Notes`} ({areProfilePostsHidden ? '0' : userPosts.length})
             </h3>
           </div>
 
-          {userPosts.length === 0 ? (
+          {areProfilePostsHidden ? (
+            /* Friend-locked privacy card when non-friend views user profile with hideProfilePosts enabled */
+            <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-200 dark:border-slate-700 p-8 text-center space-y-4 shadow-sm">
+              <div className="h-16 w-16 bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 rounded-2xl flex items-center justify-center mx-auto border border-blue-150 dark:border-blue-900/60 shadow-xs">
+                <Lock className="h-8 w-8" />
+              </div>
+              <div className="max-w-md mx-auto space-y-1.5">
+                <h4 className="font-display font-bold text-base text-gray-900 dark:text-white">
+                  Timeline Posts are Friends-Only
+                </h4>
+                <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+                  {profileUser.name} has chosen to keep their profile posts and file attachments private to approved friends. Connect as friends to view their academic notes, formula sheets, and questions.
+                </p>
+              </div>
+              <div className="pt-2 flex justify-center">
+                {friendshipStatus === 'none' ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sendFriendRequest({
+                        id: profileUser.id,
+                        name: profileUser.name,
+                        avatar: profileUser.avatar,
+                        email: profileUser.email,
+                        role: profileUser.role,
+                        institution: profileUser.institution
+                      });
+                      playSound('pop');
+                    }}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl flex items-center gap-2 shadow-xs transition-all cursor-pointer"
+                  >
+                    <UserPlus className="h-4 w-4" />
+                    <span>Add Friend to Unlock Timeline</span>
+                  </button>
+                ) : friendshipStatus === 'pending_sent' ? (
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 text-xs font-semibold border border-amber-200 dark:border-amber-900/50">
+                    <Clock className="h-3.5 w-3.5 animate-pulse" />
+                    <span>Friend Request Sent — Awaiting Approval</span>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          ) : userPosts.length === 0 ? (
             <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-200 dark:border-slate-700 p-8 text-center">
               <BookOpen className="h-10 w-10 text-gray-300 dark:text-slate-600 mx-auto mb-2" />
               <h4 className="font-bold text-xs text-gray-700 dark:text-gray-300">No study notes published yet</h4>
@@ -344,6 +597,7 @@ export const ProfileView: React.FC = () => {
             userPosts.map(post => {
               const hasLiked = post.currentUserReaction === 'helpful' || post.currentUserReaction === 'insightful';
               const commentsOpen = expandedComments[post.id];
+              const isAuthor = post.authorId === currentUser.id || post.user?.id === currentUser.id;
 
               return (
                 <div 
@@ -354,7 +608,7 @@ export const ProfileView: React.FC = () => {
                   {/* Post Header */}
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2.5">
-                      <img src={post.user?.avatar || profileUser.avatar} alt="You" className="h-9 w-9 rounded-full object-cover" />
+                      <img src={post.user?.avatar || profileUser.avatar} alt="Author" className="h-9 w-9 rounded-full object-cover" />
                       <div>
                         <span className="font-bold text-xs text-gray-900 dark:text-white">{post.user?.name || profileUser.name}</span>
                         <div className="text-[10px] text-gray-400">{post.timestamp} • {post.subject}</div>
@@ -368,17 +622,19 @@ export const ProfileView: React.FC = () => {
                         </span>
                       )}
                       {/* Delete Own Post */}
-                      <button
-                        onClick={() => {
-                          if (confirm('Delete this study note from your timeline?')) {
-                            deletePost(post.id);
-                          }
-                        }}
-                        className="text-gray-400 hover:text-red-600 transition-colors p-1 rounded-lg"
-                        title="Delete post"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+                      {isAuthor && (
+                        <button
+                          onClick={() => {
+                            if (confirm('Delete this study note from your timeline?')) {
+                              deletePost(post.id);
+                            }
+                          }}
+                          className="text-gray-400 hover:text-red-600 transition-colors p-1 rounded-lg"
+                          title="Delete post"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -386,6 +642,84 @@ export const ProfileView: React.FC = () => {
                   <p className="text-xs sm:text-sm text-gray-800 dark:text-gray-100 leading-relaxed font-normal whitespace-pre-line">
                     {post.content}
                   </p>
+
+                  {/* Attachment Block (Images, PDFs, Documents, Media) */}
+                  {post.attachment && (
+                    <div className="mt-2.5">
+                      {post.attachment.type === 'image' || post.attachment.url?.match(/\.(jpeg|jpg|gif|png|webp)($|\?)/i) ? (
+                        <div className="rounded-xl overflow-hidden border border-gray-200 dark:border-slate-700 bg-gray-100 dark:bg-slate-900 group relative">
+                          <img 
+                            src={post.attachment.url} 
+                            alt={post.attachment.title}
+                            className="w-full max-h-[380px] object-contain cursor-pointer transition-transform duration-200 group-hover:scale-[1.01]"
+                            onClick={() => window.open(post.attachment?.url, '_blank')}
+                          />
+                          <div className="p-2.5 flex items-center justify-between text-xs text-gray-600 dark:text-gray-300 bg-gray-50/90 dark:bg-slate-800/90 border-t border-gray-150 dark:border-slate-700">
+                            <span className="font-semibold truncate flex items-center gap-1.5">
+                              <FileText className="h-4 w-4 text-emerald-500 shrink-0" />
+                              <span className="truncate">{post.attachment.title}</span>
+                            </span>
+                            <a 
+                              href={post.attachment.url} 
+                              target="_blank" 
+                              rel="noreferrer" 
+                              className="text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 font-bold text-xs shrink-0 ml-2"
+                            >
+                              <ExternalLink className="h-3.5 w-3.5" /> Full Size
+                            </a>
+                          </div>
+                        </div>
+                      ) : post.attachment.type === 'video' ? (
+                        <div className="rounded-xl overflow-hidden border border-gray-200 dark:border-slate-700 bg-black">
+                          <video 
+                            src={post.attachment.url} 
+                            controls 
+                            className="w-full max-h-[360px] object-contain"
+                          />
+                        </div>
+                      ) : (
+                        <div className="border border-gray-200 dark:border-slate-700 rounded-xl overflow-hidden flex items-center justify-between p-3.5 bg-gray-50/80 dark:bg-slate-850 hover:bg-gray-100/80 dark:hover:bg-slate-800 transition-colors">
+                          <div className="flex items-center gap-3 min-w-0">
+                            {post.attachment.type === 'pdf' || post.attachment.title?.toLowerCase().endsWith('.pdf') ? (
+                              <div className="h-10 w-10 bg-red-100 text-red-600 dark:bg-red-950/60 dark:text-red-400 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
+                                PDF
+                              </div>
+                            ) : post.attachment.type === 'doc' || post.attachment.title?.toLowerCase().match(/\.(docx?|odt)$/) ? (
+                              <div className="h-10 w-10 bg-blue-100 text-blue-600 dark:bg-blue-950/60 dark:text-blue-400 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
+                                DOC
+                              </div>
+                            ) : post.attachment.title?.toLowerCase().match(/\.(pptx?|key)$/) ? (
+                              <div className="h-10 w-10 bg-amber-100 text-amber-600 dark:bg-amber-950/60 dark:text-amber-400 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
+                                PPT
+                              </div>
+                            ) : (
+                              <div className="h-10 w-10 bg-emerald-100 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-400 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
+                                <FileText className="h-5 w-5" />
+                              </div>
+                            )}
+
+                            <div className="min-w-0">
+                              <p className="text-xs font-semibold text-gray-800 dark:text-white truncate leading-snug">
+                                {post.attachment.title}
+                              </p>
+                              <span className="text-[10px] text-gray-400 mt-0.5 block">
+                                {post.attachment.size ? `${post.attachment.size} • Study Document` : 'Academic Attachment'}
+                              </span>
+                            </div>
+                          </div>
+
+                          <button 
+                            type="button"
+                            onClick={() => post.attachment && handleDownloadAttachment(post.attachment)}
+                            className="flex items-center gap-1.5 bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-300 font-bold px-3 py-1.5 rounded-lg text-xs hover:bg-blue-100 dark:hover:bg-blue-900 transition-colors cursor-pointer shrink-0 ml-2"
+                          >
+                            <Download className="h-3.5 w-3.5" />
+                            Download
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Interaction Bar */}
                   <div className="flex items-center justify-between pt-2 border-t border-gray-100 dark:border-slate-700 text-xs text-gray-500">

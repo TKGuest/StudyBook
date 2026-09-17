@@ -7,7 +7,6 @@ import {
   X,
   Upload,
   Film,
-  Music,
   FileText,
   Check,
   Play,
@@ -425,23 +424,6 @@ export const CreateReelModal: React.FC<CreateReelModalProps> = ({ isOpen, onClos
                   ))}
                   <option value="College">College / University</option>
                 </select>
-              </div>
-            </div>
-
-            {/* Audio Track Name */}
-            <div>
-              <label className="text-xs font-bold text-gray-700 dark:text-gray-300 block mb-1">
-                Audio Track Title
-              </label>
-              <div className="relative flex items-center">
-                <Music className="absolute left-3 h-3.5 w-3.5 text-blue-500" />
-                <input
-                  type="text"
-                  value={audioTrack}
-                  onChange={e => setAudioTrack(e.target.value)}
-                  placeholder="Original Audio - Your Name"
-                  className="w-full pl-9 pr-3 py-2 rounded-xl text-xs bg-gray-50 dark:bg-neutral-800 border border-gray-300 dark:border-neutral-700 focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-white"
-                />
               </div>
             </div>
 

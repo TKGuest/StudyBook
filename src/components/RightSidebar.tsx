@@ -1,13 +1,21 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useApp } from '../context/AppContext';
-import { MessageSquare, Users, UserPlus, ShieldCheck, UserCheck } from 'lucide-react';
+import { MessageSquare, Users, UserPlus, ShieldCheck, UserCheck, Pin } from 'lucide-react';
 import { playSound } from '../utils/soundEffects';
 import { SILHOUETTE_AVATAR } from '../data/mockData';
 
 export const RightSidebar: React.FC = () => {
-  const { groupChats, openChatWindow, friends, friendRequests, openDirectChat, setActiveTab, user, settings } = useApp();
+  const { groupChats, openChatWindow, friends, friendRequests, openDirectChat, setActiveTab, user, settings, isChatPinned } = useApp();
 
   const pendingReceived = friendRequests.filter(r => r.receiverId === user.id && r.status === 'pending');
+
+  const sortedFriends = useMemo(() => {
+    return [...friends].sort((a, b) => {
+      const aPinned = isChatPinned(a.id) ? 1 : 0;
+      const bPinned = isChatPinned(b.id) ? 1 : 0;
+      return bPinned - aPinned;
+    });
+  }, [friends, isChatPinned]);
 
   return (
     <aside className="w-72 shrink-0 hidden xl:flex flex-col bg-gray-50 dark:bg-slate-950 p-3 pt-2 border-l border-gray-150 dark:border-slate-850 h-[calc(100vh-57px)] overflow-y-auto scrollbar-none no-scrollbar transition-colors">
@@ -61,45 +69,56 @@ export const RightSidebar: React.FC = () => {
                 </button>
               </div>
             ) : (
-              friends.slice(0, 5).map(friend => (
-                <button
-                  key={friend.id}
-                  onClick={() => {
-                    playSound('pop');
-                    openDirectChat({
-                      id: friend.id,
-                      name: friend.name,
-                      avatar: friend.avatar || SILHOUETTE_AVATAR,
-                      email: friend.email,
-                      role: friend.role
-                    });
-                  }}
-                  className="w-full flex items-center gap-2.5 p-2 rounded-xl text-left hover:bg-white dark:hover:bg-slate-900 border border-transparent hover:border-purple-200 dark:hover:border-purple-900 transition-all cursor-pointer group"
-                >
-                  <div className="relative shrink-0">
-                    <img 
-                      src={friend.avatar || SILHOUETTE_AVATAR} 
-                      alt={friend.name} 
-                      className="h-7 w-7 rounded-full object-cover border border-gray-200 dark:border-slate-800" 
-                    />
-                    <span className="absolute bottom-0 right-0 h-2 w-2 rounded-full bg-green-500 border border-white dark:border-slate-950"></span>
-                  </div>
-
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1">
-                      <p className="text-xs font-semibold text-gray-800 dark:text-gray-200 group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-colors truncate">
-                        {friend.name}
-                      </p>
-                      {friend.role === 'tutor' && (
-                        <ShieldCheck className="h-3 w-3 text-blue-500 shrink-0" />
+              sortedFriends.slice(0, 6).map(friend => {
+                const isPinned = isChatPinned(friend.id);
+                return (
+                  <button
+                    key={friend.id}
+                    onClick={() => {
+                      playSound('pop');
+                      openDirectChat({
+                        id: friend.id,
+                        name: friend.name,
+                        avatar: friend.avatar || SILHOUETTE_AVATAR,
+                        email: friend.email,
+                        role: friend.role
+                      });
+                    }}
+                    className="w-full flex items-center gap-2.5 p-2 rounded-xl text-left hover:bg-white dark:hover:bg-slate-900 border border-transparent hover:border-purple-200 dark:hover:border-purple-900 transition-all cursor-pointer group"
+                  >
+                    <div className="relative shrink-0">
+                      <img 
+                        src={friend.avatar || SILHOUETTE_AVATAR} 
+                        alt={friend.name} 
+                        className="h-7 w-7 rounded-full object-cover border border-gray-200 dark:border-slate-800" 
+                      />
+                      <span className="absolute bottom-0 right-0 h-2 w-2 rounded-full bg-green-500 border border-white dark:border-slate-950"></span>
+                      {isPinned && (
+                        <span className="absolute -top-1 -left-1 h-3.5 w-3.5 rounded-full bg-blue-600 text-white flex items-center justify-center border border-white dark:border-slate-950">
+                          <Pin className="h-2 w-2 fill-current" />
+                        </span>
                       )}
                     </div>
-                    <p className="text-[10px] text-gray-400 truncate">Online now</p>
-                  </div>
 
-                  <MessageSquare className="h-3.5 w-3.5 text-gray-400 group-hover:text-purple-500 transition-colors shrink-0" />
-                </button>
-              ))
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1">
+                        <p className="text-xs font-semibold text-gray-800 dark:text-gray-200 group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-colors truncate">
+                          {friend.name}
+                        </p>
+                        {isPinned && (
+                          <Pin className="h-2.5 w-2.5 text-blue-500 fill-current shrink-0" />
+                        )}
+                        {friend.role === 'tutor' && (
+                          <ShieldCheck className="h-3 w-3 text-blue-500 shrink-0" />
+                        )}
+                      </div>
+                      <p className="text-[10px] text-gray-400 truncate">Online now</p>
+                    </div>
+
+                    <MessageSquare className="h-3.5 w-3.5 text-gray-400 group-hover:text-purple-500 transition-colors shrink-0" />
+                  </button>
+                );
+              })
             )}
           </div>
         </div>

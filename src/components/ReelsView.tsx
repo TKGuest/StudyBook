@@ -15,7 +15,6 @@ import {
   ChevronDown, 
   X, 
   Send, 
-  Music, 
   Copy, 
   Film,
   Plus,
@@ -396,11 +395,6 @@ export const ReelsView: React.FC = () => {
                     {isSaved ? 'Saved' : 'Save'}
                   </span>
                 </button>
-
-                {/* Spinning Audio Record Disk */}
-                <div className="mt-1 h-8 w-8 rounded-full bg-neutral-800 border-2 border-neutral-700 flex items-center justify-center animate-spin" style={{ animationDuration: '4s' }}>
-                  <Music className="h-3.5 w-3.5 text-blue-400" />
-                </div>
               </div>
 
               {/* Bottom Left Author & Caption Info Overlay (Pinned strictly to bottom) */}
@@ -430,12 +424,6 @@ export const ReelsView: React.FC = () => {
                       {isCaptionExpanded ? 'Show less' : 'See more'}
                     </button>
                   )}
-                </div>
-
-                {/* Audio Track Line */}
-                <div className="flex items-center gap-1.5 text-[11px] text-gray-300 font-medium">
-                  <Music className="h-3 w-3 text-blue-400 shrink-0" />
-                  <span className="truncate">{reel.audioTrack || `Original Audio - ${reel.tutorName}`}</span>
                 </div>
 
                 {/* Download Worksheet Attached Button */}

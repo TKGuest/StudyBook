@@ -322,9 +322,45 @@ export function calculatePostScore(
 export type FeedSortOption = 'algorithm' | 'recent' | 'popular';
 
 /**
+ * Strict Feed Isolation Guard:
+ * Group posts must NEVER appear in the public discovery feed of any user who is not an active member of that group.
+ * Deep-linked direct navigation (e.g. /post/:id) operates independently of this discovery feed pipeline.
+ */
+export function isPostEligibleForPublicFeed(
+  post: Post,
+  currentUserId?: string,
+  userJoinedGroupIds: string[] = []
+): boolean {
+  if (!post) return false;
+
+  // Strict Group Isolation Wall:
+  // If the post belongs to a study group, it must NEVER appear in the public discovery feed
+  // unless the current user is an active member or author of the post.
+  if (post.groupId) {
+    const isMember = userJoinedGroupIds.includes(post.groupId) || 
+      post.authorId === currentUserId || 
+      post.user?.id === currentUserId;
+    
+    if (!isMember) {
+      return false;
+    }
+  }
+
+  // Post Moderation Queue:
+  // Pending posts are completely isolated from general public discovery
+  if (post.status === 'pending') {
+    const isAuthor = post.authorId === currentUserId || post.user?.id === currentUserId;
+    if (!isAuthor) return false;
+  }
+
+  return true;
+}
+
+/**
  * Sorts posts based on chosen feed mode.
  * In 'algorithm' mode, ranks by dynamic relevance and randomizes in buckets of 5
  * (e.g. 1st-5th highest, 6th-10th highest) so the feed stays fresh and non-predictable.
+ * Enforces the Strict Feed Isolation Guard before ranking.
  */
 export function sortFeedPosts(
   posts: Post[],
@@ -338,7 +374,15 @@ export function sortFeedPosts(
   groupInteractions?: Record<string, any>,
   customAlgorithmConfig?: Partial<GlobalAlgorithmConfig>
 ): { post: Post; scoreBreakdown: AlgorithmScoreBreakdown }[] {
-  const scoredPosts = posts.map(post => ({
+  const currentUserId = typeof userOrGrade === 'object' ? userOrGrade?.id : undefined;
+  
+  // 1. Enforce Strict Feed Isolation Guard
+  const eligiblePosts = posts.filter(post => 
+    isPostEligibleForPublicFeed(post, currentUserId, joinedGroupIds)
+  );
+
+  // 2. Score remaining eligible posts
+  const scoredPosts = eligiblePosts.map(post => ({
     post,
     scoreBreakdown: calculatePostScore(
       post, 

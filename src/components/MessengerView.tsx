@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import { DirectChat, DirectMessage, StudyGroup, GroupChat, Message } from '../types';
-import { consolidateDirectChats, formatMessengerTimestamp } from '../utils/chatUtils';
+import { consolidateDirectChats, formatMessengerTimestamp, getMessageTimestampNum } from '../utils/chatUtils';
 import { playSound } from '../utils/soundEffects';
 import { SILHOUETTE_AVATAR } from '../data/mockData';
 import { 
@@ -25,7 +25,9 @@ import {
   LogOut,
   UserCheck,
   UserPlus,
-  Check
+  Check,
+  Pin,
+  PinOff
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChatEmojiPicker } from './ChatEmojiPicker';
@@ -49,6 +51,7 @@ interface UnifiedChat {
   lastMessageIsMe: boolean;
   timeText: string;
   timestampNum: number;
+  isPinned?: boolean;
   directChat?: DirectChat;
   group?: StudyGroup;
   groupChat?: GroupChat;
@@ -70,7 +73,10 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
     sendGroupMessage,
     toggleJoinGroup,
     setActiveTab,
-    createGroupChat
+    createGroupChat,
+    pinnedChatIds,
+    togglePinChat,
+    isChatPinned
   } = useApp();
 
   const [filterTab, setFilterTab] = useState<'all' | 'direct' | 'groups'>('all');
@@ -78,6 +84,26 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
   const [messageInput, setMessageInput] = useState('');
   const [showInfoSidebar, setShowInfoSidebar] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [pinToast, setPinToast] = useState<{ message: string; type: 'success' | 'warning' } | null>(null);
+
+  const handleTogglePin = (chatId: string, alternateId?: string, e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+    const res = togglePinChat(chatId, alternateId);
+    if (!res.success) {
+      setPinToast({ message: res.message || 'Maximum of 10 pinned chats reached', type: 'warning' });
+    } else {
+      setPinToast({ 
+        message: res.isPinned ? 'Pinned conversation to top' : 'Unpinned conversation', 
+        type: 'success' 
+      });
+    }
+    setTimeout(() => {
+      setPinToast(null);
+    }, 3200);
+  };
 
   // Group chat creation states (strictly with friends only)
   const [showNewGroupModal, setShowNewGroupModal] = useState(false);
@@ -98,13 +124,14 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
   // 2. Direct chat unified items
   const directChatItems = useMemo<UnifiedChat[]>(() => {
     return cleanDirectChats.map(chat => {
+      const isPinned = isChatPinned(chat.id);
       if (chat.isGroupChat) {
         const lastMsg = chat.messages && chat.messages.length > 0 ? chat.messages[chat.messages.length - 1] : null;
         const isMe = lastMsg ? lastMsg.senderId === user.id : false;
-        const timeText = lastMsg ? formatMessengerTimestamp(lastMsg.timestamp) : '';
-        const timestampNum = lastMsg 
-          ? (new Date(lastMsg.timestamp).getTime() || 0) 
-          : (chat.lastUpdated ? new Date(chat.lastUpdated).getTime() || 0 : 0);
+        const timeText = lastMsg 
+          ? formatMessengerTimestamp(lastMsg.timestamp, chat.lastUpdated, lastMsg.createdAt) 
+          : (chat.lastUpdated ? formatMessengerTimestamp(chat.lastUpdated) : '');
+        const timestampNum = getMessageTimestampNum(lastMsg?.timestamp, chat.lastUpdated, lastMsg?.createdAt);
 
         return {
           id: chat.id,
@@ -119,6 +146,7 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
           lastMessageIsMe: isMe,
           timeText,
           timestampNum,
+          isPinned,
           directChat: chat
         };
       }
@@ -128,10 +156,11 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
                     chat.participants[0];
       const lastMsg = chat.messages && chat.messages.length > 0 ? chat.messages[chat.messages.length - 1] : null;
       const isMe = lastMsg ? lastMsg.senderId === user.id : false;
-      const timeText = lastMsg ? formatMessengerTimestamp(lastMsg.timestamp) : '';
-      const timestampNum = lastMsg 
-        ? (new Date(lastMsg.timestamp).getTime() || 0) 
-        : (chat.lastUpdated ? new Date(chat.lastUpdated).getTime() || 0 : 0);
+      const timeText = lastMsg 
+        ? formatMessengerTimestamp(lastMsg.timestamp, chat.lastUpdated, lastMsg.createdAt) 
+        : (chat.lastUpdated ? formatMessengerTimestamp(chat.lastUpdated) : '');
+      const timestampNum = getMessageTimestampNum(lastMsg?.timestamp, chat.lastUpdated, lastMsg?.createdAt);
+      const isPinnedDirect = isChatPinned(chat.id, other?.id);
 
       return {
         id: chat.id,
@@ -144,10 +173,11 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
         lastMessageIsMe: isMe,
         timeText,
         timestampNum,
+        isPinned: isPinnedDirect,
         directChat: chat
       };
     });
-  }, [cleanDirectChats, user.id]);
+  }, [cleanDirectChats, user.id, isChatPinned, pinnedChatIds]);
 
   // 3. Groups the user has joined unified items
   const joinedGroupChats = useMemo<UnifiedChat[]>(() => {
@@ -167,8 +197,11 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
 
       const lastMsg = validMessages.length > 0 ? validMessages[validMessages.length - 1] : null;
       const isMe = lastMsg ? (lastMsg.sender?.id === user.id) : false;
-      const timeText = lastMsg ? formatMessengerTimestamp(lastMsg.timestamp) : '';
-      const timestampNum = lastMsg ? (new Date(lastMsg.timestamp).getTime() || 0) : 0;
+      const timeText = lastMsg 
+        ? formatMessengerTimestamp(lastMsg.timestamp, chat?.lastUpdated, (lastMsg as any)?.createdAt) 
+        : (chat?.lastUpdated ? formatMessengerTimestamp(chat.lastUpdated) : '');
+      const timestampNum = getMessageTimestampNum(lastMsg?.timestamp, chat?.lastUpdated, lastMsg?.createdAt);
+      const isPinned = isChatPinned(`group_${g.id}`, g.id);
 
       return {
         id: `group_${g.id}`,
@@ -183,27 +216,39 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
         lastMessageIsMe: isMe,
         timeText,
         timestampNum,
+        isPinned,
         group: g,
         groupChat: chat ? { ...chat, messages: validMessages } : { groupId: g.id, groupName: g.name, messages: [] }
       };
     });
-  }, [groups, joinedGroupIds, groupChats, user.id]);
+  }, [groups, joinedGroupIds, groupChats, user.id, isChatPinned, pinnedChatIds]);
+
+  // Helper to sort chats: pinned items on top (up to 10), then most recent activity
+  const sortUnifiedChats = (items: UnifiedChat[]): UnifiedChat[] => {
+    return [...items].sort((a, b) => {
+      const pinA = isChatPinned(a.id, a.targetId) ? 1 : 0;
+      const pinB = isChatPinned(b.id, b.targetId) ? 1 : 0;
+      if (pinA !== pinB) {
+        return pinB - pinA; // Pinned always on top
+      }
+      return b.timestampNum - a.timestampNum; // Most recent activity pushed up
+    });
+  };
 
   // 4. Combined conversation list
   const allConversations = useMemo(() => {
     const combined = [...directChatItems, ...joinedGroupChats];
-    return combined.sort((a, b) => b.timestampNum - a.timestampNum);
-  }, [directChatItems, joinedGroupChats]);
+    return sortUnifiedChats(combined);
+  }, [directChatItems, joinedGroupChats, isChatPinned, pinnedChatIds]);
 
   // Filtered by tab and search
   const filteredConversations = useMemo(() => {
     let list = allConversations;
     if (filterTab === 'direct') {
-      list = directChatItems;
+      list = sortUnifiedChats(directChatItems);
     } else if (filterTab === 'groups') {
-      // In groups tab, show both study groups and friend group chats
       const friendGroupChats = directChatItems.filter(c => c.directChat?.isGroupChat);
-      list = [...joinedGroupChats, ...friendGroupChats].sort((a, b) => b.timestampNum - a.timestampNum);
+      list = sortUnifiedChats([...joinedGroupChats, ...friendGroupChats]);
     }
 
     if (!searchQuery.trim()) return list;
@@ -214,7 +259,7 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
       const matchCat = item.category?.toLowerCase().includes(q);
       return matchName || matchMsg || matchCat;
     });
-  }, [allConversations, directChatItems, joinedGroupChats, filterTab, searchQuery]);
+  }, [allConversations, directChatItems, joinedGroupChats, filterTab, searchQuery, isChatPinned, pinnedChatIds]);
 
   // Selection state
   const [selectedChatId, setSelectedChatId] = useState<string | null>(() => {
@@ -240,6 +285,21 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
   const activeConversation = useMemo(() => {
     return allConversations.find(c => c.id === selectedChatId || c.targetId === selectedChatId) || null;
   }, [allConversations, selectedChatId]);
+
+  const isPinnedActive = Boolean(activeConversation && isChatPinned(activeConversation.id, activeConversation.targetId));
+
+  const { pinnedChats, otherChats } = useMemo(() => {
+    const pinned: UnifiedChat[] = [];
+    const others: UnifiedChat[] = [];
+    filteredConversations.forEach(item => {
+      if (isChatPinned(item.id, item.targetId)) {
+        pinned.push(item);
+      } else {
+        others.push(item);
+      }
+    });
+    return { pinnedChats: pinned, otherChats: others };
+  }, [filteredConversations, isChatPinned, pinnedChatIds]);
 
   // Details for Direct Chat or Group Chat if active
   const isGroupChat = Boolean(activeConversation?.directChat?.isGroupChat);
@@ -339,8 +399,134 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
 
   const quickEmojis = ['👍', '❤️', '😂', '🔥', '👏', '🎉', '📚', '💡', '✅', '🙏'];
 
+  const renderChatCard = (item: UnifiedChat, isPinnedItem: boolean) => {
+    const isSelected = activeConversation?.id === item.id;
+
+    return (
+      <div
+        key={item.id}
+        onClick={() => {
+          playSound('pop');
+          setSelectedChatId(item.id);
+        }}
+        className={`group flex items-center gap-3 p-2.5 rounded-xl cursor-pointer transition-all relative ${
+          isSelected 
+            ? 'bg-gray-150 dark:bg-[#252728]' 
+            : 'hover:bg-gray-100 dark:hover:bg-[#202122]'
+        }`}
+      >
+        {/* Avatar */}
+        <div className="relative shrink-0">
+          <img 
+            src={item.avatar} 
+            alt={item.name} 
+            className={`h-12 w-12 object-cover border border-gray-100 dark:border-[#2f3031] ${
+              item.type === 'group' || item.directChat?.isGroupChat ? 'rounded-2xl' : 'rounded-full'
+            }`}
+          />
+          {item.type === 'direct' && !item.directChat?.isGroupChat ? (
+            <span className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full bg-green-500 border-2 border-white dark:border-[#18191a]"></span>
+          ) : (
+            <span className="absolute -bottom-0.5 -right-0.5 h-4 w-4 rounded-full bg-[#0084ff] text-white border-2 border-white dark:border-[#18191a] flex items-center justify-center">
+              <Users className="h-2.5 w-2.5" />
+            </span>
+          )}
+          {isPinnedItem && (
+            <span 
+              className="absolute -top-1 -left-1 h-4 w-4 rounded-full bg-blue-600 text-white flex items-center justify-center shadow-xs border border-white dark:border-[#18191a]" 
+              title="Pinned conversation (always on top)"
+            >
+              <Pin className="h-2.5 w-2.5 fill-current" />
+            </span>
+          )}
+        </div>
+
+        {/* Content */}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-1 mb-0.5">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <p className={`text-xs font-semibold truncate ${
+                isSelected ? 'text-gray-900 dark:text-white' : 'text-gray-800 dark:text-gray-200'
+              }`}>
+                {item.name}
+              </p>
+              {isPinnedItem && (
+                <Pin className="h-3 w-3 text-[#0084ff] fill-[#0084ff] shrink-0" />
+              )}
+              {(item.type === 'group' || item.directChat?.isGroupChat) && (
+                <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-blue-50 text-[#0084ff] dark:bg-blue-950/60 dark:text-blue-300 shrink-0">
+                  {item.directChat?.isGroupChat ? 'Group Chat' : 'Group'}
+                </span>
+              )}
+            </div>
+            {item.timeText && (
+              <span className="text-[10px] text-gray-400 dark:text-gray-500 shrink-0">
+                {item.timeText}
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center justify-between gap-1">
+            <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate leading-snug flex-1">
+              {item.lastMessageSenderName && !item.lastMessageIsMe ? (
+                <span className="text-gray-700 dark:text-gray-300 font-medium">
+                  {item.lastMessageSenderName}: 
+                </span>
+              ) : null}
+              {item.lastMessageIsMe ? (
+                <span className="text-gray-600 dark:text-gray-300 font-medium">You: </span>
+              ) : null}
+              <span className={item.lastMessageText === 'Start conversation' || item.lastMessageText === 'Start group discussion' ? 'italic text-gray-400 dark:text-gray-500' : ''}>
+                {item.lastMessageText}
+              </span>
+            </p>
+
+            {/* Quick Pin/Unpin Action Button */}
+            <button
+              type="button"
+              onClick={(e) => handleTogglePin(item.id, item.targetId, e)}
+              className={`p-1 rounded-full transition-all shrink-0 cursor-pointer ${
+                isPinnedItem
+                  ? 'text-[#0084ff] hover:bg-blue-100 dark:hover:bg-blue-900/40 opacity-90 hover:opacity-100'
+                  : 'text-gray-400 hover:text-[#0084ff] hover:bg-gray-200 dark:hover:bg-[#3a3b3c] opacity-0 group-hover:opacity-100'
+              }`}
+              title={isPinnedItem ? 'Unpin chat' : 'Pin to top (up to 10)'}
+            >
+              <Pin className={`h-3.5 w-3.5 ${isPinnedItem ? 'fill-current' : ''}`} />
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
-    <div className="bg-white dark:bg-[#18191a] overflow-hidden flex flex-col h-full w-full flex-1 min-h-0 transition-colors">
+    <div className="bg-white dark:bg-[#18191a] overflow-hidden flex flex-col h-full w-full flex-1 min-h-0 transition-colors relative">
+      {/* Pin action toast */}
+      <AnimatePresence>
+        {pinToast && (
+          <motion.div
+            initial={{ opacity: 0, y: -20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, scale: 0.95 }}
+            className={`absolute top-3 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full shadow-lg text-xs font-semibold flex items-center gap-2 border backdrop-blur-md ${
+              pinToast.type === 'warning'
+                ? 'bg-amber-500 text-white border-amber-600'
+                : 'bg-[#0084ff] text-white border-blue-600'
+            }`}
+          >
+            <Pin className="h-3.5 w-3.5 fill-current" />
+            <span>{pinToast.message}</span>
+            <button 
+              onClick={() => setPinToast(null)}
+              className="ml-1 p-0.5 hover:bg-white/20 rounded-full cursor-pointer"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="flex-1 flex overflow-hidden h-full w-full min-h-0">
         
         {/* LEFT COLUMN: Messenger Conversations List ("Chats") */}
@@ -484,81 +670,33 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
                 )}
               </div>
             ) : (
-              filteredConversations.map(item => {
-                const isSelected = activeConversation?.id === item.id;
-
-                return (
-                  <div
-                    key={item.id}
-                    onClick={() => {
-                      playSound('pop');
-                      setSelectedChatId(item.id);
-                    }}
-                    className={`flex items-center gap-3 p-2.5 rounded-xl cursor-pointer transition-all ${
-                      isSelected 
-                        ? 'bg-gray-150 dark:bg-[#252728]' 
-                        : 'hover:bg-gray-100 dark:hover:bg-[#202122]'
-                    }`}
-                  >
-                    {/* Avatar */}
-                    <div className="relative shrink-0">
-                      <img 
-                        src={item.avatar} 
-                        alt={item.name} 
-                        className={`h-12 w-12 object-cover border border-gray-100 dark:border-[#2f3031] ${
-                          item.type === 'group' || item.directChat?.isGroupChat ? 'rounded-2xl' : 'rounded-full'
-                        }`}
-                      />
-                      {item.type === 'direct' && !item.directChat?.isGroupChat ? (
-                        <span className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full bg-green-500 border-2 border-white dark:border-[#18191a]"></span>
-                      ) : (
-                        <span className="absolute -bottom-0.5 -right-0.5 h-4 w-4 rounded-full bg-[#0084ff] text-white border-2 border-white dark:border-[#18191a] flex items-center justify-center">
-                          <Users className="h-2.5 w-2.5" />
-                        </span>
-                      )}
+              <>
+                {/* Pinned Conversations Section */}
+                {pinnedChats.length > 0 && (
+                  <div className="space-y-1 pb-1">
+                    <div className="flex items-center justify-between px-2 pt-1 pb-0.5 text-[11px] font-bold text-[#0084ff] uppercase tracking-wider">
+                      <span className="flex items-center gap-1.5">
+                        <Pin className="h-3 w-3 fill-current" />
+                        <span>Pinned ({pinnedChats.length}/10)</span>
+                      </span>
+                      <span className="text-[10px] lowercase font-medium text-gray-400 dark:text-gray-500">always on top</span>
                     </div>
-
-                    {/* Content */}
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center justify-between gap-1 mb-0.5">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <p className={`text-xs font-semibold truncate ${
-                            isSelected ? 'text-gray-900 dark:text-white' : 'text-gray-800 dark:text-gray-200'
-                          }`}>
-                            {item.name}
-                          </p>
-                          {(item.type === 'group' || item.directChat?.isGroupChat) && (
-                            <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-blue-50 text-[#0084ff] dark:bg-blue-950/60 dark:text-blue-300 shrink-0">
-                              {item.directChat?.isGroupChat ? 'Group Chat' : 'Group'}
-                            </span>
-                          )}
-                        </div>
-                        {item.timeText && (
-                          <span className="text-[10px] text-gray-400 dark:text-gray-500 shrink-0">
-                            {item.timeText}
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="flex items-center gap-1">
-                        <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate leading-snug">
-                          {item.lastMessageSenderName && !item.lastMessageIsMe ? (
-                            <span className="text-gray-700 dark:text-gray-300 font-medium">
-                              {item.lastMessageSenderName}: 
-                            </span>
-                          ) : null}
-                          {item.lastMessageIsMe ? (
-                            <span className="text-gray-600 dark:text-gray-300 font-medium">You: </span>
-                          ) : null}
-                          <span className={item.lastMessageText === 'Start conversation' || item.lastMessageText === 'Start group discussion' ? 'italic text-gray-400 dark:text-gray-500' : ''}>
-                            {item.lastMessageText}
-                          </span>
-                        </p>
-                      </div>
-                    </div>
+                    {pinnedChats.map(item => renderChatCard(item, true))}
                   </div>
-                );
-              })
+                )}
+
+                {/* Other/All Conversations Section */}
+                {otherChats.length > 0 && (
+                  <div className="space-y-1">
+                    {pinnedChats.length > 0 && (
+                      <div className="flex items-center justify-between px-2 pt-2 pb-0.5 text-[11px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
+                        <span>Conversations</span>
+                      </div>
+                    )}
+                    {otherChats.map(item => renderChatCard(item, false))}
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -624,8 +762,18 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
                     </div>
                   </div>
 
-                  {/* Header Action Buttons (Info) */}
+                  {/* Header Action Buttons (Pin, Info) */}
                   <div className="flex items-center gap-1 text-[#0084ff]">
+                    <button
+                      onClick={(e) => handleTogglePin(activeConversation.id, activeConversation.targetId, e)}
+                      className={`p-2 rounded-full hover:bg-gray-100 dark:hover:bg-[#252728] transition-colors cursor-pointer ${
+                        isPinnedActive ? 'text-[#0084ff] bg-blue-50 dark:bg-blue-950/40' : 'text-gray-500 hover:text-[#0084ff]'
+                      }`}
+                      title={isPinnedActive ? "Unpin conversation from top" : "Pin conversation to top (up to 10)"}
+                    >
+                      <Pin className={`h-4.5 w-4.5 ${isPinnedActive ? 'fill-current' : ''}`} />
+                    </button>
+
                     <button
                       onClick={() => setShowInfoSidebar(prev => !prev)}
                       className={`p-2 rounded-full hover:bg-gray-100 dark:hover:bg-[#252728] transition-colors cursor-pointer ${
@@ -895,6 +1043,16 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
                     </button>
 
                     <button
+                      onClick={(e) => handleTogglePin(activeConversation.id, activeConversation.targetId, e)}
+                      className={`p-2 rounded-full hover:bg-gray-100 dark:hover:bg-[#252728] transition-colors cursor-pointer ${
+                        isPinnedActive ? 'text-[#0084ff] bg-blue-50 dark:bg-blue-950/40' : 'text-gray-500 hover:text-[#0084ff]'
+                      }`}
+                      title={isPinnedActive ? "Unpin group chat from top" : "Pin group chat to top (up to 10)"}
+                    >
+                      <Pin className={`h-4.5 w-4.5 ${isPinnedActive ? 'fill-current' : ''}`} />
+                    </button>
+
+                    <button
                       onClick={() => setShowInfoSidebar(prev => !prev)}
                       className={`p-2 rounded-full hover:bg-gray-100 dark:hover:bg-[#252728] text-[#0084ff] transition-colors cursor-pointer ${
                         showInfoSidebar ? 'bg-gray-150 dark:bg-[#252728]' : ''
@@ -1111,6 +1269,33 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
                     className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-full cursor-pointer"
                   >
                     <X className="h-4 w-4" />
+                  </button>
+                </div>
+
+                {/* Pin conversation toggle card */}
+                <div className="mt-3 p-2.5 rounded-xl bg-gray-50 dark:bg-[#2a2b2c] border border-gray-150 dark:border-[#3a3b3c] flex items-center justify-between">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className={`p-1.5 rounded-lg shrink-0 ${isPinnedActive ? 'bg-[#0084ff] text-white' : 'bg-gray-200 dark:bg-[#3a3b3c] text-gray-500'}`}>
+                      <Pin className={`h-3.5 w-3.5 ${isPinnedActive ? 'fill-current' : ''}`} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-gray-800 dark:text-gray-200 truncate">
+                        {isPinnedActive ? 'Pinned to top' : 'Pin conversation'}
+                      </p>
+                      <p className="text-[10px] text-gray-400">
+                        {pinnedChatIds.length}/10 pinned
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={(e) => handleTogglePin(activeConversation.id, activeConversation.targetId, e)}
+                    className={`px-3 py-1 rounded-full text-xs font-bold cursor-pointer transition-colors shrink-0 ${
+                      isPinnedActive 
+                        ? 'bg-blue-100 dark:bg-blue-900/50 text-[#0084ff] hover:bg-blue-200' 
+                        : 'bg-gray-200 dark:bg-[#3a3b3c] text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-[#4a4b4c]'
+                    }`}
+                  >
+                    {isPinnedActive ? 'Unpin' : 'Pin'}
                   </button>
                 </div>
 

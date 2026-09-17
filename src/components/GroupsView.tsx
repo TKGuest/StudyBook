@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import { StudyGroup, GroupRole, GroupMember, GroupFile } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
@@ -9,7 +9,15 @@ import {
   canUserRemoveSpam, 
   canUserManageMembers, 
   canUserPinFiles, 
-  canUserAssignLeader 
+  canUserAssignLeader,
+  canUserAssignModerator,
+  canUserModifySettings,
+  checkUserCanPostInGroup,
+  checkUserCanChatInGroup,
+  canUserApprovePosts,
+  canUserReviewJoinRequests,
+  doesUserPostRequireApproval,
+  formatRoleSimpleLabel
 } from '../utils/permissionUtils';
 import { 
   Users, 
@@ -33,7 +41,16 @@ import {
   UserMinus,
   CheckCircle2,
   Sparkles,
-  Shield
+  Shield,
+  Settings,
+  Lock,
+  Unlock,
+  AlertCircle,
+  Check,
+  Globe,
+  Edit3,
+  Image,
+  Upload
 } from 'lucide-react';
 
 export const GroupsView: React.FC = () => {
@@ -50,13 +67,20 @@ export const GroupsView: React.FC = () => {
     groupInteractions,
     recordGroupInteraction,
     toggleJoinGroup,
+    requestJoinGroup,
     user,
     simulatedGroupRole,
     setSimulatedGroupRole,
     togglePinGroupFile,
     deleteGroupFile,
     updateGroupMemberRole,
-    removeGroupMember
+    removeGroupMember,
+    updateGroupSettings,
+    updateGroupDetails,
+    approveJoinRequest,
+    rejectJoinRequest,
+    approvePendingPost,
+    rejectPendingPost
   } = useApp();
 
   const [selectedGroupId, setSelectedGroupId] = useState<string>(() => {
@@ -81,7 +105,7 @@ export const GroupsView: React.FC = () => {
       localStorage.setItem('sb_selected_group_id', selectedGroupId);
     }
   }, [selectedGroupId]);
-  const [activeSubTab, setActiveSubTab] = useState<'feed' | 'files' | 'chat' | 'members'>('feed');
+  const [activeSubTab, setActiveSubTab] = useState<'feed' | 'files' | 'chat' | 'members' | 'settings'>('feed');
   const [chatInput, setChatInput] = useState('');
   const [anonToggle, setAnonToggle] = useState(false);
   const [groupPostText, setGroupPostText] = useState('');
@@ -98,6 +122,24 @@ export const GroupsView: React.FC = () => {
   const [newFileType, setNewFileType] = useState('PDF');
   const [countdownText, setCountdownText] = useState('');
 
+  // Edit Group State (Admin only)
+  const [showEditGroupModal, setShowEditGroupModal] = useState(false);
+  const [editGroupName, setEditGroupName] = useState('');
+  const [editGroupDescription, setEditGroupDescription] = useState('');
+  const [editGroupBanner, setEditGroupBanner] = useState('');
+  const [isSavingGroupDetails, setIsSavingGroupDetails] = useState(false);
+  const [editGroupStatus, setEditGroupStatus] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const BANNER_PRESETS = [
+    { label: 'Calculus & Math', url: 'https://images.unsplash.com/photo-1635070041078-e363dbe005cb?auto=format&fit=crop&q=80&w=1200' },
+    { label: 'Physics & Science', url: 'https://images.unsplash.com/photo-1507668077129-56e32842fceb?auto=format&fit=crop&q=80&w=1200' },
+    { label: 'Study Group', url: 'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&q=80&w=1200' },
+    { label: 'Library & Books', url: 'https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?auto=format&fit=crop&q=80&w=1200' },
+    { label: 'Study Desk', url: 'https://images.unsplash.com/photo-1434030216411-0b793f4b4173?auto=format&fit=crop&q=80&w=1200' },
+    { label: 'Modern Campus', url: 'https://images.unsplash.com/photo-1498243691581-b145c3f54a5a?auto=format&fit=crop&q=80&w=1200' }
+  ];
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const activeGroup = groups.find(g => g.id === selectedGroupId) || groups[0];
@@ -109,7 +151,127 @@ export const GroupsView: React.FC = () => {
   const canRemoveSpam = canUserRemoveSpam(activeGroup, user, simulatedGroupRole);
   const canPinFiles = canUserPinFiles(activeGroup, user, simulatedGroupRole);
   const canManageMembers = canUserManageMembers(activeGroup, user, simulatedGroupRole);
-  const canAssignLeader = canUserAssignLeader(activeGroup, user, simulatedGroupRole);
+  const canAssignModerator = canUserAssignModerator(activeGroup, user, simulatedGroupRole);
+  const canAssignLeader = canAssignModerator;
+
+  const handleOpenEditGroupModal = () => {
+    if (!activeGroup) return;
+    setEditGroupName(activeGroup.name || '');
+    setEditGroupDescription(activeGroup.description || '');
+    setEditGroupBanner(activeGroup.coverImage || '');
+    setEditGroupStatus(null);
+    setShowEditGroupModal(true);
+  };
+
+  const handleSaveGroupDetails = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!activeGroup) return;
+    if (!editGroupName.trim()) {
+      setEditGroupStatus({ type: 'error', text: 'Group name cannot be empty.' });
+      return;
+    }
+    setIsSavingGroupDetails(true);
+    setEditGroupStatus(null);
+    try {
+      const res = await updateGroupDetails(activeGroup.id, {
+        name: editGroupName.trim(),
+        description: editGroupDescription.trim(),
+        coverImage: editGroupBanner.trim() || activeGroup.coverImage
+      });
+      if (res.success) {
+        setEditGroupStatus({ type: 'success', text: 'Group details updated successfully!' });
+        setTimeout(() => {
+          setShowEditGroupModal(false);
+          setEditGroupStatus(null);
+        }, 600);
+      } else {
+        setEditGroupStatus({ type: 'error', text: res.message || 'Failed to update group details.' });
+      }
+    } catch (err: any) {
+      setEditGroupStatus({ type: 'error', text: err?.message || 'Error updating group details.' });
+    } finally {
+      setIsSavingGroupDetails(false);
+    }
+  };
+
+  const handleBannerUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 4 * 1024 * 1024) {
+      setEditGroupStatus({ type: 'error', text: 'File size should be under 4MB.' });
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setEditGroupBanner(reader.result);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Computed displayed members guaranteeing current user and cohort peers appear
+  const displayedMembers = useMemo(() => {
+    if (!activeGroup) return [];
+    let list = [...(activeGroup.members || [])];
+    const currentUserId = user?.id || 'u_current';
+    const currentUserName = user?.name || (user?.email ? user.email.split('@')[0] : 'Bill Kute');
+    const currentUserAvatar = user?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=250';
+    const isGlobalAdmin = Boolean(user && (user.role === 'admin' || user.email?.toLowerCase() === 'billkute030709@gmail.com'));
+
+    // Find if user is in list
+    const userIndex = list.findIndex(m => 
+      m.id === currentUserId || 
+      m.id === 'u_current' || 
+      m.name === currentUserName ||
+      (m.role === 'admin' && isGlobalAdmin)
+    );
+
+    if (userIndex >= 0) {
+      list[userIndex] = {
+        ...list[userIndex],
+        id: currentUserId,
+        name: currentUserName,
+        avatar: currentUserAvatar,
+        role: effectiveRole === 'admin' ? 'admin' : (list[userIndex].role || effectiveRole || 'member')
+      };
+    } else {
+      // Current user should always be in the cohort list!
+      list.unshift({
+        id: currentUserId,
+        name: currentUserName,
+        avatar: currentUserAvatar,
+        role: effectiveRole === 'admin' ? 'admin' : (effectiveRole === 'moderator' || effectiveRole === 'leader' ? 'moderator' : 'member'),
+        grade: user?.grade || 'Grade 10',
+        joinedAt: effectiveRole === 'admin' ? 'Cohort Founder' : 'Joined'
+      });
+    }
+
+    // Filter out any fake bot cohort members from displayed roster
+    const BOT_MEMBER_IDS = new Set(['u_elena', 'u_marcus', 'u_maya', 'u_liam']);
+    list = list.filter(m => !BOT_MEMBER_IDS.has(m.id));
+
+    return list;
+  }, [activeGroup?.members, activeGroup?.creatorId, user, effectiveRole]);
+
+  const canModifySettings = canUserModifySettings(activeGroup, user, simulatedGroupRole);
+  const canReviewJoinReqs = canUserReviewJoinRequests(activeGroup, user, simulatedGroupRole);
+  const canApprovePostList = canUserApprovePosts(activeGroup, user, simulatedGroupRole);
+  const postPermission = checkUserCanPostInGroup(activeGroup, user, simulatedGroupRole);
+  const chatPermission = checkUserCanChatInGroup(activeGroup, user, simulatedGroupRole);
+
+  const isMember = Boolean(
+    activeGroup && (
+      joinedGroupIds.includes(activeGroup.id) ||
+      activeGroup.isMember ||
+      (Array.isArray(activeGroup.memberUserIds) && activeGroup.memberUserIds.includes(user.id))
+    )
+  );
+  const isPendingJoin = Boolean(activeGroup && (activeGroup.pendingJoinRequests || []).some(r => r.userId === user.id));
+
+  const pendingRequests = activeGroup?.pendingJoinRequests || [];
+  const pendingGroupPosts = (posts || []).filter(p => p.groupId === activeGroup?.id && p.status === 'pending');
+  const pendingCount = pendingRequests.length + pendingGroupPosts.length;
 
   // Auto scroll chat to bottom
   useEffect(() => {
@@ -296,6 +458,197 @@ export const GroupsView: React.FC = () => {
     );
   };
 
+  const renderEditGroupModal = () => {
+    if (!showEditGroupModal || !activeGroup) return null;
+
+    return (
+      <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="bg-white dark:bg-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-gray-150 dark:border-slate-700 animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
+          <div className="flex items-center justify-between pb-3 border-b border-gray-150 dark:border-slate-700 mb-4">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 rounded-xl bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400">
+                <Edit3 className="h-4.5 w-4.5" />
+              </div>
+              <div>
+                <h3 className="font-display font-extrabold text-base text-gray-900 dark:text-white">
+                  Edit Group Details
+                </h3>
+                <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                  Update your cohort's name, description, and cover banner.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                playSound('pop');
+                setShowEditGroupModal(false);
+              }}
+              className="text-gray-400 hover:text-gray-600 dark:hover:text-white p-1 rounded-lg transition-colors cursor-pointer"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          {editGroupStatus && (
+            <div className={`mb-4 p-3 rounded-xl text-xs flex items-center gap-2 ${
+              editGroupStatus.type === 'success' 
+                ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800' 
+                : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
+            }`}>
+              {editGroupStatus.type === 'success' ? <Check className="h-4 w-4 shrink-0" /> : <AlertCircle className="h-4 w-4 shrink-0" />}
+              <span>{editGroupStatus.text}</span>
+            </div>
+          )}
+
+          <form onSubmit={handleSaveGroupDetails} className="space-y-4">
+            <div>
+              <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                Group Name *
+              </label>
+              <input
+                type="text"
+                required
+                value={editGroupName}
+                onChange={e => setEditGroupName(e.target.value)}
+                placeholder="Cohort name"
+                className="w-full bg-gray-50 dark:bg-slate-750 border border-gray-200 dark:border-slate-650 rounded-xl px-3.5 py-2.5 text-xs text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
+                Description
+              </label>
+              <textarea
+                rows={3}
+                value={editGroupDescription}
+                onChange={e => setEditGroupDescription(e.target.value)}
+                placeholder="What is this cohort about? Study goals, exam dates, syllabus..."
+                className="w-full bg-gray-50 dark:bg-slate-750 border border-gray-200 dark:border-slate-650 rounded-xl px-3.5 py-2.5 text-xs text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/40 resize-none"
+              />
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300">
+                  Cover Banner Image
+                </label>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 cursor-pointer"
+                >
+                  <Upload className="h-3 w-3" />
+                  Upload Image
+                </button>
+                <input 
+                  type="file" 
+                  ref={fileInputRef} 
+                  onChange={handleBannerUpload} 
+                  accept="image/*" 
+                  className="hidden" 
+                />
+              </div>
+
+              {/* Live Preview */}
+              <div className="relative h-28 w-full rounded-xl overflow-hidden mb-3 bg-gray-100 dark:bg-slate-800 border border-gray-200 dark:border-slate-700">
+                {editGroupBanner ? (
+                  <img 
+                    src={editGroupBanner} 
+                    alt="Banner preview" 
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = activeGroup.coverImage;
+                    }}
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">
+                    No banner selected
+                  </div>
+                )}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent flex items-end p-2.5">
+                  <span className="text-[10px] font-bold text-white bg-black/40 px-2 py-0.5 rounded-md backdrop-blur-xs">
+                    Live Banner Preview
+                  </span>
+                </div>
+              </div>
+
+              {/* Custom Image URL input */}
+              <input
+                type="text"
+                value={editGroupBanner}
+                onChange={e => setEditGroupBanner(e.target.value)}
+                placeholder="Or paste an image URL (https://...)"
+                className="w-full bg-gray-50 dark:bg-slate-750 border border-gray-200 dark:border-slate-650 rounded-xl px-3.5 py-2 text-xs text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/40 mb-3"
+              />
+
+              {/* Banner Presets */}
+              <div>
+                <span className="block text-[10px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
+                  Or pick a preset theme banner:
+                </span>
+                <div className="grid grid-cols-3 gap-2">
+                  {BANNER_PRESETS.map((preset) => (
+                    <button
+                      key={preset.label}
+                      type="button"
+                      onClick={() => setEditGroupBanner(preset.url)}
+                      className={`relative h-14 rounded-lg overflow-hidden border-2 transition-all cursor-pointer group ${
+                        editGroupBanner === preset.url 
+                          ? 'border-blue-600 ring-2 ring-blue-500/40 shadow-xs scale-[1.02]' 
+                          : 'border-transparent hover:border-gray-300 dark:hover:border-slate-600 opacity-80 hover:opacity-100'
+                      }`}
+                    >
+                      <img src={preset.url} alt={preset.label} className="w-full h-full object-cover" />
+                      <div className="absolute inset-0 bg-black/40 group-hover:bg-black/20 flex items-end p-1 transition-colors">
+                        <span className="text-[9px] font-bold text-white leading-tight truncate">
+                          {preset.label}
+                        </span>
+                      </div>
+                      {editGroupBanner === preset.url && (
+                        <div className="absolute top-1 right-1 h-3.5 w-3.5 rounded-full bg-blue-600 text-white flex items-center justify-center">
+                          <Check className="h-2.5 w-2.5 stroke-[3]" />
+                        </div>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-2 justify-end pt-3 border-t border-gray-150 dark:border-slate-700">
+              <button
+                type="button"
+                onClick={() => setShowEditGroupModal(false)}
+                className="px-4 py-2.5 rounded-xl text-xs font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isSavingGroupDetails}
+                className="px-5 py-2.5 rounded-xl text-xs font-extrabold bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white shadow-md shadow-blue-500/20 transition-all cursor-pointer flex items-center gap-1.5"
+              >
+                {isSavingGroupDetails ? (
+                  <>
+                    <Clock className="h-3.5 w-3.5 animate-spin" />
+                    <span>Saving...</span>
+                  </>
+                ) : (
+                  <>
+                    <Check className="h-3.5 w-3.5" />
+                    <span>Save Changes</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  };
+
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
     if (!chatInput.trim() || !activeGroup) return;
@@ -385,6 +738,7 @@ export const GroupsView: React.FC = () => {
         </button>
 
         {renderCreateGroupModal()}
+        {renderEditGroupModal()}
       </div>
     );
   }
@@ -460,83 +814,40 @@ export const GroupsView: React.FC = () => {
             <div className="flex flex-wrap items-center justify-between gap-3 mb-1.5">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-[10px] font-bold bg-blue-600 text-white px-2 py-0.5 rounded-full w-max uppercase tracking-wider">{activeGroup.category}</span>
-                
-                {/* Cohort Role Indicator */}
-                {effectiveRole === 'admin' && (
-                  <span className="inline-flex items-center gap-1 text-[10px] font-extrabold bg-purple-600/90 text-white px-2.5 py-0.5 rounded-full shadow-xs border border-purple-300/40">
-                    <ShieldCheck className="h-3 w-3" /> Admin
-                  </span>
-                )}
-                {effectiveRole === 'leader' && (
-                  <span className="inline-flex items-center gap-1 text-[10px] font-extrabold bg-amber-500/90 text-white px-2.5 py-0.5 rounded-full shadow-xs border border-amber-200/50">
-                    <Star className="h-3 w-3" /> Group Leader
-                  </span>
-                )}
-                {effectiveRole === 'member' && (
-                  <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-slate-700/80 text-white px-2.5 py-0.5 rounded-full shadow-xs border border-white/20">
-                    <Users className="h-3 w-3" /> Member
-                  </span>
-                )}
               </div>
 
               <div className="flex items-center gap-2">
-                {/* Real-time Role Tester / Switcher */}
-                <div className="flex items-center gap-1 bg-black/60 backdrop-blur-md px-2.5 py-1 rounded-full border border-white/15">
-                  <span className="text-[9px] uppercase tracking-wider text-gray-300 font-bold hidden sm:inline">Simulate Role:</span>
-                  {(['admin', 'leader', 'member'] as GroupRole[]).map(r => (
-                    <button
-                      key={r}
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        playSound('pop');
-                        setSimulatedGroupRole(simulatedGroupRole === r ? null : r);
-                      }}
-                      className={`px-2 py-0.5 text-[10px] font-bold rounded-full transition-all cursor-pointer ${
-                        effectiveRole === r
-                          ? 'bg-blue-600 text-white shadow-xs scale-105'
-                          : 'text-gray-300 hover:text-white bg-white/10 hover:bg-white/20'
-                      }`}
-                      title={`Simulate ${r === 'admin' ? 'Admin' : r === 'leader' ? 'Group Leader' : 'Standard Member'} powers`}
-                    >
-                      {r === 'admin' ? 'Admin' : r === 'leader' ? 'Leader' : 'Member'}
-                    </button>
-                  ))}
-                  {simulatedGroupRole && (
-                    <button 
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setSimulatedGroupRole(null);
-                      }} 
-                      className="text-[9px] text-amber-300 hover:text-white underline cursor-pointer ml-1"
-                      title="Reset role simulation"
-                    >
-                      Reset
-                    </button>
-                  )}
-                </div>
-
-                <button
-                  onClick={() => toggleJoinGroup(activeGroup.id)}
-                  className={`px-3 py-1 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm ${
-                    joinedGroupIds.includes(activeGroup.id)
-                      ? 'bg-emerald-500 hover:bg-emerald-600 text-white'
-                      : 'bg-white hover:bg-gray-100 text-gray-900'
-                  }`}
-                >
-                  {joinedGroupIds.includes(activeGroup.id) ? (
-                    <>
-                      <UserCheck className="h-3.5 w-3.5" />
-                      Joined ({groupInteractions[activeGroup.id]?.score || 15} activity pts)
-                    </>
-                  ) : (
-                    <>
-                      <Plus className="h-3.5 w-3.5" />
-                      Join Group
-                    </>
-                  )}
-                </button>
+                {isMember ? (
+                  <button
+                    type="button"
+                    onClick={() => toggleJoinGroup(activeGroup.id)}
+                    className="px-3.5 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm bg-emerald-500 hover:bg-emerald-600 text-white"
+                  >
+                    <UserCheck className="h-3.5 w-3.5" />
+                    <span>Joined</span>
+                  </button>
+                ) : isPendingJoin ? (
+                  <button
+                    type="button"
+                    disabled
+                    className="px-3.5 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 bg-amber-500/90 text-white shadow-sm cursor-not-allowed"
+                  >
+                    <Clock className="h-3.5 w-3.5 animate-pulse" />
+                    <span>Request Pending</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const res = await requestJoinGroup(activeGroup.id);
+                      if (res.message) alert(res.message);
+                    }}
+                    className="px-3.5 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm bg-white hover:bg-gray-100 text-gray-900"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    <span>{activeGroup.settings?.joinPolicy === 'approval' ? 'Request to Join' : 'Join Group'}</span>
+                  </button>
+                )}
               </div>
             </div>
             <h2 className="font-display font-extrabold text-xl text-white tracking-tight">{activeGroup.name}</h2>
@@ -563,7 +874,8 @@ export const GroupsView: React.FC = () => {
             { id: 'feed', label: 'Discussion Board', icon: MessageCircle },
             { id: 'files', label: 'Study Resources', icon: FileText },
             { id: 'chat', label: 'Group Chat', icon: MessageCircle },
-            { id: 'members', label: 'Members & Roles', icon: Users }
+            { id: 'members', label: 'Members', icon: Users },
+            { id: 'settings', label: 'Settings & Privacy', icon: Settings, badge: pendingCount > 0 ? pendingCount : undefined }
           ].map(tab => {
             const isSel = activeSubTab === tab.id;
             const Icon = tab.icon;
@@ -573,14 +885,19 @@ export const GroupsView: React.FC = () => {
                 onClick={() => setActiveSubTab(tab.id as any)}
                 whileHover={{ scale: 1.03 }}
                 whileTap={{ scale: 0.97 }}
-                className={`py-3.5 px-1 flex items-center gap-2 text-xs font-bold border-b-2 transition-all cursor-pointer ${
+                className={`py-3.5 px-1 flex items-center gap-2 text-xs font-bold border-b-2 transition-all cursor-pointer relative ${
                   isSel 
                     ? 'border-blue-600 text-blue-600 dark:text-blue-400 font-extrabold' 
                     : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-slate-300'
                 }`}
               >
                 <Icon className="h-4 w-4 shrink-0" />
-                {tab.label}
+                <span>{tab.label}</span>
+                {Boolean(tab.badge && tab.badge > 0) && (
+                  <span className="h-4 min-w-[16px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-extrabold flex items-center justify-center">
+                    {tab.badge}
+                  </span>
+                )}
               </motion.button>
             );
           })}
@@ -600,34 +917,48 @@ export const GroupsView: React.FC = () => {
                 className="max-w-2xl mx-auto space-y-6"
               >
               {/* Group quick post creator */}
-              <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 p-4 shadow-sm space-y-3">
-                <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wide block">Post a question to cohort timeline</span>
-                <form onSubmit={handleCreateGroupPost} className="space-y-3">
-                  <textarea
-                    value={groupPostText}
-                    onChange={e => setGroupPostText(e.target.value)}
-                    placeholder="What would you like to ask in this cohort? Feel free to toggle anonymous posting if you prefer..."
-                    className="w-full text-xs placeholder-gray-400 text-gray-800 dark:text-white bg-transparent border-none focus:outline-none resize-none h-16"
-                  />
-                  <div className="flex justify-between items-center pt-2 border-t border-gray-50 dark:border-slate-700">
-                    <button
-                      type="button"
-                      onClick={() => setAnonToggle(!anonToggle)}
-                      className={`flex items-center gap-1 text-[11px] font-semibold transition-colors ${anonToggle ? 'text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
-                    >
-                      <EyeOff className="h-3.5 w-3.5" />
-                      Ask anonymously (shrouded profile)
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={!groupPostText.trim()}
-                      className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold py-1 px-4 rounded-full text-xs"
-                    >
-                      Post to Cohort
-                    </button>
+              {!postPermission.allowed ? (
+                <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200/70 dark:border-amber-800/40 rounded-2xl p-4 text-center text-xs text-amber-800 dark:text-amber-200 flex items-center justify-center gap-2 shadow-xs">
+                  <Lock className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                  <span>{postPermission.reason || 'Only Group Moderators and Admins are permitted to post in this cohort.'}</span>
+                </div>
+              ) : (
+                <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 p-4 shadow-sm space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wide block">Post a question to cohort timeline</span>
+                    {postPermission.requiresApproval && (
+                      <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400 flex items-center gap-1 bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 rounded-md border border-amber-200/50">
+                        <Clock className="h-3 w-3" /> Requires moderator approval
+                      </span>
+                    )}
                   </div>
-                </form>
-              </div>
+                  <form onSubmit={handleCreateGroupPost} className="space-y-3">
+                    <textarea
+                      value={groupPostText}
+                      onChange={e => setGroupPostText(e.target.value)}
+                      placeholder="What would you like to ask in this cohort? Feel free to toggle anonymous posting if you prefer..."
+                      className="w-full text-xs placeholder-gray-400 text-gray-800 dark:text-white bg-transparent border-none focus:outline-none resize-none h-16"
+                    />
+                    <div className="flex justify-between items-center pt-2 border-t border-gray-50 dark:border-slate-700">
+                      <button
+                        type="button"
+                        onClick={() => setAnonToggle(!anonToggle)}
+                        className={`flex items-center gap-1 text-[11px] font-semibold transition-colors ${anonToggle ? 'text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
+                      >
+                        <EyeOff className="h-3.5 w-3.5" />
+                        Ask anonymously (shrouded profile)
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={!groupPostText.trim()}
+                        className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold py-1 px-4 rounded-full text-xs cursor-pointer"
+                      >
+                        {postPermission.requiresApproval ? 'Submit for Approval' : 'Post to Cohort'}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              )}
 
               {/* Group discussions */}
               <div className="space-y-4">
@@ -652,9 +983,42 @@ export const GroupsView: React.FC = () => {
                               className="h-8 w-8 rounded-full object-cover"
                             />
                             <div>
-                              <h4 className="text-xs font-bold text-gray-800 dark:text-white">
-                                {p.isAnonymous ? 'Anonymous Student' : (p.user?.name || p.authorName || 'Cohort Peer')}
-                              </h4>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <h4 className="text-xs font-bold text-gray-800 dark:text-white">
+                                  {p.isAnonymous ? 'Anonymous Student' : (p.user?.name || p.authorName || 'Cohort Peer')}
+                                </h4>
+                                {(() => {
+                                  if (p.isAnonymous) return null;
+                                  const postAuthorId = p.authorId || p.user?.id;
+                                  const authorRole: GroupRole = postAuthorId
+                                    ? (activeGroup.adminUserIds?.includes(postAuthorId) || (activeGroup.creatorId && activeGroup.creatorId === postAuthorId)
+                                        ? 'admin'
+                                        : (activeGroup.leaderUserIds?.includes(postAuthorId) || activeGroup.memberRoles?.[postAuthorId] === 'moderator' || activeGroup.memberRoles?.[postAuthorId] === 'leader')
+                                          ? 'moderator'
+                                          : 'member')
+                                    : 'member';
+
+                                  if (authorRole === 'admin') {
+                                    return (
+                                      <span className="inline-flex items-center gap-0.5 text-[9px] font-extrabold px-1.5 py-0.2 rounded-md bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
+                                        <ShieldCheck className="h-2.5 w-2.5" /> [Admin]
+                                      </span>
+                                    );
+                                  }
+                                  if (authorRole === 'moderator') {
+                                    return (
+                                      <span className="inline-flex items-center gap-0.5 text-[9px] font-extrabold px-1.5 py-0.2 rounded-md bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                                        <Shield className="h-2.5 w-2.5" /> [Moderator]
+                                      </span>
+                                    );
+                                  }
+                                  return (
+                                    <span className="inline-flex items-center gap-0.5 text-[9px] font-medium px-1.5 py-0.2 rounded-md bg-gray-100 text-gray-600 dark:bg-slate-700 dark:text-slate-300 border border-gray-200 dark:border-slate-650">
+                                      [Member]
+                                    </span>
+                                  );
+                                })()}
+                              </div>
                               <p className="text-[10px] text-gray-400">
                                 {p.timestamp?.includes('T') ? new Date(p.timestamp).toLocaleDateString() : (p.timestamp || 'Just now')} • {p.subject}
                               </p>
@@ -665,17 +1029,17 @@ export const GroupsView: React.FC = () => {
                               Cohort Post
                             </span>
 
-                            {/* Spam Removal button for Group Leaders & Admins */}
+                            {/* Spam Removal button for Group Moderators & Admins */}
                             {showModerationDelete && (
                               <button
                                 type="button"
                                 onClick={() => {
-                                  if (window.confirm(isAuthor ? 'Delete your post?' : 'Remove this spam post as Group Leader/Admin?')) {
+                                  if (window.confirm(isAuthor ? 'Delete your post?' : 'Remove this spam post as Group Moderator/Admin?')) {
                                     deletePost(p.id);
                                   }
                                 }}
                                 className="flex items-center gap-1 text-[10px] font-bold text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40 px-2 py-0.5 rounded-md transition-colors cursor-pointer"
-                                title={isAuthor ? 'Delete your post' : 'Remove spam (Admin/Leader permission)'}
+                                title={isAuthor ? 'Delete your post' : 'Remove spam (Admin/Moderator permission)'}
                               >
                                 <Trash2 className="h-3 w-3" />
                                 {canRemoveSpam && !isAuthor ? 'Remove Spam' : 'Delete'}
@@ -779,23 +1143,23 @@ export const GroupsView: React.FC = () => {
                                   ? 'text-amber-600 bg-amber-100 dark:bg-amber-900/40 hover:bg-amber-200' 
                                   : 'text-gray-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-slate-700'
                               }`}
-                              title={file.isPinned ? 'Unpin file' : 'Pin file to top (Leader/Admin)'}
+                              title={file.isPinned ? 'Unpin file' : 'Pin file to top (Moderator/Admin)'}
                             >
                               <Pin className={`h-3.5 w-3.5 ${file.isPinned ? 'fill-current' : ''}`} />
                             </button>
                           )}
 
-                          {/* Delete File Action (Admin, Leader, or Uploader) */}
+                          {/* Delete File Action (Admin, Moderator, or Uploader) */}
                           {canDeleteThisFile && (
                             <button
                               type="button"
                               onClick={() => {
-                                if (window.confirm(isUploader ? 'Delete your uploaded file?' : 'Remove this file as Group Leader/Admin?')) {
+                                if (window.confirm(isUploader ? 'Delete your uploaded file?' : 'Remove this file as Group Moderator/Admin?')) {
                                   deleteGroupFile(activeGroup.id, file.id);
                                 }
                               }}
                               className="p-2 text-gray-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-full transition-colors cursor-pointer"
-                              title={isUploader ? 'Delete your file' : 'Remove file (Admin/Leader)'}
+                              title={isUploader ? 'Delete your file' : 'Remove file (Admin/Moderator)'}
                             >
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
@@ -913,7 +1277,29 @@ export const GroupsView: React.FC = () => {
                       <div key={m.id} className={`flex gap-2.5 items-start max-w-[85%] ${isSelf ? 'ml-auto flex-row-reverse' : ''}`}>
                         <img src={m.sender.avatar} alt="Avatar" className="h-7 w-7 rounded-full object-cover mt-0.5 shrink-0" />
                         <div>
-                          {!isSelf && <span className="text-[9px] font-bold text-gray-400 block mb-0.5 pl-1">{m.sender.name}</span>}
+                          {!isSelf && (
+                            <div className="flex items-center gap-1.5 mb-0.5 pl-1 flex-wrap">
+                              <span className="text-[9px] font-bold text-gray-700 dark:text-gray-300">{m.sender.name}</span>
+                              {(() => {
+                                const senderId = m.sender?.id;
+                                const senderRole: GroupRole = senderId
+                                  ? (activeGroup.adminUserIds?.includes(senderId) || (activeGroup.creatorId && activeGroup.creatorId === senderId)
+                                      ? 'admin'
+                                      : (activeGroup.leaderUserIds?.includes(senderId) || activeGroup.memberRoles?.[senderId] === 'moderator' || activeGroup.memberRoles?.[senderId] === 'leader')
+                                        ? 'moderator'
+                                        : 'member')
+                                  : 'member';
+
+                                if (senderRole === 'admin') {
+                                  return <span className="text-[8px] font-extrabold px-1.5 py-0.2 rounded bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-900">[Admin]</span>;
+                                }
+                                if (senderRole === 'moderator') {
+                                  return <span className="text-[8px] font-extrabold px-1.5 py-0.2 rounded bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-900">[Moderator]</span>;
+                                }
+                                return <span className="text-[8px] font-medium px-1.5 py-0.2 rounded bg-gray-100 text-gray-500 dark:bg-slate-700 dark:text-slate-400 border border-gray-200 dark:border-slate-650">[Member]</span>;
+                              })()}
+                            </div>
+                          )}
                           <div className={`p-2.5 rounded-2xl text-xs leading-relaxed ${
                             isSelf 
                               ? 'bg-blue-600 text-white rounded-tr-none shadow-sm' 
@@ -931,25 +1317,32 @@ export const GroupsView: React.FC = () => {
               </div>
 
               {/* Chat Send Input Box */}
-              <form onSubmit={handleSendMessage} className="p-3 bg-white dark:bg-slate-800 border-t border-gray-150 dark:border-slate-700 flex gap-2 shrink-0">
-                <input
-                  type="text"
-                  value={chatInput}
-                  onChange={e => setChatInput(e.target.value)}
-                  placeholder="Ask a question, paste a homework problem, or type formulas..."
-                  className="flex-1 bg-gray-50 dark:bg-slate-750 border border-gray-150 dark:border-slate-650 rounded-xl px-3.5 py-2 text-xs text-gray-900 dark:text-white focus:outline-none"
-                />
-                <button
-                  type="submit"
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 rounded-xl flex items-center justify-center transition-colors"
-                >
-                  <Send className="h-3.5 w-3.5" />
-                </button>
-              </form>
+              {!chatPermission.allowed ? (
+                <div className="p-4 bg-gray-50 dark:bg-slate-750 border-t border-gray-150 dark:border-slate-650 text-center text-xs text-gray-500 flex items-center justify-center gap-2">
+                  <Lock className="h-4 w-4 text-amber-500 shrink-0" />
+                  <span>{chatPermission.reason || 'Chat participation is restricted to Admins and Group Moderators by group policy.'}</span>
+                </div>
+              ) : (
+                <form onSubmit={handleSendMessage} className="p-3 bg-white dark:bg-slate-800 border-t border-gray-150 dark:border-slate-700 flex gap-2 shrink-0">
+                  <input
+                    type="text"
+                    value={chatInput}
+                    onChange={e => setChatInput(e.target.value)}
+                    placeholder="Ask a question, paste a homework problem, or type formulas..."
+                    className="flex-1 bg-gray-50 dark:bg-slate-750 border border-gray-150 dark:border-slate-650 rounded-xl px-3.5 py-2 text-xs text-gray-900 dark:text-white focus:outline-none"
+                  />
+                  <button
+                    type="submit"
+                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 rounded-xl flex items-center justify-center transition-colors cursor-pointer"
+                  >
+                    <Send className="h-3.5 w-3.5" />
+                  </button>
+                </form>
+              )}
               </motion.div>
             )}
 
-            {/* TAB: COHORT MEMBERS & ROLE GOVERNANCE */}
+            {/* TAB: COHORT MEMBERS */}
             {activeSubTab === 'members' && (
               <motion.div
                 key="members-tab"
@@ -959,168 +1352,64 @@ export const GroupsView: React.FC = () => {
                 transition={{ duration: 0.18 }}
                 className="max-w-3xl mx-auto space-y-6"
               >
-                {/* Role Permissions Matrix Card */}
-                <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-150 dark:border-slate-700 p-5 shadow-xs space-y-4">
-                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 dark:border-slate-700 pb-3">
-                    <div>
-                      <h3 className="font-display font-extrabold text-sm text-gray-900 dark:text-white flex items-center gap-2">
-                        <ShieldCheck className="h-4 w-4 text-purple-600" />
-                        StudyBook Role-Based Governance
-                      </h3>
-                      <p className="text-[11px] text-gray-400 mt-0.5">
-                        Permission hierarchy: Admins and Leaders hold special management powers.
-                      </p>
-                    </div>
-                    <span className="text-[10px] font-extrabold px-2.5 py-1 rounded-full bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-300">
-                      Your role: {effectiveRole.toUpperCase()}
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    {/* Admin Card */}
-                    <div className={`p-3.5 rounded-xl border transition-all ${effectiveRole === 'admin' ? 'bg-purple-50/50 dark:bg-purple-950/30 border-purple-200 dark:border-purple-800' : 'bg-gray-50/60 dark:bg-slate-750/50 border-gray-150 dark:border-slate-700'}`}>
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="p-1.5 rounded-lg bg-purple-100 text-purple-700 dark:bg-purple-900/60 dark:text-purple-300">
-                          <ShieldCheck className="h-3.5 w-3.5" />
-                        </span>
-                        <span className="text-xs font-extrabold text-gray-900 dark:text-white">Admin</span>
-                        {effectiveRole === 'admin' && <span className="text-[9px] font-bold text-purple-600 ml-auto">You</span>}
-                      </div>
-                      <ul className="text-[10px] space-y-1.5 text-gray-600 dark:text-gray-300">
-                        <li className="flex items-center gap-1.5">
-                          <CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0" />
-                          <span>Full cohort ownership</span>
-                        </li>
-                        <li className="flex items-center gap-1.5">
-                          <CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0" />
-                          <span>Promote / demote Leaders</span>
-                        </li>
-                        <li className="flex items-center gap-1.5">
-                          <CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0" />
-                          <span>Handle member access & removals</span>
-                        </li>
-                        <li className="flex items-center gap-1.5">
-                          <CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0" />
-                          <span>Remove spam discussions</span>
-                        </li>
-                        <li className="flex items-center gap-1.5">
-                          <CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0" />
-                          <span>Pin / unpin study files</span>
-                        </li>
-                      </ul>
-                    </div>
-
-                    {/* Group Leader Card */}
-                    <div className={`p-3.5 rounded-xl border transition-all ${effectiveRole === 'leader' ? 'bg-amber-50/50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800' : 'bg-gray-50/60 dark:bg-slate-750/50 border-gray-150 dark:border-slate-700'}`}>
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="p-1.5 rounded-lg bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-300">
-                          <Star className="h-3.5 w-3.5" />
-                        </span>
-                        <span className="text-xs font-extrabold text-gray-900 dark:text-white">Group Leader</span>
-                        {effectiveRole === 'leader' && <span className="text-[9px] font-bold text-amber-600 ml-auto">You</span>}
-                      </div>
-                      <ul className="text-[10px] space-y-1.5 text-gray-600 dark:text-gray-300">
-                        <li className="flex items-center gap-1.5">
-                          <CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0" />
-                          <span>Pin study files to top</span>
-                        </li>
-                        <li className="flex items-center gap-1.5">
-                          <CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0" />
-                          <span>Remove spam discussions</span>
-                        </li>
-                        <li className="flex items-center gap-1.5">
-                          <CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0" />
-                          <span>Handle member access</span>
-                        </li>
-                        <li className="flex items-center gap-1.5 text-gray-400">
-                          <X className="h-3 w-3 text-gray-400 shrink-0" />
-                          <span className="line-through">Cannot change Admin roles</span>
-                        </li>
-                      </ul>
-                    </div>
-
-                    {/* Standard Member Card */}
-                    <div className={`p-3.5 rounded-xl border transition-all ${effectiveRole === 'member' ? 'bg-blue-50/50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800' : 'bg-gray-50/60 dark:bg-slate-750/50 border-gray-150 dark:border-slate-700'}`}>
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="p-1.5 rounded-lg bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300">
-                          <Users className="h-3.5 w-3.5" />
-                        </span>
-                        <span className="text-xs font-extrabold text-gray-900 dark:text-white">Standard Member</span>
-                        {effectiveRole === 'member' && <span className="text-[9px] font-bold text-blue-600 ml-auto">You</span>}
-                      </div>
-                      <ul className="text-[10px] space-y-1.5 text-gray-600 dark:text-gray-300">
-                        <li className="flex items-center gap-1.5">
-                          <CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0" />
-                          <span>Participate in group chats</span>
-                        </li>
-                        <li className="flex items-center gap-1.5">
-                          <CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0" />
-                          <span>Post study questions</span>
-                        </li>
-                        <li className="flex items-center gap-1.5">
-                          <CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0" />
-                          <span>Upload revision files</span>
-                        </li>
-                        <li className="flex items-center gap-1.5 text-gray-400">
-                          <X className="h-3 w-3 text-gray-400 shrink-0" />
-                          <span className="line-through">No management actions</span>
-                        </li>
-                      </ul>
-                    </div>
-                  </div>
-                </div>
-
                 {/* Cohort Roster List */}
                 <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-150 dark:border-slate-700 overflow-hidden shadow-xs">
                   <div className="p-4 border-b border-gray-150 dark:border-slate-700 flex justify-between items-center bg-gray-50/60 dark:bg-slate-750/60">
                     <div>
                       <h4 className="font-display font-extrabold text-xs text-gray-900 dark:text-white">
-                        Cohort Member Roster ({(activeGroup.members || []).length || activeGroup.memberCount || 1} members)
+                        Cohort Member Roster ({displayedMembers.length} members)
                       </h4>
                       <p className="text-[10px] text-gray-400 mt-0.5">
-                        Manage member roles, leader promotions, and cohort access.
+                        {canManageMembers ? 'Manage member roles, moderator promotions, and cohort access.' : 'Active peers and leaders studying in this group.'}
                       </p>
                     </div>
                     {!canManageMembers && (
                       <span className="text-[10px] text-gray-400 italic">
-                        Viewing as Standard Member
+                        Viewing as Member
                       </span>
                     )}
                   </div>
 
                   <div className="divide-y divide-gray-100 dark:divide-slate-700">
-                    {(activeGroup.members || []).map(member => {
+                    {displayedMembers.map(member => {
                       const memberRole = member.role || activeGroup.memberRoles?.[member.id] || 'member';
-                      const isCurrentUser = member.id === user.id;
+                      const isCurrentUser = member.id === user.id || member.id === 'u_current' || member.name === (user.name || 'Bill Kute');
+                      const displayName = isCurrentUser ? (user.name || (user.email ? user.email.split('@')[0] : 'Bill Kute')) : member.name;
+                      const displayAvatar = isCurrentUser ? (user.avatar || member.avatar) : member.avatar;
 
                       return (
                         <div key={member.id} className="p-3.5 flex items-center justify-between gap-3 hover:bg-gray-50/50 dark:hover:bg-slate-750 transition-colors">
                           <div className="flex items-center gap-3 min-w-0">
                             <img 
-                              src={member.avatar} 
-                              alt={member.name} 
+                              src={displayAvatar} 
+                              alt={displayName} 
                               className="h-9 w-9 rounded-full object-cover shrink-0 border border-gray-200 dark:border-slate-700" 
                             />
                             <div className="min-w-0">
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs font-bold text-gray-900 dark:text-white truncate">
-                                  {member.name} {isCurrentUser && '(You)'}
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-xs font-bold text-gray-900 dark:text-white truncate flex items-center gap-1.5">
+                                  {displayName}
+                                  {isCurrentUser && (
+                                    <span className="text-[10px] font-extrabold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 px-1.5 py-0.2 rounded border border-blue-200 dark:border-blue-800">
+                                      (You)
+                                    </span>
+                                  )}
                                 </span>
 
                                 {/* Role Badge */}
                                 {memberRole === 'admin' && (
-                                  <span className="inline-flex items-center gap-1 text-[9px] font-extrabold bg-purple-100 text-purple-700 dark:bg-purple-900/60 dark:text-purple-300 px-2 py-0.5 rounded-full">
-                                    <ShieldCheck className="h-2.5 w-2.5" /> Admin
+                                  <span className="inline-flex items-center gap-1 text-[9px] font-extrabold bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 px-2 py-0.5 rounded-full border border-rose-200 dark:border-rose-900">
+                                    <ShieldCheck className="h-2.5 w-2.5" /> [Admin]
                                   </span>
                                 )}
-                                {memberRole === 'leader' && (
-                                  <span className="inline-flex items-center gap-1 text-[9px] font-extrabold bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-300 px-2 py-0.5 rounded-full">
-                                    <Star className="h-2.5 w-2.5" /> Group Leader
+                                {(memberRole === 'leader' || memberRole === 'moderator') && (
+                                  <span className="inline-flex items-center gap-1 text-[9px] font-extrabold bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 px-2 py-0.5 rounded-full border border-amber-200 dark:border-amber-900">
+                                    <Shield className="h-2.5 w-2.5" /> [Moderator]
                                   </span>
                                 )}
                                 {memberRole === 'member' && (
-                                  <span className="inline-flex items-center gap-1 text-[9px] font-medium bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300 px-2 py-0.5 rounded-full">
-                                    Member
+                                  <span className="inline-flex items-center gap-1 text-[9px] font-medium bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300 px-2 py-0.5 rounded-full border border-slate-200 dark:border-slate-650">
+                                    [Member]
                                   </span>
                                 )}
                               </div>
@@ -1132,25 +1421,25 @@ export const GroupsView: React.FC = () => {
 
                           {/* Management Controls */}
                           <div className="flex items-center gap-1.5 shrink-0">
-                            {/* Admin-only: Promote to Leader / Demote to Member */}
-                            {canAssignLeader && !isCurrentUser && memberRole !== 'admin' && (
+                            {/* Admin-only: Assign Moderator role / Demote to Member */}
+                            {canAssignModerator && !isCurrentUser && memberRole !== 'admin' && (
                               <>
                                 {memberRole === 'member' ? (
                                   <button
                                     type="button"
-                                    onClick={() => updateGroupMemberRole(activeGroup.id, member.id, 'leader')}
-                                    className="text-[10px] font-bold bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 dark:hover:bg-amber-900/60 text-amber-700 dark:text-amber-300 px-2.5 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
-                                    title="Promote to Group Leader"
+                                    onClick={() => updateGroupMemberRole(activeGroup.id, member.id, 'moderator')}
+                                    className="text-[10px] font-bold bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 dark:hover:bg-amber-900/60 text-amber-700 dark:text-amber-300 px-2.5 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1 border border-amber-200 dark:border-amber-800"
+                                    title="Assign Moderator role (Admin only)"
                                   >
-                                    <Star className="h-3 w-3" />
-                                    Promote to Leader
+                                    <Shield className="h-3 w-3" />
+                                    Assign Moderator
                                   </button>
                                 ) : (
                                   <button
                                     type="button"
                                     onClick={() => updateGroupMemberRole(activeGroup.id, member.id, 'member')}
-                                    className="text-[10px] font-bold bg-gray-100 hover:bg-gray-200 dark:bg-slate-700 dark:hover:bg-slate-650 text-gray-700 dark:text-gray-300 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
-                                    title="Demote to Member"
+                                    className="text-[10px] font-bold bg-gray-100 hover:bg-gray-200 dark:bg-slate-700 dark:hover:bg-slate-650 text-gray-700 dark:text-gray-300 px-2.5 py-1 rounded-lg transition-colors cursor-pointer border border-gray-200 dark:border-slate-650"
+                                    title="Remove Moderator role"
                                   >
                                     Demote to Member
                                   </button>
@@ -1181,11 +1470,449 @@ export const GroupsView: React.FC = () => {
                 </div>
               </motion.div>
             )}
+
+            {/* TAB: GROUP CONFIGURATION & PRIVACY GUARD */}
+            {activeSubTab === 'settings' && (
+              <motion.div
+                key="settings-tab"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -12 }}
+                transition={{ duration: 0.18 }}
+                className="max-w-3xl mx-auto space-y-6"
+              >
+                {/* Header Banner */}
+                <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-150 dark:border-slate-700 p-5 shadow-xs space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-2 rounded-xl bg-purple-100 dark:bg-purple-950/60 text-purple-600 dark:text-purple-300">
+                        <Shield className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <h3 className="font-display font-extrabold text-sm text-gray-900 dark:text-white">
+                          Group Configuration & Privacy Guard
+                        </h3>
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                          Control publishing authority, chat accessibility, joining requirements, and post approval.
+                        </p>
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-extrabold px-3 py-1 rounded-full bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-300 border border-blue-200/50">
+                      {canModifySettings ? 'Leadership Mode: Edit Access' : 'Read-Only Policy View'}
+                    </span>
+                  </div>
+                  {!canModifySettings && (
+                    <div className="mt-2 text-[11px] text-amber-700 dark:text-amber-300 bg-amber-50/80 dark:bg-amber-950/30 p-2.5 rounded-xl border border-amber-200/50 flex items-center gap-2">
+                      <AlertCircle className="h-4 w-4 shrink-0 text-amber-600" />
+                      <span>Only Group Admins and Moderators can modify group configuration. The active policies are shown below.</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Cohort Role & Admin Group Details Card */}
+                <div className="bg-white dark:bg-slate-800 rounded-2xl border border-blue-200 dark:border-blue-900/60 p-5 shadow-xs bg-gradient-to-r from-blue-50/40 via-white to-white dark:from-blue-950/20 dark:via-slate-800 dark:to-slate-800 space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="h-14 w-20 rounded-xl overflow-hidden border border-gray-200 dark:border-slate-700 shrink-0 bg-gray-100 dark:bg-slate-750">
+                        <img 
+                          src={activeGroup.coverImage} 
+                          alt={activeGroup.name} 
+                          className="w-full h-full object-cover" 
+                        />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap mb-1">
+                          <h4 className="text-sm font-extrabold text-gray-900 dark:text-white truncate">
+                            {activeGroup.name}
+                          </h4>
+                          
+                          {/* Role Badge alongside Group Info */}
+                          {effectiveRole === 'admin' && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-extrabold bg-rose-600 text-white px-2.5 py-0.5 rounded-full shadow-xs">
+                              <ShieldCheck className="h-3 w-3" /> Your role: Admin
+                            </span>
+                          )}
+                          {(effectiveRole === 'leader' || effectiveRole === 'moderator') && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-extrabold bg-amber-500 text-white px-2.5 py-0.5 rounded-full shadow-xs">
+                              <Shield className="h-3 w-3" /> Your role: Moderator
+                            </span>
+                          )}
+                          {effectiveRole === 'member' && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-slate-700 text-white px-2.5 py-0.5 rounded-full shadow-xs">
+                              <Users className="h-3 w-3" /> Your role: Member
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400 line-clamp-1">
+                          {activeGroup.description || 'No description provided.'}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Edit Group Button alongside Your Role */}
+                    {effectiveRole === 'admin' && (
+                      <button
+                        type="button"
+                        onClick={handleOpenEditGroupModal}
+                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition-all cursor-pointer shadow-sm flex items-center justify-center gap-1.5 shrink-0"
+                      >
+                        <Edit3 className="h-3.5 w-3.5" />
+                        <span>Edit Group</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* 4 Granular Settings Matrix */}
+                <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-150 dark:border-slate-750 p-5 shadow-xs space-y-5">
+                  <h4 className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider flex items-center gap-2">
+                    <Settings className="h-3.5 w-3.5" />
+                    Granular Settings Matrix
+                  </h4>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Setting 1: Who can post? */}
+                    <div className="p-4 rounded-xl border border-gray-150 dark:border-slate-700 bg-gray-50/50 dark:bg-slate-750/50 space-y-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <span className="text-xs font-bold text-gray-900 dark:text-white block">Who can post?</span>
+                          <span className="text-[11px] text-gray-500 dark:text-gray-400 block mt-0.5">
+                            Controls who is authorized to start discussion questions on this group's feed.
+                          </span>
+                        </div>
+                        <FileText className="h-4 w-4 text-purple-600 shrink-0 mt-0.5" />
+                      </div>
+
+                      {canModifySettings ? (
+                        <div className="grid grid-cols-2 gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => updateGroupSettings(activeGroup.id, { whoCanPost: 'all' })}
+                            className={`px-3 py-2 text-xs font-semibold rounded-xl border transition-all cursor-pointer text-center ${
+                              (activeGroup.settings?.whoCanPost || 'all') === 'all'
+                                ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
+                                : 'bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-slate-700 hover:bg-gray-100'
+                            }`}
+                          >
+                            Everyone
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateGroupSettings(activeGroup.id, { whoCanPost: 'admin_and_leader' })}
+                            className={`px-3 py-2 text-xs font-semibold rounded-xl border transition-all cursor-pointer text-center ${
+                              activeGroup.settings?.whoCanPost === 'admin_and_leader'
+                                ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
+                                : 'bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-slate-700 hover:bg-gray-100'
+                            }`}
+                          >
+                            Admin & Moderator
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="pt-1">
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-slate-700 text-xs font-bold text-gray-800 dark:text-gray-200">
+                            {(activeGroup.settings?.whoCanPost || 'all') === 'all' ? 'Everyone can post' : 'Admins & Moderators only'}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Setting 2: Who can participate in group chat? */}
+                    <div className="p-4 rounded-xl border border-gray-150 dark:border-slate-700 bg-gray-50/50 dark:bg-slate-750/50 space-y-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <span className="text-xs font-bold text-gray-900 dark:text-white block">Who can chat?</span>
+                          <span className="text-[11px] text-gray-500 dark:text-gray-400 block mt-0.5">
+                            Decides whether all members or only leadership can send real-time chat messages.
+                          </span>
+                        </div>
+                        <MessageCircle className="h-4 w-4 text-blue-600 shrink-0 mt-0.5" />
+                      </div>
+
+                      {canModifySettings ? (
+                        <div className="grid grid-cols-2 gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => updateGroupSettings(activeGroup.id, { whoCanChat: 'all' })}
+                            className={`px-3 py-2 text-xs font-semibold rounded-xl border transition-all cursor-pointer text-center ${
+                              (activeGroup.settings?.whoCanChat || 'all') === 'all'
+                                ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                                : 'bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-slate-700 hover:bg-gray-100'
+                            }`}
+                          >
+                            Everyone
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateGroupSettings(activeGroup.id, { whoCanChat: 'admin_and_leader' })}
+                            className={`px-3 py-2 text-xs font-semibold rounded-xl border transition-all cursor-pointer text-center ${
+                              activeGroup.settings?.whoCanChat === 'admin_and_leader'
+                                ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                                : 'bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-slate-700 hover:bg-gray-100'
+                            }`}
+                          >
+                            Admin & Moderator
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="pt-1">
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-slate-700 text-xs font-bold text-gray-800 dark:text-gray-200">
+                            {(activeGroup.settings?.whoCanChat || 'all') === 'all' ? 'Everyone can chat' : 'Admins & Moderators only'}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Setting 3: Can people join freely? */}
+                    <div className="p-4 rounded-xl border border-gray-150 dark:border-slate-700 bg-gray-50/50 dark:bg-slate-750/50 space-y-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <span className="text-xs font-bold text-gray-900 dark:text-white block">Join Policy</span>
+                          <span className="text-[11px] text-gray-500 dark:text-gray-400 block mt-0.5">
+                            Whether students join immediately or must be approved by leadership.
+                          </span>
+                        </div>
+                        <Users className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
+                      </div>
+
+                      {canModifySettings ? (
+                        <div className="grid grid-cols-2 gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => updateGroupSettings(activeGroup.id, { joinPolicy: 'free' })}
+                            className={`px-3 py-2 text-xs font-semibold rounded-xl border transition-all cursor-pointer text-center ${
+                              (activeGroup.settings?.joinPolicy || 'free') === 'free'
+                                ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                                : 'bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-slate-700 hover:bg-gray-100'
+                            }`}
+                          >
+                            Instant Entry
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateGroupSettings(activeGroup.id, { joinPolicy: 'approval' })}
+                            className={`px-3 py-2 text-xs font-semibold rounded-xl border transition-all cursor-pointer text-center ${
+                              activeGroup.settings?.joinPolicy === 'approval'
+                                ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                                : 'bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-slate-700 hover:bg-gray-100'
+                            }`}
+                          >
+                            Require Approval
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="pt-1">
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-slate-700 text-xs font-bold text-gray-800 dark:text-gray-200">
+                            {(activeGroup.settings?.joinPolicy || 'free') === 'free' ? 'Instant entry' : 'Requires approval'}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Setting 4: Post Approval Rule */}
+                    <div className="p-4 rounded-xl border border-gray-150 dark:border-slate-700 bg-gray-50/50 dark:bg-slate-750/50 space-y-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <span className="text-xs font-bold text-gray-900 dark:text-white block">Post Approval Rule</span>
+                          <span className="text-[11px] text-gray-500 dark:text-gray-400 block mt-0.5">
+                            If standard members post, require Admin or Leader approval before becoming public.
+                          </span>
+                        </div>
+                        <ShieldCheck className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                      </div>
+
+                      {canModifySettings ? (
+                        <div className="grid grid-cols-2 gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => updateGroupSettings(activeGroup.id, { requirePostApproval: false })}
+                            className={`px-3 py-2 text-xs font-semibold rounded-xl border transition-all cursor-pointer text-center ${
+                              !activeGroup.settings?.requirePostApproval
+                                ? 'bg-amber-600 text-white border-amber-600 shadow-xs'
+                                : 'bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-slate-700 hover:bg-gray-100'
+                            }`}
+                          >
+                            Publish Instantly
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateGroupSettings(activeGroup.id, { requirePostApproval: true })}
+                            className={`px-3 py-2 text-xs font-semibold rounded-xl border transition-all cursor-pointer text-center ${
+                              Boolean(activeGroup.settings?.requirePostApproval)
+                                ? 'bg-amber-600 text-white border-amber-600 shadow-xs'
+                                : 'bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-slate-700 hover:bg-gray-100'
+                            }`}
+                          >
+                            Require Approval
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="pt-1">
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-slate-700 text-xs font-bold text-gray-800 dark:text-gray-200">
+                            {activeGroup.settings?.requirePostApproval ? 'Member posts require approval' : 'Instant publication'}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Moderation Queue 1: Pending Join Requests */}
+                {canReviewJoinReqs && (
+                  <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-150 dark:border-slate-750 p-5 shadow-xs space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-bold text-gray-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
+                        <Users className="h-3.5 w-3.5 text-emerald-600" />
+                        Pending Join Requests ({pendingRequests.length})
+                      </h4>
+                      {pendingRequests.length > 0 && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300">
+                          {pendingRequests.length} pending
+                        </span>
+                      )}
+                    </div>
+
+                    {pendingRequests.length === 0 ? (
+                      <div className="p-6 text-center bg-gray-50 dark:bg-slate-750/50 rounded-xl border border-dashed border-gray-200 dark:border-slate-700 text-xs text-gray-400">
+                        No pending join requests at this time.
+                      </div>
+                    ) : (
+                      <div className="space-y-2.5">
+                        {pendingRequests.map(req => {
+                          const reqName = req.userName || req.name || 'Student';
+                          const reqAvatar = req.userAvatar || req.avatar;
+                          const reqGrade = req.userGrade || req.grade || 'Student';
+
+                          return (
+                            <div
+                              key={req.id}
+                              className="p-3.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-750 flex items-center justify-between gap-4"
+                            >
+                              <div className="flex items-center gap-3 min-w-0">
+                                {reqAvatar ? (
+                                  <img
+                                    src={reqAvatar}
+                                    alt={reqName}
+                                    className="h-10 w-10 rounded-full object-cover border border-gray-200 dark:border-slate-650 shrink-0"
+                                  />
+                                ) : (
+                                  <div className="h-10 w-10 rounded-full bg-gradient-to-tr from-emerald-600 to-teal-600 text-white flex items-center justify-center font-bold text-xs uppercase shadow-xs shrink-0">
+                                    {reqName.substring(0, 2)}
+                                  </div>
+                                )}
+                                <div className="min-w-0">
+                                  <p className="text-xs font-bold text-gray-900 dark:text-white truncate">
+                                    {reqName}
+                                  </p>
+                                  <p className="text-[10px] text-gray-400">
+                                    {reqGrade} • Requested {req.requestedAt || 'recently'}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => approveJoinRequest(activeGroup.id, req.id)}
+                                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl transition cursor-pointer shadow-xs"
+                                >
+                                  Approve
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => rejectJoinRequest(activeGroup.id, req.id)}
+                                  className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-slate-700 dark:hover:bg-slate-650 text-gray-700 dark:text-gray-300 text-xs font-semibold rounded-xl transition cursor-pointer"
+                                >
+                                  Reject
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Moderation Queue 2: Pending Posts Queue */}
+                {canApprovePostList && (
+                  <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-150 dark:border-slate-750 p-5 shadow-xs space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-bold text-gray-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
+                        <ShieldCheck className="h-3.5 w-3.5 text-amber-600" />
+                        Pending Posts Moderation Queue ({pendingGroupPosts.length})
+                      </h4>
+                      {pendingGroupPosts.length > 0 && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300">
+                          {pendingGroupPosts.length} awaiting review
+                        </span>
+                      )}
+                    </div>
+
+                    {pendingGroupPosts.length === 0 ? (
+                      <div className="p-6 text-center bg-gray-50 dark:bg-slate-750/50 rounded-xl border border-dashed border-gray-200 dark:border-slate-700 text-xs text-gray-400">
+                        No member posts awaiting approval.
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {pendingGroupPosts.map(post => (
+                          <div
+                            key={post.id}
+                            className="p-4 rounded-xl border border-amber-200/80 dark:border-amber-900/40 bg-amber-50/30 dark:bg-amber-950/20 space-y-3"
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <div className="h-8 w-8 rounded-full bg-gradient-to-tr from-amber-600 to-orange-600 text-white flex items-center justify-center font-bold text-xs shrink-0">
+                                  {(post.authorName || 'U').substring(0, 2)}
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="text-xs font-bold text-gray-900 dark:text-white truncate">
+                                    {post.authorName || 'Student'}
+                                  </p>
+                                  <p className="text-[10px] text-gray-400">
+                                    {post.subject || 'General'} • {post.timestamp || 'recently'}
+                                  </p>
+                                </div>
+                              </div>
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300">
+                                Pending Approval
+                              </span>
+                            </div>
+
+                            <p className="text-xs text-gray-800 dark:text-gray-200 bg-white dark:bg-slate-800 p-3 rounded-xl border border-gray-150 dark:border-slate-700">
+                              {post.content}
+                            </p>
+
+                            <div className="flex items-center justify-end gap-2 pt-1">
+                              <button
+                                type="button"
+                                onClick={() => approvePendingPost(post.id)}
+                                className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl transition cursor-pointer shadow-xs flex items-center gap-1.5"
+                              >
+                                <Check className="h-3.5 w-3.5" />
+                                <span>Approve & Publish</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => rejectPendingPost(post.id)}
+                                className="px-3.5 py-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 text-rose-600 dark:text-rose-400 text-xs font-semibold rounded-xl transition cursor-pointer border border-rose-200/60 dark:border-rose-800/40"
+                              >
+                                Reject
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </motion.div>
+            )}
           </AnimatePresence>
 
         </div>
       </div>
       {renderCreateGroupModal()}
+      {renderEditGroupModal()}
     </div>
   );
 };

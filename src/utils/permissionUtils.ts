@@ -49,7 +49,17 @@ export const ROLE_PERMISSIONS: Record<GroupRole, RolePermissions> = {
     canRemoveSpam: true,
     canManageMembers: true,
     canPinFiles: true,
-    canAssignLeader: false, // Only Admins can promote/demote Leaders
+    canAssignLeader: false, // Only Admins can promote/demote Moderators
+    canEditGroupInfo: true,
+    canPostAndComment: true,
+    canUploadFiles: true,
+    canDownloadFiles: true,
+  },
+  moderator: {
+    canRemoveSpam: true,
+    canManageMembers: true,
+    canPinFiles: true,
+    canAssignLeader: false, // Only Admins can promote/demote Moderators
     canEditGroupInfo: true,
     canPostAndComment: true,
     canUploadFiles: true,
@@ -147,19 +157,28 @@ export function canUserPinFiles(
 }
 
 /**
- * Check if user can assign / promote a member to Group Leader
+ * Check if user can assign / promote a member to Moderator
+ * ONLY the Admin of the group (or group creator) can assign/remove Moderators
  */
-export function canUserAssignLeader(
+export function canUserAssignModerator(
   group: StudyGroup | null | undefined,
   user: User | null | undefined,
   simulatedRole?: GroupRole | null
 ): boolean {
+  if (!group || !user) return false;
+  // Platform admin can assign
+  if (user.role === 'admin' || user.email?.toLowerCase() === 'billkute030709@gmail.com') return true;
+  // Creator of the group can assign
+  if (group.creatorId && group.creatorId === user.id) return true;
+  // Admin of the group can assign
   const role = getUserGroupRole(group, user, simulatedRole);
-  return getRolePermissions(role).canAssignLeader;
+  return role === 'admin';
 }
 
+export const canUserAssignLeader = canUserAssignModerator;
+
 /**
- * General check if user has any management powers (Admin or Leader)
+ * General check if user has any management powers (Admin or Moderator)
  */
 export function canUserManageGroup(
   group: StudyGroup | null | undefined,
@@ -167,18 +186,19 @@ export function canUserManageGroup(
   simulatedRole?: GroupRole | null
 ): boolean {
   const role = getUserGroupRole(group, user, simulatedRole);
-  return role === 'admin' || role === 'leader';
+  return role === 'admin' || role === 'leader' || role === 'moderator';
 }
 
 /**
- * Helper to display simple text label layout: "Your role: [Admin / Group Leader / Member]"
+ * Helper to display simple text label layout: "Your role: [Admin / Moderator / Member]"
  */
 export function formatRoleSimpleLabel(role: GroupRole): string {
   switch (role) {
     case 'admin':
       return 'Your role: Admin';
     case 'leader':
-      return 'Your role: Group Leader';
+    case 'moderator':
+      return 'Your role: Moderator';
     case 'member':
     default:
       return 'Your role: Member';
@@ -195,14 +215,15 @@ export function getRoleBadgeDetails(role: GroupRole) {
         label: 'Admin',
         badgeClass: 'bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300 border-rose-200 dark:border-rose-900',
         dotClass: 'bg-rose-500',
-        description: 'Full administrative control, leader assignment, and moderation.',
+        description: 'Full administrative control, moderator assignment, and settings management.',
       };
     case 'leader':
+    case 'moderator':
       return {
-        label: 'Group Leader',
+        label: 'Moderator',
         badgeClass: 'bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300 border-amber-200 dark:border-amber-900',
         dotClass: 'bg-amber-500',
-        description: 'Study group manager with spam removal, member access, and file pinning powers.',
+        description: 'Cohort moderator with spam removal, member access, and file pinning powers.',
       };
     case 'member':
     default:
@@ -215,6 +236,13 @@ export function getRoleBadgeDetails(role: GroupRole) {
   }
 }
 
+export interface GroupActionPermissionResult {
+  allowed: boolean;
+  role: GroupRole;
+  requiresApproval?: boolean;
+  reason?: string;
+}
+
 /**
  * Check if user can create a post in this study group according to group settings
  */
@@ -223,10 +251,52 @@ export function canUserPostInGroup(
   user: User | null | undefined,
   simulatedRole?: GroupRole | null
 ): boolean {
+  return checkUserCanPostInGroup(group, user, simulatedRole).allowed;
+}
+
+/**
+ * Comprehensive permission verification for posting in a study group.
+ * Validates user's role against whoCanPost policy and evaluates post approval rule.
+ */
+export function checkUserCanPostInGroup(
+  group: StudyGroup | null | undefined,
+  user: User | null | undefined,
+  simulatedRole?: GroupRole | null
+): GroupActionPermissionResult {
+  if (!group) {
+    return { allowed: false, role: 'member', reason: 'Study group not found.' };
+  }
+  if (!user) {
+    return { allowed: false, role: 'member', reason: 'You must be signed in to post in this study group.' };
+  }
+
   const role = getUserGroupRole(group, user, simulatedRole);
-  if (role === 'admin' || role === 'leader') return true;
-  const policy = group?.settings?.whoCanPost || 'all';
-  return policy === 'all';
+
+  // Admin & Moderator have unrestricted posting privileges and never require approval
+  if (role === 'admin' || role === 'leader' || role === 'moderator') {
+    return { allowed: true, role, requiresApproval: false };
+  }
+
+  // Check who can post setting
+  const whoCanPost = group.settings?.whoCanPost || 'all';
+  if (whoCanPost === 'admin_and_leader') {
+    return {
+      allowed: false,
+      role: 'member',
+      reason: 'Posting in this study group is restricted to Admins and Moderators only.'
+    };
+  }
+
+  // Check if member post requires approval before publication
+  const requiresApproval = Boolean(group.settings?.requirePostApproval);
+  return {
+    allowed: true,
+    role: 'member',
+    requiresApproval,
+    reason: requiresApproval
+      ? 'Your post will be submitted for Admin or Moderator approval before becoming visible to others.'
+      : undefined
+  };
 }
 
 /**
@@ -237,10 +307,43 @@ export function canUserChatInGroup(
   user: User | null | undefined,
   simulatedRole?: GroupRole | null
 ): boolean {
+  return checkUserCanChatInGroup(group, user, simulatedRole).allowed;
+}
+
+/**
+ * Comprehensive permission verification for participating in group chat.
+ * Evaluates user's role against whoCanChat policy toggle.
+ */
+export function checkUserCanChatInGroup(
+  group: StudyGroup | null | undefined,
+  user: User | null | undefined,
+  simulatedRole?: GroupRole | null
+): GroupActionPermissionResult {
+  if (!group) {
+    return { allowed: false, role: 'member', reason: 'Study group not found.' };
+  }
+  if (!user) {
+    return { allowed: false, role: 'member', reason: 'You must be signed in to participate in group chat.' };
+  }
+
   const role = getUserGroupRole(group, user, simulatedRole);
-  if (role === 'admin' || role === 'leader') return true;
-  const policy = group?.settings?.whoCanChat || 'all';
-  return policy === 'all';
+
+  // Admin & Moderator bypass chat restrictions
+  if (role === 'admin' || role === 'leader' || role === 'moderator') {
+    return { allowed: true, role };
+  }
+
+  // Check who can chat setting
+  const whoCanChat = group.settings?.whoCanChat || 'all';
+  if (whoCanChat === 'admin_and_leader') {
+    return {
+      allowed: false,
+      role: 'member',
+      reason: 'Group chat participation is restricted to Admins and Moderators only by group policy.'
+    };
+  }
+
+  return { allowed: true, role: 'member' };
 }
 
 /**
@@ -259,14 +362,14 @@ export function doesUserPostRequireApproval(
   simulatedRole?: GroupRole | null
 ): boolean {
   const role = getUserGroupRole(group, user, simulatedRole);
-  // Admin and Group Leader posts are always published immediately
-  if (role === 'admin' || role === 'leader') return false;
+  // Admin and Moderator posts are always published immediately
+  if (role === 'admin' || role === 'leader' || role === 'moderator') return false;
   return Boolean(group?.settings?.requirePostApproval);
 }
 
 /**
  * Admin Exit Guardrail:
- * An Admin cannot leave the group unless they explicitly pass Admin ownership over to one of the active Group Leaders first.
+ * An Admin cannot leave the group unless they explicitly pass Admin ownership over to one of the active Moderators first.
  */
 export function validateAdminLeaveGuardrail(
   group: StudyGroup | null | undefined,
@@ -282,14 +385,14 @@ export function validateAdminLeaveGuardrail(
     return { canLeave: true, activeLeaders: [] };
   }
 
-  // Find all active Group Leaders in this group (excluding the current user)
+  // Find all active Moderators in this group (excluding the current user)
   const currentUserId = user?.id || '';
   const leaders: { id: string; name: string; avatar: string }[] = [];
 
   if (group?.members && group.members.length > 0) {
     group.members.forEach(m => {
       const mRole = m.role || group.memberRoles?.[m.id];
-      if (mRole === 'leader' && m.id !== currentUserId) {
+      if ((mRole === 'leader' || mRole === 'moderator') && m.id !== currentUserId) {
         leaders.push({ id: m.id, name: m.name, avatar: m.avatar });
       }
     });
@@ -302,7 +405,7 @@ export function validateAdminLeaveGuardrail(
         const foundMember = group.members?.find(m => m.id === leaderId);
         leaders.push({
           id: leaderId,
-          name: foundMember?.name || `Leader (${leaderId.slice(0, 6)})`,
+          name: foundMember?.name || `Moderator (${leaderId.slice(0, 6)})`,
           avatar: foundMember?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=150'
         });
       }
@@ -311,7 +414,7 @@ export function validateAdminLeaveGuardrail(
 
   return {
     canLeave: false,
-    reason: 'An Admin cannot leave the group unless they explicitly pass Admin ownership over to one of the active Group Leaders first.',
+    reason: 'An Admin cannot leave the group unless they explicitly pass Admin ownership over to one of the active Moderators first.',
     activeLeaders: leaders
   };
 }
@@ -329,7 +432,7 @@ export function canUserDeleteGroup(
 }
 
 /**
- * Check if user can modify group settings (Admin and Group Leader only)
+ * Check if user can modify group settings (Admin and Moderator only)
  */
 export function canUserModifySettings(
   group: StudyGroup | null | undefined,
@@ -337,7 +440,7 @@ export function canUserModifySettings(
   simulatedRole?: GroupRole | null
 ): boolean {
   const role = getUserGroupRole(group, user, simulatedRole);
-  return role === 'admin' || role === 'leader';
+  return role === 'admin' || role === 'leader' || role === 'moderator';
 }
 
 /**
@@ -349,7 +452,7 @@ export function canUserReviewJoinRequests(
   simulatedRole?: GroupRole | null
 ): boolean {
   const role = getUserGroupRole(group, user, simulatedRole);
-  return role === 'admin' || role === 'leader';
+  return role === 'admin' || role === 'leader' || role === 'moderator';
 }
 
 /**
@@ -361,6 +464,6 @@ export function canUserApprovePosts(
   simulatedRole?: GroupRole | null
 ): boolean {
   const role = getUserGroupRole(group, user, simulatedRole);
-  return role === 'admin' || role === 'leader';
+  return role === 'admin' || role === 'leader' || role === 'moderator';
 }
 
