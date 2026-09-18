@@ -12,11 +12,15 @@ import {
   Mail, 
   Send, 
   UserCheck,
-  RotateCcw
+  RotateCcw,
+  Users,
+  ExternalLink,
+  UserX
 } from 'lucide-react';
 import { playSound } from '../utils/soundEffects';
 import { SILHOUETTE_AVATAR } from '../data/mockData';
 import { MessengerView } from './MessengerView';
+import { sortFriendsByLastActivity, getFriendLastActivityTimestamp, formatMessengerTimestamp } from '../utils/chatUtils';
 
 export const FriendsView: React.FC = () => {
   const { 
@@ -29,16 +33,35 @@ export const FriendsView: React.FC = () => {
     getFriendshipStatus,
     openDirectChat,
     openUserProfile,
+    removeFriend,
+    directChats,
+    groupChats,
     tutors,
     posts,
     user 
   } = useApp();
 
-  // Vertical navigation: only keeping Messenger by combining Requests and Find Friends into it
-  const [activeNav, setActiveNav] = useState<'chats' | 'requests' | 'find'>('chats');
+  // Vertical navigation: Chats, All Friends, Requests, and Find Friends
+  const [activeNav, setActiveNav] = useState<'chats' | 'friends' | 'requests' | 'find'>('chats');
   const [addFriendInput, setAddFriendInput] = useState('');
   const [findSearchQuery, setFindSearchQuery] = useState('');
+  const [friendsSearchQuery, setFriendsSearchQuery] = useState('');
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
+
+  // Sorted friends strictly by last activity time
+  const sortedFriends = useMemo(() => {
+    return sortFriendsByLastActivity(friends, directChats, posts, groupChats);
+  }, [friends, directChats, posts, groupChats]);
+
+  const filteredFriendsList = useMemo(() => {
+    if (!friendsSearchQuery.trim()) return sortedFriends;
+    const q = friendsSearchQuery.toLowerCase();
+    return sortedFriends.filter(f =>
+      f.name.toLowerCase().includes(q) ||
+      (f.institution && f.institution.toLowerCase().includes(q)) ||
+      (f.role && f.role.toLowerCase().includes(q))
+    );
+  }, [sortedFriends, friendsSearchQuery]);
 
   // Filter pending received and sent requests
   const pendingReceived = useMemo(() => {
@@ -160,7 +183,7 @@ export const FriendsView: React.FC = () => {
           </div>
 
           <nav className="space-y-1">
-            {/* 1. Messenger (Chats & Friends) */}
+            {/* 1. Messenger (Chats) */}
             <button
               onClick={() => {
                 playSound('tab');
@@ -179,7 +202,31 @@ export const FriendsView: React.FC = () => {
               <span className="hidden md:inline truncate">Chats</span>
             </button>
 
-            {/* 2. Requests (Combined into Messenger) */}
+            {/* 2. All Friends (Sorted by Last Activity) */}
+            <button
+              onClick={() => {
+                playSound('tab');
+                setActiveNav('friends');
+              }}
+              title="All Friends"
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                activeNav === 'friends'
+                  ? 'bg-white dark:bg-[#2b2d2e] text-purple-600 dark:text-purple-400 shadow-xs'
+                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#28292a] hover:text-gray-900 dark:hover:text-white'
+              }`}
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="relative shrink-0 flex items-center justify-center">
+                  <UserCheck className="h-5 w-5" />
+                </div>
+                <span className="hidden md:inline truncate">All Friends</span>
+              </div>
+              <span className="hidden md:flex h-5 px-1.5 rounded-full bg-gray-100 dark:bg-[#3a3b3c] text-gray-700 dark:text-gray-300 text-[10px] font-bold items-center justify-center">
+                {friends.length}
+              </span>
+            </button>
+
+            {/* 3. Requests */}
             <button
               onClick={() => {
                 playSound('tab');
@@ -208,7 +255,7 @@ export const FriendsView: React.FC = () => {
               )}
             </button>
 
-            {/* 3. Find Friends (Combined into Messenger) */}
+            {/* 4. Find Friends */}
             <button
               onClick={() => {
                 playSound('tab');
@@ -255,14 +302,164 @@ export const FriendsView: React.FC = () => {
           </div>
         )}
 
-        {/* 1. Primary Messenger View (All friends is already in it) */}
+        {/* 1. Primary Messenger View */}
         {activeNav === 'chats' && (
           <div className="flex-1 w-full h-full min-h-0 overflow-hidden flex flex-col">
             <MessengerView />
           </div>
         )}
 
-        {/* 2. Requests View (Combined into Messenger) */}
+        {/* 2. All Friends View (Sorted by Last Activity) */}
+        {activeNav === 'friends' && (
+          <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-gray-150 dark:border-[#2f3031]">
+              <div>
+                <h3 className="text-base font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                  <UserCheck className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+                  All Friends ({friends.length})
+                </h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  Ordered by most recent activity & interaction time
+                </p>
+              </div>
+
+              {/* Search Friends Filter */}
+              <div className="relative w-full sm:w-64">
+                <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-gray-400" />
+                <input
+                  type="text"
+                  value={friendsSearchQuery}
+                  onChange={e => setFriendsSearchQuery(e.target.value)}
+                  placeholder="Filter friends by name or school..."
+                  className="w-full pl-8 pr-3 py-1.5 bg-gray-100 dark:bg-[#28292a] border border-gray-200 dark:border-transparent rounded-xl text-xs text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+              </div>
+            </div>
+
+            {filteredFriendsList.length === 0 ? (
+              <div className="p-12 text-center bg-gray-50 dark:bg-[#202122] rounded-2xl border border-gray-150 dark:border-[#2f3031] space-y-3">
+                <Users className="h-8 w-8 text-gray-400 mx-auto" />
+                <p className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+                  {friendsSearchQuery ? `No friends match "${friendsSearchQuery}"` : 'No friends connected yet.'}
+                </p>
+                <p className="text-[11px] text-gray-400 max-w-sm mx-auto">
+                  Find classmates and educators in the "Find Friends" section to collaborate and share study materials!
+                </p>
+                {!friendsSearchQuery && (
+                  <button
+                    onClick={() => {
+                      playSound('tab');
+                      setActiveNav('find');
+                    }}
+                    className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer inline-flex items-center gap-1.5"
+                  >
+                    <UserPlus className="h-4 w-4" />
+                    <span>Find Friends</span>
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {filteredFriendsList.map(friend => {
+                  const latestTime = getFriendLastActivityTimestamp(friend, directChats, posts, groupChats);
+                  const isRecentlyActive = friend.isOnline || (latestTime > 0 && (Date.now() - latestTime < 5 * 60 * 1000));
+                  const timeText = latestTime > 0 ? formatMessengerTimestamp(undefined, undefined, new Date(latestTime).toISOString()) : '';
+
+                  return (
+                    <div
+                      key={friend.id}
+                      className="bg-white dark:bg-[#202122] border border-gray-200 dark:border-[#2f3031] rounded-2xl p-4 flex flex-col justify-between gap-3 shadow-2xs hover:border-purple-300 dark:hover:border-purple-800 transition-all"
+                    >
+                      <div className="flex items-start gap-3 min-w-0">
+                        <div className="relative shrink-0">
+                          <img
+                            src={friend.avatar || SILHOUETTE_AVATAR}
+                            alt={friend.name}
+                            className="h-11 w-11 rounded-full object-cover border border-gray-200 dark:border-slate-800"
+                          />
+                          <span className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white dark:border-[#202122] ${isRecentlyActive ? 'bg-green-500' : 'bg-gray-400'}`}></span>
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <h4 className="text-xs font-bold text-gray-900 dark:text-white truncate">
+                              {friend.name}
+                            </h4>
+                            {friend.role === 'tutor' && (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900/40">
+                                <ShieldCheck className="h-2.5 w-2.5" />
+                                Tutor
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">
+                            {friend.institution || friend.subject || 'Student'}
+                          </p>
+                          <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-1 flex items-center gap-1 font-medium">
+                            <Clock className="h-2.5 w-2.5" />
+                            {isRecentlyActive ? (
+                              <span className="text-green-600 dark:text-green-400 font-semibold">Online now</span>
+                            ) : timeText ? (
+                              <span>Active {timeText}</span>
+                            ) : (
+                              <span>Inactive</span>
+                            )}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Action buttons */}
+                      <div className="flex items-center gap-2 pt-2 border-t border-gray-100 dark:border-[#28292a]">
+                        <button
+                          onClick={() => {
+                            playSound('pop');
+                            openDirectChat({
+                              id: friend.id,
+                              name: friend.name,
+                              avatar: friend.avatar || SILHOUETTE_AVATAR,
+                              email: friend.email,
+                              role: friend.role
+                            });
+                          }}
+                          className="flex-1 py-1.5 px-2.5 bg-purple-50 dark:bg-purple-950/40 hover:bg-purple-100 dark:hover:bg-purple-900/50 text-purple-700 dark:text-purple-300 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer"
+                        >
+                          <MessageSquare className="h-3.5 w-3.5" />
+                          <span>Message</span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            playSound('pop');
+                            openUserProfile(friend.id);
+                          }}
+                          className="py-1.5 px-2.5 bg-gray-100 dark:bg-[#28292a] hover:bg-gray-200 dark:hover:bg-[#323334] text-gray-700 dark:text-gray-300 rounded-xl text-xs font-semibold flex items-center justify-center gap-1 transition cursor-pointer"
+                          title="View Profile"
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={async () => {
+                            if (window.confirm(`Are you sure you want to remove ${friend.name} from your friends?`)) {
+                              await removeFriend(friend.id);
+                              playSound('pop');
+                              setFeedbackMessage(`Removed ${friend.name} from friends.`);
+                              setTimeout(() => setFeedbackMessage(null), 3000);
+                            }
+                          }}
+                          className="py-1.5 px-2 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-xl text-xs transition cursor-pointer"
+                          title="Unfriend"
+                        >
+                          <UserX className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 3. Requests View (Combined into Messenger) */}
         {activeNav === 'requests' && (
           <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6">
             <div className="flex items-center justify-between pb-3 border-b border-gray-150 dark:border-[#2f3031]">

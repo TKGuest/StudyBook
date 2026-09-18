@@ -1,21 +1,22 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { MessageSquare, Users, UserPlus, ShieldCheck, UserCheck, Pin } from 'lucide-react';
+import { MessageSquare, Users, UserPlus, ShieldCheck, UserCheck, Pin, ChevronDown, ChevronUp } from 'lucide-react';
 import { playSound } from '../utils/soundEffects';
 import { SILHOUETTE_AVATAR } from '../data/mockData';
+import { Friend } from '../types';
+import { formatMessengerTimestamp, getFriendLastActivityTimestamp, sortFriendsByLastActivity } from '../utils/chatUtils';
 
 export const RightSidebar: React.FC = () => {
-  const { groupChats, openChatWindow, friends, friendRequests, openDirectChat, setActiveTab, user, settings, isChatPinned } = useApp();
+  const { groupChats, openChatWindow, friends, friendRequests, directChats, posts, openDirectChat, setActiveTab, user, settings, isChatPinned } = useApp();
+  const [showAllFriends, setShowAllFriends] = useState(false);
 
   const pendingReceived = friendRequests.filter(r => r.receiverId === user.id && r.status === 'pending');
 
   const sortedFriends = useMemo(() => {
-    return [...friends].sort((a, b) => {
-      const aPinned = isChatPinned(a.id) ? 1 : 0;
-      const bPinned = isChatPinned(b.id) ? 1 : 0;
-      return bPinned - aPinned;
-    });
-  }, [friends, isChatPinned]);
+    return sortFriendsByLastActivity(friends, directChats, posts, groupChats, isChatPinned);
+  }, [friends, isChatPinned, directChats, posts, groupChats]);
+
+  const displayedFriends = showAllFriends ? sortedFriends : sortedFriends.slice(0, 8);
 
   return (
     <aside className="w-72 shrink-0 hidden xl:flex flex-col bg-gray-50 dark:bg-slate-950 p-3 pt-2 border-l border-gray-150 dark:border-slate-850 h-[calc(100vh-57px)] overflow-y-auto scrollbar-none no-scrollbar transition-colors">
@@ -69,56 +70,86 @@ export const RightSidebar: React.FC = () => {
                 </button>
               </div>
             ) : (
-              sortedFriends.slice(0, 6).map(friend => {
-                const isPinned = isChatPinned(friend.id);
-                return (
-                  <button
-                    key={friend.id}
-                    onClick={() => {
-                      playSound('pop');
-                      openDirectChat({
-                        id: friend.id,
-                        name: friend.name,
-                        avatar: friend.avatar || SILHOUETTE_AVATAR,
-                        email: friend.email,
-                        role: friend.role
-                      });
-                    }}
-                    className="w-full flex items-center gap-2.5 p-2 rounded-xl text-left hover:bg-white dark:hover:bg-slate-900 border border-transparent hover:border-purple-200 dark:hover:border-purple-900 transition-all cursor-pointer group"
-                  >
-                    <div className="relative shrink-0">
-                      <img 
-                        src={friend.avatar || SILHOUETTE_AVATAR} 
-                        alt={friend.name} 
-                        className="h-7 w-7 rounded-full object-cover border border-gray-200 dark:border-slate-800" 
-                      />
-                      <span className="absolute bottom-0 right-0 h-2 w-2 rounded-full bg-green-500 border border-white dark:border-slate-950"></span>
-                      {isPinned && (
-                        <span className="absolute -top-1 -left-1 h-3.5 w-3.5 rounded-full bg-blue-600 text-white flex items-center justify-center border border-white dark:border-slate-950">
-                          <Pin className="h-2 w-2 fill-current" />
-                        </span>
-                      )}
-                    </div>
+              <>
+                {displayedFriends.map(friend => {
+                  const isPinned = isChatPinned(friend.id);
+                  const latestTime = getFriendLastActivityTimestamp(friend, directChats, posts, groupChats);
+                  const isRecentlyActive = friend.isOnline || (latestTime > 0 && (Date.now() - latestTime < 5 * 60 * 1000));
+                  const timeText = latestTime > 0 ? formatMessengerTimestamp(undefined, undefined, new Date(latestTime).toISOString()) : '';
 
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1">
-                        <p className="text-xs font-semibold text-gray-800 dark:text-gray-200 group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-colors truncate">
-                          {friend.name}
-                        </p>
+                  return (
+                    <button
+                      key={friend.id}
+                      onClick={() => {
+                        playSound('pop');
+                        openDirectChat({
+                          id: friend.id,
+                          name: friend.name,
+                          avatar: friend.avatar || SILHOUETTE_AVATAR,
+                          email: friend.email,
+                          role: friend.role
+                        });
+                      }}
+                      className="w-full flex items-center gap-2.5 p-2 rounded-xl text-left hover:bg-white dark:hover:bg-slate-900 border border-transparent hover:border-purple-200 dark:hover:border-purple-900 transition-all cursor-pointer group"
+                    >
+                      <div className="relative shrink-0">
+                        <img 
+                          src={friend.avatar || SILHOUETTE_AVATAR} 
+                          alt={friend.name} 
+                          className="h-7 w-7 rounded-full object-cover border border-gray-200 dark:border-slate-800" 
+                        />
+                        <span className={`absolute bottom-0 right-0 h-2 w-2 rounded-full border border-white dark:border-slate-950 ${isRecentlyActive ? 'bg-green-500' : 'bg-gray-400'}`}></span>
                         {isPinned && (
-                          <Pin className="h-2.5 w-2.5 text-blue-500 fill-current shrink-0" />
-                        )}
-                        {friend.role === 'tutor' && (
-                          <ShieldCheck className="h-3 w-3 text-blue-500 shrink-0" />
+                          <span className="absolute -top-1 -left-1 h-3.5 w-3.5 rounded-full bg-blue-600 text-white flex items-center justify-center border border-white dark:border-slate-950">
+                            <Pin className="h-2 w-2 fill-current" />
+                          </span>
                         )}
                       </div>
-                      <p className="text-[10px] text-gray-400 truncate">Online now</p>
-                    </div>
 
-                    <MessageSquare className="h-3.5 w-3.5 text-gray-400 group-hover:text-purple-500 transition-colors shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1">
+                          <p className="text-xs font-semibold text-gray-800 dark:text-gray-200 group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-colors truncate">
+                            {friend.name}
+                          </p>
+                          {isPinned && (
+                            <Pin className="h-2.5 w-2.5 text-blue-500 fill-current shrink-0" />
+                          )}
+                          {friend.role === 'tutor' && (
+                            <ShieldCheck className="h-3 w-3 text-blue-500 shrink-0" />
+                          )}
+                        </div>
+                        <p className="text-[10px] text-gray-400 dark:text-slate-500 truncate">
+                          {isRecentlyActive ? 'Online now' : timeText ? `Active ${timeText}` : 'Offline'}
+                        </p>
+                      </div>
+
+                      <MessageSquare className="h-3.5 w-3.5 text-gray-400 group-hover:text-purple-500 transition-colors shrink-0" />
+                    </button>
+                  );
+                })}
+
+                {sortedFriends.length > 8 && (
+                  <button
+                    onClick={() => {
+                      playSound('pop');
+                      setShowAllFriends(!showAllFriends);
+                    }}
+                    className="w-full py-1 text-center text-[10px] font-semibold text-purple-600 dark:text-purple-400 hover:underline cursor-pointer flex items-center justify-center gap-1"
+                  >
+                    {showAllFriends ? (
+                      <>
+                        <ChevronUp className="h-3 w-3" />
+                        <span>Show less</span>
+                      </>
+                    ) : (
+                      <>
+                        <ChevronDown className="h-3 w-3" />
+                        <span>Show all ({sortedFriends.length})</span>
+                      </>
+                    )}
                   </button>
-                );
-              })
+                )}
+              </>
             )}
           </div>
         </div>

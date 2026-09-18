@@ -253,6 +253,8 @@ export const GroupsView: React.FC = () => {
     const currentUserAvatar = user?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=250';
     const isGlobalAdmin = Boolean(user && (user.role === 'admin' || user.email?.toLowerCase() === 'billkute030709@gmail.com'));
 
+    const isMember = Boolean(activeGroup.isMember || activeGroup.memberUserIds?.includes(currentUserId));
+
     // Find if user is in list
     const userIndex = list.findIndex(m => 
       m.id === currentUserId || 
@@ -262,15 +264,18 @@ export const GroupsView: React.FC = () => {
     );
 
     if (userIndex >= 0) {
-      list[userIndex] = {
-        ...list[userIndex],
-        id: currentUserId,
-        name: currentUserName,
-        avatar: currentUserAvatar,
-        role: effectiveRole === 'admin' ? 'admin' : (list[userIndex].role || effectiveRole || 'member')
-      };
-    } else {
-      // Current user should always be in the cohort list!
+      if (isMember) {
+        list[userIndex] = {
+          ...list[userIndex],
+          id: currentUserId,
+          name: currentUserName,
+          avatar: currentUserAvatar,
+          role: effectiveRole === 'admin' ? 'admin' : (list[userIndex].role || effectiveRole || 'member')
+        };
+      } else {
+        list = list.filter((_, idx) => idx !== userIndex);
+      }
+    } else if (isMember) {
       list.unshift({
         id: currentUserId,
         name: currentUserName,
@@ -669,22 +674,7 @@ export const GroupsView: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex items-center justify-between pt-3 border-t border-gray-150 dark:border-slate-700">
-              {canDeleteGroup ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowEditGroupModal(false);
-                    setShowDeleteGroupModal(true);
-                  }}
-                  className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5 shadow-sm shadow-rose-600/25"
-                  title="Delete group"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  <span>Delete group</span>
-                </button>
-              ) : <div />}
-
+            <div className="flex items-center justify-end pt-3 border-t border-gray-150 dark:border-slate-700">
               <div className="flex gap-2">
                 <button
                   type="button"
@@ -988,18 +978,6 @@ export const GroupsView: React.FC = () => {
               </div>
 
               <div className="flex items-center gap-2">
-                {canDeleteGroup && (
-                  <button
-                    type="button"
-                    onClick={() => setShowDeleteGroupModal(true)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-md shadow-rose-950/40 transition-all cursor-pointer border border-rose-500/30"
-                    title="Delete group"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                    <span>Delete group</span>
-                  </button>
-                )}
-
                 {canModifySettings && (
                   <button
                     type="button"
@@ -1773,17 +1751,6 @@ export const GroupsView: React.FC = () => {
                           <span>Edit Group</span>
                         </button>
                       )}
-                      {canDeleteGroup && (
-                        <button
-                          type="button"
-                          onClick={() => setShowDeleteGroupModal(true)}
-                          className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl transition-all cursor-pointer shadow-sm flex items-center justify-center gap-1.5"
-                          title="Delete group"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                          <span>Delete group</span>
-                        </button>
-                      )}
                     </div>
                   </div>
                 </div>
@@ -2131,32 +2098,22 @@ export const GroupsView: React.FC = () => {
                   </div>
                 )}
 
-                {/* Danger Zone: Delete Group (Admin Only) */}
+                {/* Delete Group Button (Admin Only) */}
                 {canDeleteGroup && (
-                  <div className="bg-white dark:bg-slate-800 rounded-2xl border border-rose-200 dark:border-rose-900/60 p-5 shadow-xs bg-gradient-to-r from-rose-50/40 via-white to-white dark:from-rose-950/20 dark:via-slate-800 dark:to-slate-800 space-y-3">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                      <div className="flex items-start gap-3">
-                        <div className="p-2.5 rounded-xl bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 shrink-0">
-                          <Trash2 className="h-5 w-5" />
-                        </div>
-                        <div>
-                          <h4 className="text-sm font-extrabold text-rose-900 dark:text-rose-200">
-                            Danger Zone: Delete Group
-                          </h4>
-                          <p className="text-[11px] text-rose-700/80 dark:text-rose-400/80 mt-0.5 max-w-lg">
-                            Permanently delete <strong className="font-semibold text-rose-900 dark:text-rose-200">"{activeGroup.name}"</strong>. All uploaded study resources, timeline discussions, and chat history will be permanently deleted. Only the group admin can delete the group.
-                          </p>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setShowDeleteGroupModal(true)}
-                        className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold rounded-xl transition-all cursor-pointer shadow-sm shadow-rose-500/20 flex items-center justify-center gap-1.5 shrink-0 self-start sm:self-center"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                        <span>Delete group</span>
-                      </button>
+                  <div className="pt-5 border-t border-gray-150 dark:border-slate-700/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <h4 className="text-xs font-bold text-gray-800 dark:text-white">Delete Group</h4>
+                      <p className="text-[11px] text-gray-500 dark:text-gray-400">Permanently delete this group and all its study materials.</p>
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowDeleteGroupModal(true)}
+                      className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl transition-all cursor-pointer shadow-xs flex items-center justify-center gap-1.5 shrink-0 self-start sm:self-auto"
+                      title="Delete group"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      <span>Delete group</span>
+                    </button>
                   </div>
                 )}
               </motion.div>

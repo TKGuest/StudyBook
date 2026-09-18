@@ -1,4 +1,4 @@
-import { Post, AlgorithmScoreBreakdown, GRADE_LEVELS, User, CreatorScore, GlobalAlgorithmConfig, DEFAULT_GLOBAL_ALGORITHM_CONFIG } from '../types';
+import { Post, Reel, AlgorithmScoreBreakdown, GRADE_LEVELS, User, CreatorScore, GlobalAlgorithmConfig, DEFAULT_GLOBAL_ALGORITHM_CONFIG } from '../types';
 import { randomizeInBucketsOfFive, shuffleArray } from './newsfeedAlgorithm';
 
 export { randomizeInBucketsOfFive, shuffleArray };
@@ -462,3 +462,176 @@ export function simulateFreshnessDecayTest(hoursList: number[] = [0, 1, 2, 4, 8,
     };
   });
 }
+
+/**
+ * Calculates complete algorithmic score breakdown for an Educational Reel.
+ * Synchronizes core recommendation timeline rules:
+ * - Grade Alignment Boost (+40 pts exact match, +15 pts all grades)
+ * - Freshness & Recency Decay (-2.5 pts/hr)
+ * - Seen Reel View-Penalty (-100 pts)
+ * - Engagement & Popularity (likes and comments)
+ * - Creator Follow & Points
+ * - Subject Affinity Boost
+ */
+export function calculateReelScore(
+  reel: Reel,
+  userOrGrade?: Partial<User> | string,
+  subjectWeights?: Record<string, number>,
+  followingIds?: string[],
+  creatorScores?: Record<string, CreatorScore>,
+  seenReelIds?: string[],
+  customAlgorithmConfig?: Partial<GlobalAlgorithmConfig>
+): AlgorithmScoreBreakdown & { totalScore: number } {
+  const cfg = getActiveGlobalAlgorithmConfig(customAlgorithmConfig);
+
+  const user = typeof userOrGrade === 'string'
+    ? { grade: userOrGrade }
+    : (userOrGrade || {});
+
+  const userGrade = user.grade;
+
+  // Seen reel list checking
+  const activeSeenIds = seenReelIds || (user as any).seenReelIds || user.seenPostIds || [];
+
+  const activeFollowingIds = followingIds || (user as any).followingIds || (user as any).followingUserIds || [];
+  const activeCreatorScores = creatorScores || (user as any).creatorScores || {};
+
+  const reelDate = reel.createdDate || reel.timestamp || reel.createdAt || new Date().toISOString();
+  const { freshnessScore, hoursAgo, decayAmount } = calculateFreshnessValue(reelDate, cfg.baseFreshness, cfg.decayPerHour);
+
+  // 1. Grade Alignment Boost
+  const reelGrade = reel.grade;
+  const normalizedUserGrade = userGrade?.trim().toLowerCase();
+  const normalizedReelGrade = reelGrade?.trim().toLowerCase();
+
+  let isGradeMatch = false;
+  let gradeMatchBoost = 0;
+
+  if (normalizedUserGrade && normalizedReelGrade) {
+    if (normalizedReelGrade === normalizedUserGrade) {
+      isGradeMatch = true;
+      gradeMatchBoost = cfg.gradeMatchBoost;
+    } else if (normalizedReelGrade === 'all' || normalizedReelGrade === 'all grades') {
+      gradeMatchBoost = cfg.allGradesBoost;
+    }
+  }
+
+  // 2. Popularity & Engagement score
+  const likesCount = reel.likes || 0;
+  const commentsCount = reel.comments || 0;
+  const rawPopularity = (likesCount * 3) + (commentsCount * 5);
+  const popularityScore = Math.round(Math.log10(Math.max(0, rawPopularity) + 1) * 20 * 10) / 10;
+
+  // 3. Subject Preference Boost
+  let subjectScore = 0;
+  if (subjectWeights && reel.subject) {
+    const rawWeight = (subjectWeights as any)[reel.subject] ?? subjectWeights['Other'] ?? 50;
+    subjectScore = Math.round((Math.min(100, Math.max(0, rawWeight)) / 100) * ALGORITHM_CONFIG.MAX_SUBJECT_BOOST * 10) / 10;
+  }
+
+  // 4. Creator Points & Decay
+  const creatorId = reel.authorId;
+  const creatorDetails = calculateCreatorPointsAndDecay(
+    creatorId,
+    activeFollowingIds,
+    activeCreatorScores
+  );
+
+  // 5. Seen penalty (-100 points) to push already-viewed reels down
+  const isSeen = activeSeenIds.includes(reel.id);
+  const seenPenalty = isSeen ? ALGORITHM_CONFIG.SEEN_PENALTY : 0;
+
+  const totalScore = Math.round(
+    (freshnessScore +
+      gradeMatchBoost +
+      popularityScore +
+      subjectScore +
+      creatorDetails.creatorScore +
+      seenPenalty) * 10
+  ) / 10;
+
+  return {
+    totalScore,
+    freshnessScore,
+    gradeMatchBoost,
+    languageBoost: 0,
+    popularityScore,
+    subjectScore,
+    creatorScore: creatorDetails.creatorScore,
+    creatorFollowBoost: creatorDetails.creatorFollowBoost,
+    creatorInteractionScore: creatorDetails.creatorInteractionScore,
+    creatorDecayAmount: creatorDetails.creatorDecayAmount,
+    creatorInactivityHours: creatorDetails.creatorInactivityHours,
+    isFollowingCreator: creatorDetails.isFollowingCreator,
+    groupBoost: 0,
+    isGroupPost: false,
+    groupInteractionScore: 0,
+    seenPenalty,
+    hoursAgo,
+    decayAmount,
+    decayRatePerHour: cfg.decayPerHour,
+    baseFreshness: cfg.baseFreshness,
+    isGradeMatch,
+    isSeen
+  };
+}
+
+/**
+ * Synchronizes the core personalized recommendation timeline algorithm directly
+ * to the vertical video Reels discovery stream view.
+ */
+export function rankReelsForUser(
+  reels: Reel[],
+  user?: Partial<User> | null,
+  subjectWeights?: Record<string, number>,
+  followingIds?: string[],
+  creatorScores?: Record<string, CreatorScore>,
+  seenReelIds?: string[],
+  randomizeBuckets: boolean = false
+): Reel[] {
+  if (!reels || reels.length === 0) return [];
+
+  const scoredReels = reels.map(reel => {
+    const breakdown = calculateReelScore(
+      reel,
+      user || undefined,
+      subjectWeights,
+      followingIds,
+      creatorScores,
+      seenReelIds
+    );
+    return {
+      reel: {
+        ...reel,
+        algorithmScore: breakdown.totalScore,
+        scoreBreakdown: breakdown,
+        seenPenalty: breakdown.seenPenalty,
+        isSeen: breakdown.isSeen
+      },
+      scoreBreakdown: breakdown
+    };
+  });
+
+  // Sort by algorithmic score descending, then freshness, then timestamp
+  scoredReels.sort((a, b) => {
+    if (b.scoreBreakdown.totalScore !== a.scoreBreakdown.totalScore) {
+      return b.scoreBreakdown.totalScore - a.scoreBreakdown.totalScore;
+    }
+    if (b.scoreBreakdown.freshnessScore !== a.scoreBreakdown.freshnessScore) {
+      return b.scoreBreakdown.freshnessScore - a.scoreBreakdown.freshnessScore;
+    }
+    const timeA = new Date(a.reel.createdDate || a.reel.timestamp || a.reel.createdAt || 0).getTime();
+    const timeB = new Date(b.reel.createdDate || b.reel.timestamp || b.reel.createdAt || 0).getTime();
+    if (timeB !== timeA) return timeB - timeA;
+    return String(a.reel.id).localeCompare(String(b.reel.id));
+  });
+
+  const ordered = scoredReels.map(sr => sr.reel);
+
+  if (randomizeBuckets) {
+    return randomizeInBucketsOfFive(ordered, 5);
+  }
+
+  return ordered;
+}
+

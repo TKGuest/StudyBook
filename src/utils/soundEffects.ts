@@ -13,7 +13,8 @@ export type SoundType =
   | 'toggle' 
   | 'notification' 
   | 'tab' 
-  | 'streak';
+  | 'streak'
+  | 'error';
 
 let audioCtx: AudioContext | null = null;
 let cachedEnabled: boolean | null = null;
@@ -308,6 +309,27 @@ export function playSound(type: SoundType, customVolume?: number) {
           gain.connect(ctx.destination);
           osc.start(startTime);
           osc.stop(startTime + 0.16);
+        });
+        break;
+      }
+
+      case 'error': {
+        // Low double alert tone
+        [240, 190].forEach((freq, idx) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          const startTime = now + idx * 0.08;
+
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(freq, startTime);
+
+          gain.gain.setValueAtTime(masterVol * 0.28, startTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.07);
+
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(startTime);
+          osc.stop(startTime + 0.07);
         });
         break;
       }

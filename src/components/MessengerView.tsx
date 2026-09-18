@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import { DirectChat, DirectMessage, StudyGroup, GroupChat, Message } from '../types';
-import { consolidateDirectChats, formatMessengerTimestamp, getMessageTimestampNum } from '../utils/chatUtils';
+import { consolidateDirectChats, formatMessengerTimestamp, getMessageTimestampNum, sortFriendsByLastActivity } from '../utils/chatUtils';
 import { playSound } from '../utils/soundEffects';
 import { SILHOUETTE_AVATAR } from '../data/mockData';
 import { 
@@ -70,6 +70,7 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
     groups,
     groupChats,
     joinedGroupIds,
+    posts,
     sendGroupMessage,
     toggleJoinGroup,
     setActiveTab,
@@ -316,13 +317,14 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
   const isBlocked = otherParticipant ? isUserBlocked(otherParticipant.id) : false;
 
   const filteredFriends = useMemo(() => {
-    if (!friendSearch.trim()) return friends;
+    const sorted = sortFriendsByLastActivity(friends, cleanDirectChats, posts, groupChats);
+    if (!friendSearch.trim()) return sorted;
     const q = friendSearch.toLowerCase();
-    return friends.filter(f => 
+    return sorted.filter(f => 
       f.name.toLowerCase().includes(q) || 
       (f.institution && f.institution.toLowerCase().includes(q))
     );
-  }, [friends, friendSearch]);
+  }, [friends, friendSearch, cleanDirectChats, posts, groupChats]);
 
   const handleToggleFriendSelection = (friendId: string) => {
     setSelectedFriendIds(prev => 

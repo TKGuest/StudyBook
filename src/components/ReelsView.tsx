@@ -1,7 +1,9 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import { playSound } from '../utils/soundEffects';
 import { CreateReelModal } from './CreateReelModal';
+import { rankReelsForUser } from '../utils/feedAlgorithm';
+import { canUserDeleteReel } from '../utils/permissionUtils';
 import { 
   ThumbsUp, 
   MessageSquare, 
@@ -40,6 +42,43 @@ export const ReelsView: React.FC = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  const [seenReelIds, setSeenReelIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem(`sb_seen_reels_${user?.id || 'guest'}`);
+      return saved ? JSON.parse(saved) : (user?.seenPostIds || []);
+    } catch (_) { return []; }
+  });
+
+  // Vertical feed algorithm synchronization (grade alignment boosts, recency decay, and seen post view-penalties)
+  const rankedReels = useMemo(() => {
+    return rankReelsForUser(
+      reels,
+      user,
+      undefined,
+      user?.followingUserIds,
+      undefined,
+      seenReelIds
+    );
+  }, [reels, user, seenReelIds]);
+
+  // Automatically register seen reel after brief viewing duration to apply seen view-penalty
+  useEffect(() => {
+    const currentReel = rankedReels[activeReelIndex];
+    if (currentReel && !seenReelIds.includes(currentReel.id)) {
+      const timer = setTimeout(() => {
+        setSeenReelIds(prev => {
+          if (prev.includes(currentReel.id)) return prev;
+          const next = [...prev, currentReel.id];
+          try {
+            localStorage.setItem(`sb_seen_reels_${user?.id || 'guest'}`, JSON.stringify(next));
+          } catch (_) {}
+          return next;
+        });
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [activeReelIndex, rankedReels, seenReelIds, user?.id]);
+
   const [savedReels, setSavedReels] = useState<Record<string, boolean>>(() => {
     try {
       const saved = localStorage.getItem(`sb_saved_reels_${user?.id || 'guest'}`);
@@ -69,7 +108,7 @@ export const ReelsView: React.FC = () => {
 
   // Auto-play active reel & pause others
   useEffect(() => {
-    reels.forEach((reel, idx) => {
+    rankedReels.forEach((reel, idx) => {
       const vid = videoRefs.current[reel.id];
       if (vid) {
         if (idx === activeReelIndex) {
@@ -82,19 +121,19 @@ export const ReelsView: React.FC = () => {
         }
       }
     });
-  }, [activeReelIndex, reels, playingStates]);
+  }, [activeReelIndex, rankedReels, playingStates]);
 
   const handleScroll = () => {
     if (!containerRef.current) return;
     const { scrollTop, clientHeight } = containerRef.current;
     const index = Math.round(scrollTop / clientHeight);
-    if (index >= 0 && index < reels.length && index !== activeReelIndex) {
+    if (index >= 0 && index < rankedReels.length && index !== activeReelIndex) {
       setActiveReelIndex(index);
     }
   };
 
   const scrollToReel = (index: number) => {
-    if (index < 0 || index >= reels.length || !containerRef.current) return;
+    if (index < 0 || index >= rankedReels.length || !containerRef.current) return;
     const targetY = index * containerRef.current.clientHeight;
     containerRef.current.scrollTo({ top: targetY, behavior: 'smooth' });
     setActiveReelIndex(index);
@@ -238,7 +277,7 @@ export const ReelsView: React.FC = () => {
         onScroll={handleScroll}
         className="w-full h-full md:max-w-[420px] md:h-[calc(100vh-70px)] md:max-h-[750px] overflow-y-auto snap-y snap-mandatory scrollbar-none md:rounded-3xl md:shadow-2xl md:border md:border-neutral-800 bg-black relative"
       >
-        {reels.length === 0 ? (
+        {rankedReels.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full p-8 text-center space-y-4 text-neutral-400">
             <div className="h-16 w-16 rounded-full bg-neutral-900 flex items-center justify-center text-neutral-500 border border-neutral-800">
               <Film className="h-8 w-8" />
@@ -257,14 +296,14 @@ export const ReelsView: React.FC = () => {
             </button>
           </div>
         ) : (
-          reels.map((reel, index) => {
+          rankedReels.map((reel, index) => {
           const isPlaying = playingStates[reel.id] !== false;
           const isMuted = mutedStates[reel.id] ?? true;
           const isSaved = savedReels[reel.id];
           const isCaptionExpanded = expandedCaptions[reel.id];
           const reelComments = commentsMap[reel.id] || [];
           const totalComments = reel.comments + reelComments.length;
-          const isAuthorOrAdmin = reel.authorId === user?.id || reel.tutorName === user?.name || user?.role === 'admin';
+          const isAuthorOrAdmin = canUserDeleteReel(reel, user);
 
           return (
             <div 
@@ -598,7 +637,7 @@ export const ReelsView: React.FC = () => {
 
         <button
           onClick={() => scrollToReel(activeReelIndex + 1)}
-          disabled={activeReelIndex === reels.length - 1}
+          disabled={activeReelIndex === rankedReels.length - 1}
           className="p-3 rounded-full bg-neutral-900 border border-neutral-800 text-white hover:bg-neutral-800 disabled:opacity-30 disabled:hover:bg-neutral-900 transition-colors shadow-lg"
           title="Next Reel"
         >

@@ -1,4 +1,4 @@
-import { User, StudyGroup, GroupRole, GroupMember, GroupSettings } from '../types';
+import { User, StudyGroup, GroupRole, GroupMember, GroupSettings, Reel, AppSettings } from '../types';
 
 export type { GroupRole };
 
@@ -466,4 +466,64 @@ export function canUserApprovePosts(
   const role = getUserGroupRole(group, user, simulatedRole);
   return role === 'admin' || role === 'leader' || role === 'moderator';
 }
+
+/**
+ * Permission rule for deleting an Educational Reel:
+ * A user has exclusive authority to delete their own created videos,
+ * while an Admin maintains overriding authority to remove any video reel.
+ */
+export function canUserDeleteReel(reel: Reel, user: User | null | undefined): boolean {
+  if (!user || !reel) return false;
+
+  // Global platform admin overriding authority
+  const isGlobalAdmin = user.role === 'admin' || user.email?.toLowerCase() === 'billkute030709@gmail.com';
+  if (isGlobalAdmin) return true;
+
+  // Author exclusive authority
+  const isAuthor = Boolean(
+    (reel.authorId && (reel.authorId === user.id || reel.authorId === `u_${user.id}`)) ||
+    (reel.tutorName && user.name && reel.tutorName.trim().toLowerCase() === user.name.trim().toLowerCase())
+  );
+
+  return isAuthor;
+}
+
+/**
+ * Safety Messaging Guard:
+ * The moment a user publishes a marketplace listing, check their privacy settings configuration.
+ * If they previously toggled "Allow direct messages from strangers" to ON, automatically force it to OFF.
+ * This ensures stranger messaging channels are securely turned off while a public listing remains active.
+ */
+export function interceptMarketplacePrivacySettings(
+  user: User,
+  settings: AppSettings
+): {
+  user: User;
+  settings: AppSettings;
+  wasModified: boolean;
+} {
+  // If allowDMsFromStrangers is NOT explicitly false (i.e. is true or undefined/default ON)
+  const isStrangerDMsEnabled = settings.allowDMsFromStrangers !== false || user.allowDMsFromStrangers !== false;
+
+  if (isStrangerDMsEnabled) {
+    return {
+      user: {
+        ...user,
+        allowDMsFromStrangers: false
+      },
+      settings: {
+        ...settings,
+        allowDMsFromStrangers: false
+      },
+      wasModified: true
+    };
+  }
+
+  return {
+    user,
+    settings,
+    wasModified: false
+  };
+}
+
 

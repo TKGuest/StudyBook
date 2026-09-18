@@ -21,7 +21,9 @@ import {
   canUserDeleteGroup,
   canUserModifySettings,
   canUserReviewJoinRequests,
-  canUserApprovePosts
+  canUserApprovePosts,
+  canUserDeleteReel,
+  interceptMarketplacePrivacySettings
 } from '../utils/permissionUtils';
 import {
   extractPostIdFromUrl,
@@ -454,40 +456,20 @@ const normalizeGroupForUser = (g: StudyGroup, userOrId?: User | string | null): 
     }
   }
 
-  let creatorId = g.creatorId || 'u_current';
-  if (creatorId === 'u_current' && currentUserId !== 'u_current') {
-    creatorId = currentUserId;
+  let creatorId = g.creatorId;
+  if (!creatorId && adminUserIds.length > 0) {
+    creatorId = adminUserIds[0];
   }
 
   const isUserAdminOfGroup = Boolean(
-    isGlobalAdmin ||
-    creatorId === currentUserId ||
+    (creatorId && creatorId === currentUserId) ||
     adminUserIds.includes(currentUserId)
   );
 
   if (isUserAdminOfGroup) {
-    // STRICT RULE: Only 1 admin allowed! Current user is the sole admin
-    adminUserIds = [currentUserId];
+    if (!adminUserIds.includes(currentUserId)) adminUserIds = [currentUserId, ...adminUserIds.filter(id => id !== currentUserId)];
     if (!memberUserIds.includes(currentUserId)) memberUserIds.push(currentUserId);
-    Object.keys(memberRoles).forEach(uid => {
-      if (uid !== currentUserId && memberRoles[uid] === 'admin') {
-        memberRoles[uid] = 'moderator';
-        if (!leaderUserIds.includes(uid)) leaderUserIds.push(uid);
-      }
-    });
     memberRoles[currentUserId] = 'admin';
-  } else {
-    // Current user is not admin - ensure at most 1 admin exists
-    if (adminUserIds.length > 1) {
-      const primaryAdminId = (creatorId && adminUserIds.includes(creatorId)) ? creatorId : adminUserIds[0];
-      adminUserIds = [primaryAdminId];
-      Object.keys(memberRoles).forEach(uid => {
-        if (uid !== primaryAdminId && memberRoles[uid] === 'admin') {
-          memberRoles[uid] = 'moderator';
-          if (!leaderUserIds.includes(uid)) leaderUserIds.push(uid);
-        }
-      });
-    }
   }
 
   // Make sure admin and leader ids are in memberUserIds
@@ -499,6 +481,12 @@ const normalizeGroupForUser = (g: StudyGroup, userOrId?: User | string | null): 
     if (!memberUserIds.includes(id)) memberUserIds.push(id);
     if (!memberRoles[id]) memberRoles[id] = 'moderator';
   });
+
+  const isMember = Boolean(
+    isUserAdminOfGroup ||
+    memberUserIds.includes(currentUserId) ||
+    (Array.isArray(g.members) && g.members.some(m => m.id === currentUserId))
+  );
 
   let members: GroupMember[] = Array.isArray(g.members) ? [...g.members] : [];
 
@@ -516,9 +504,8 @@ const normalizeGroupForUser = (g: StudyGroup, userOrId?: User | string | null): 
     return m;
   });
 
-  // Ensure current user is in members list if admin or member
-  const shouldIncludeUserInMembers = isUserAdminOfGroup || g.isMember || memberUserIds.includes(currentUserId);
-  if (shouldIncludeUserInMembers && !members.some(m => m.id === currentUserId)) {
+  // Ensure current user is in members list only if actually a member
+  if (isMember && !members.some(m => m.id === currentUserId)) {
     members.unshift({
       id: currentUserId,
       name: currentUserName,
@@ -527,18 +514,40 @@ const normalizeGroupForUser = (g: StudyGroup, userOrId?: User | string | null): 
       grade: userObj?.grade || 'Grade 10',
       joinedAt: 'Recently'
     });
+  } else if (!isMember) {
+    // If not a member, ensure they are NOT in members list or memberUserIds
+    members = members.filter(m => m.id !== currentUserId && m.id !== 'u_current');
+    memberUserIds = memberUserIds.filter(id => id !== currentUserId && id !== 'u_current');
+    adminUserIds = adminUserIds.filter(id => id !== currentUserId && id !== 'u_current');
+    leaderUserIds = leaderUserIds.filter(id => id !== currentUserId && id !== 'u_current');
+  }
+
+  // Look up known users to resolve names and avatars for other members
+  let localUsersMap: Record<string, any> = {};
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      const parsedLocal = JSON.parse(localStorage.getItem('sb_local_users') || '[]');
+      if (Array.isArray(parsedLocal)) {
+        parsedLocal.forEach((u: any) => { if (u?.id) localUsersMap[u.id] = u; });
+      }
+      const parsedComm = JSON.parse(localStorage.getItem('sb_community_users') || '[]');
+      if (Array.isArray(parsedComm)) {
+        parsedComm.forEach((u: any) => { if (u?.id) localUsersMap[u.id] = u; });
+      }
+    } catch (_) {}
   }
 
   // Ensure every member ID in memberUserIds has an entry in members array
   memberUserIds.forEach(mId => {
     if (!members.some(m => m.id === mId)) {
       const assignedRole = memberRoles[mId] || (adminUserIds.includes(mId) ? 'admin' : leaderUserIds.includes(mId) ? 'moderator' : 'member');
+      const knownUser = localUsersMap[mId];
       members.push({
         id: mId,
-        name: mId === currentUserId ? currentUserName : `Student (${mId.slice(0, 6)})`,
-        avatar: mId === currentUserId ? currentUserAvatar : SILHOUETTE_AVATAR,
+        name: mId === currentUserId ? currentUserName : (knownUser?.name || `Student (${mId.slice(0, 6)})`),
+        avatar: mId === currentUserId ? currentUserAvatar : (knownUser?.avatar || SILHOUETTE_AVATAR),
         role: assignedRole,
-        grade: 'Grade 10',
+        grade: knownUser?.grade || 'Grade 10',
         joinedAt: 'Recently'
       });
     }
@@ -570,13 +579,6 @@ const normalizeGroupForUser = (g: StudyGroup, userOrId?: User | string | null): 
     return { ...m, role, joinedAt };
   });
 
-  const isMember = Boolean(
-    shouldIncludeUserInMembers ||
-    memberUserIds.includes(currentUserId) ||
-    members.some(m => m.id === currentUserId) ||
-    g.isMember
-  );
-
   const normalizedEvents = (g.events || []).map(ev => {
     let attendeeUserIds: string[] = Array.isArray(ev.attendeeUserIds) ? [...ev.attendeeUserIds] : [];
     if (isAuthenticatedUser) {
@@ -596,7 +598,7 @@ const normalizeGroupForUser = (g: StudyGroup, userOrId?: User | string | null): 
     };
   });
 
-  const totalMemberCount = Math.max(members.length, memberUserIds.length, g.memberCount || 1, g.membersCount || 1);
+  const totalMemberCount = Math.max(members.length, memberUserIds.length);
 
   return {
     ...g,
@@ -776,8 +778,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [reels, setReels] = useState<Reel[]>(() => {
     try {
       const saved = localStorage.getItem('sb_reels');
-      return saved ? JSON.parse(saved) : initialReels;
-    } catch (_) { return initialReels; }
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
+      return [];
+    } catch (_) { return []; }
   });
 
   const [marketplace, setMarketplace] = useState<MarketplaceItem[]>(() => {
@@ -867,8 +873,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
     const pts = pointValues[actionType] || 5;
 
-    // Auto join group if interacting with it
-    setJoinedGroupIds(prev => prev.includes(groupId) ? prev : [...prev, groupId]);
+    // Auto join group only when explicitly joining
+    if (actionType === 'join') {
+      setJoinedGroupIds(prev => prev.includes(groupId) ? prev : [...prev, groupId]);
+    }
 
     setGroupInteractions(prev => {
       const current = prev[groupId] || {
@@ -893,16 +901,57 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
-  const toggleJoinGroup = (groupId: string) => {
+  const toggleJoinGroup = async (groupId: string) => {
     if (!groupId) return;
-    setJoinedGroupIds(prev => {
-      if (prev.includes(groupId)) {
-        return prev.filter(id => id !== groupId);
-      } else {
-        recordGroupInteraction(groupId, 'join');
-        return [...prev, groupId];
+    const isCurrentlyJoined = joinedGroupIds.includes(groupId) || groups.some(g => g.id === groupId && (g.isMember || g.memberUserIds?.includes(user.id) || g.members?.some(m => m.id === user.id)));
+    if (isCurrentlyJoined) {
+      await leaveStudyGroup(groupId);
+    } else {
+      playSound('pop');
+      recordGroupInteraction(groupId, 'join');
+      setJoinedGroupIds(prev => Array.from(new Set([...prev, groupId])));
+      setGroups(prev => {
+        const next = prev.map(g => {
+          if (g.id !== groupId) return g;
+          const updatedMemberIds = Array.from(new Set([...(g.memberUserIds || []), user.id]));
+          const currentMembers = Array.isArray(g.members) ? [...g.members] : [];
+          if (!currentMembers.some(m => m.id === user.id)) {
+            currentMembers.push({
+              id: user.id,
+              name: user.name || 'Student',
+              avatar: user.avatar || SILHOUETTE_AVATAR,
+              role: 'member',
+              grade: user.grade || 'Grade 10',
+              joinedAt: 'Recently'
+            });
+          }
+          const updatedRoles = { ...(g.memberRoles || {}), [user.id]: 'member' as GroupRole };
+          return {
+            ...g,
+            isMember: true,
+            memberCount: Math.max(currentMembers.length, (g.memberCount || 0) + 1),
+            membersCount: Math.max(currentMembers.length, (g.membersCount || 0) + 1),
+            memberUserIds: updatedMemberIds,
+            members: currentMembers,
+            memberRoles: updatedRoles
+          };
+        });
+        try { localStorage.setItem('sb_groups', JSON.stringify(next)); } catch (_) {}
+        return next;
+      });
+
+      if (isFirebaseConfigured) {
+        try {
+          const groupRef = doc(db, 'groups', groupId);
+          await updateDoc(groupRef, {
+            memberUserIds: arrayUnion(user.id),
+            [`memberRoles.${user.id}`]: 'member'
+          });
+        } catch (err) {
+          console.warn('Failed to join group in Firestore:', err);
+        }
       }
-    });
+    }
   };
 
   const [friends, setFriends] = useState<Friend[]>(() => {
@@ -1396,14 +1445,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // D. Sync Reels
     const unsubscribeReels = onSnapshot(collection(db, 'reels'), async (snapshot) => {
       if (snapshot.empty) {
-        // Auto-seed reels
-        for (const r of initialReels) {
-          try {
-            await setDoc(doc(db, 'reels', r.id), cleanForFirestore(r));
-          } catch (e) {
-            console.warn('Failed to seed reel:', e);
-          }
-        }
+        // Prevent injecting fake placeholder clips or auto-generating background videos when repository is empty
+        setReels([]);
+        try { localStorage.setItem('sb_reels', JSON.stringify([])); } catch (_) {}
       } else {
         const loaded: Reel[] = [];
         snapshot.forEach((d) => loaded.push(d.data() as Reel));
@@ -1417,13 +1461,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (saved) {
         try { 
           const loaded = JSON.parse(saved);
-          setReels(loaded.map((r: Reel) => normalizeReelForUser(r, user.id))); 
-        } catch (_) { 
-          setReels(initialReels.map(r => normalizeReelForUser(r, user.id))); 
-        }
-      } else {
-        setReels(initialReels.map(r => normalizeReelForUser(r, user.id)));
+          if (Array.isArray(loaded)) {
+            setReels(loaded.map((r: Reel) => normalizeReelForUser(r, user.id))); 
+            return;
+          }
+        } catch (_) {}
       }
+      setReels([]);
     });
 
     // E. Sync Marketplace
@@ -2644,6 +2688,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const deleteReel = async (reelId: string) => {
+    const targetReel = reels.find(r => r.id === reelId);
+    if (targetReel && !canUserDeleteReel(targetReel, user)) {
+      alert('You can only delete reels you created, unless you are an administrator.');
+      return;
+    }
+
     setReels(prev => prev.filter(r => r.id !== reelId));
 
     if (isFirebaseConfigured) {
@@ -2675,7 +2725,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       category: category || 'General',
       memberCount: 1,
       membersCount: 1,
-      isMember: true,
       adminUserIds: [currentUserId],
       leaderUserIds: [],
       memberUserIds: [currentUserId],
@@ -3128,7 +3177,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return next;
     });
 
-    setJoinedGroupIds(prev => prev.filter(id => id !== groupId));
+    setJoinedGroupIds(prev => {
+      const next = prev.filter(id => id !== groupId);
+      try { localStorage.setItem('sb_joined_groups', JSON.stringify(next)); } catch (_) {}
+      return next;
+    });
 
     try {
       const selected = localStorage.getItem('sb_selected_group_id');
@@ -3386,15 +3439,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const addMarketplaceItem = async (item: Omit<MarketplaceItem, 'id' | 'seller' | 'distance'>) => {
+    // Safety Messaging Guard: The moment a user publishes a marketplace listing,
+    // if they previously toggled "Allow direct messages from strangers" to ON, automatically force it to OFF.
+    const privacyCheck = interceptMarketplacePrivacySettings(user, settings);
+    if (privacyCheck.wasModified) {
+      setUser(privacyCheck.user);
+      setSettings(privacyCheck.settings);
+      try {
+        localStorage.setItem('sb_user', JSON.stringify(cleanForFirestore(privacyCheck.user)));
+        localStorage.setItem('sb_settings', JSON.stringify(privacyCheck.settings));
+      } catch (_) {}
+    }
+
     const newItem: MarketplaceItem = {
       ...item,
       id: `m_${Date.now()}`,
       distance: Number((Math.random() * 4.5 + 0.2).toFixed(1)),
       seller: {
+        id: user.id,
         name: user.name,
         avatar: user.avatar,
         rating: 5.0
-      }
+      },
+      createdAt: new Date().toISOString()
     };
 
     // --- OPTIMISTIC LOCAL STATE UPDATE ---
@@ -4249,7 +4316,8 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
       avatar: req.senderAvatar,
       email: req.senderEmail,
       addedAt: 'Just now',
-      isOnline: true
+      isOnline: true,
+      lastActivityTime: new Date().toISOString()
     };
 
     setFriends(prev => {
@@ -4713,6 +4781,20 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
 
       const consolidated = consolidateDirectChats(updatedList, user.id || 'u_current', user.name || '');
       localStorage.setItem('sb_direct_chats', JSON.stringify(consolidated));
+
+      // Also update friend's lastActivityTime in friends state and localStorage
+      if (otherP) {
+        setFriends(fList => {
+          const next = fList.map(f => {
+            if (f.id === otherP.id || (f.email && otherP.email && f.email.toLowerCase() === otherP.email.toLowerCase())) {
+              return { ...f, lastActivityTime: isoNow };
+            }
+            return f;
+          });
+          try { localStorage.setItem('sb_friends', JSON.stringify(next)); } catch (_) {}
+          return next;
+        });
+      }
 
       if (isFirebaseConfigured) {
         const chatToSave = consolidated.find(c => c.id === chatId) || updatedList.find(c => c.id === chatId);

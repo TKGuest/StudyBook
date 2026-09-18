@@ -1,8 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { playSound } from '../utils/soundEffects';
-import { PickerOverlay } from 'filestack-react';
-import { FILESTACK_API_KEY } from '../lib/filestack';
 import {
   X,
   Upload,
@@ -13,11 +11,7 @@ import {
   Pause,
   Volume2,
   VolumeX,
-  Globe,
-  Sparkles,
-  RefreshCw,
-  HelpCircle,
-  CloudUpload
+  RefreshCw
 } from 'lucide-react';
 
 interface CreateReelModalProps {
@@ -26,37 +20,9 @@ interface CreateReelModalProps {
   onSuccess?: (newReelId: string) => void;
 }
 
-const PRESET_STUDY_VIDEOS = [
-  {
-    title: '📐 Math: Visual Proofs',
-    url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
-    subject: 'Math',
-    caption: 'Visual proof of quadratic formulas & geometry! 📐 Watch step-by-step shortcuts.'
-  },
-  {
-    title: '⚡ Physics: Angular Momentum',
-    url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4',
-    subject: 'Physics',
-    caption: 'Why gyroscopes & bicycles stay upright! ⚡ Conservation of momentum explained in 45s.'
-  },
-  {
-    title: '🧪 Chemistry: Color Kinetics',
-    url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4',
-    subject: 'Chemistry',
-    caption: 'Watch this oscillating chemical clock reaction! 🧪 RedOx reactions and electron transfers.'
-  },
-  {
-    title: '📚 English: Essay Hooks',
-    url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyBlazes.mp4',
-    subject: 'English',
-    caption: '3 argumentative essay transition hooks that examiners love! 📚 Stop using "Nowadays".'
-  }
-];
-
 export const CreateReelModal: React.FC<CreateReelModalProps> = ({ isOpen, onClose, onSuccess }) => {
   const { user, addReel } = useApp();
 
-  const [videoSourceType, setVideoSourceType] = useState<'upload' | 'url'>('upload');
   const [videoUrl, setVideoUrl] = useState('');
   const [videoFileName, setVideoFileName] = useState('');
   const [caption, setCaption] = useState('');
@@ -65,32 +31,19 @@ export const CreateReelModal: React.FC<CreateReelModalProps> = ({ isOpen, onClos
   const [audioTrack, setAudioTrack] = useState(`Original Audio - ${user?.name || 'Student'}`);
   const [hasWorksheet, setHasWorksheet] = useState(false);
   const [worksheetTitle, setWorksheetTitle] = useState('');
-  const [worksheetSize, setWorksheetSize] = useState('1.5 MB');
+  const [worksheetSize, setWorksheetSize] = useState('');
+  const [worksheetUrl, setWorksheetUrl] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
-  const [showFilestackPicker, setShowFilestackPicker] = useState(false);
 
   // Video preview player states
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState(true);
   const [isMuted, setIsMuted] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const pdfInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
-
-  const handleFilestackUploadDone = (res: any) => {
-    setShowFilestackPicker(false);
-    if (res?.filesUploaded && res.filesUploaded.length > 0) {
-      const file = res.filesUploaded[0];
-      setVideoUrl(file.url);
-      setVideoFileName(file.filename || 'Cloud Video');
-      setErrorMsg('');
-      playSound('pop');
-      if (!caption) {
-        setCaption(`Quick study summary on ${subject}! 📚 #StudyTips #${subject}`);
-      }
-    }
-  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -112,11 +65,32 @@ export const CreateReelModal: React.FC<CreateReelModalProps> = ({ isOpen, onClos
     }
   };
 
-  const handleSelectPreset = (preset: typeof PRESET_STUDY_VIDEOS[0]) => {
-    setVideoUrl(preset.url);
-    setVideoFileName(preset.title);
-    setSubject(preset.subject);
-    setCaption(preset.caption);
+  const handlePdfUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Automated PDF Worksheet Validation: exclusively accept PDF document types
+    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+    if (!isPdf) {
+      setErrorMsg('Worksheet attachment strictly accepts PDF documents only (.pdf).');
+      playSound('error');
+      if (pdfInputRef.current) pdfInputRef.current.value = '';
+      return;
+    }
+
+    // Automatically read physical file size from file.size property
+    const bytes = file.size;
+    let formattedSize = '0 KB';
+    if (bytes >= 1024 * 1024) {
+      formattedSize = `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    } else {
+      formattedSize = `${Math.max(1, Math.round(bytes / 1024))} KB`;
+    }
+
+    setWorksheetTitle(file.name);
+    setWorksheetSize(formattedSize);
+    const objectUrl = URL.createObjectURL(file);
+    setWorksheetUrl(objectUrl);
     setErrorMsg('');
     playSound('pop');
   };
@@ -144,7 +118,7 @@ export const CreateReelModal: React.FC<CreateReelModalProps> = ({ isOpen, onClos
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!videoUrl) {
-      setErrorMsg('Please upload a video or pick an educational clip.');
+      setErrorMsg('Please upload a video for your reel.');
       return;
     }
 
@@ -166,8 +140,8 @@ export const CreateReelModal: React.FC<CreateReelModalProps> = ({ isOpen, onClos
         audioTrack: audioTrack.trim() || `Original Audio - ${user?.name || 'Student'}`,
         worksheet: hasWorksheet && worksheetTitle.trim() ? {
           title: worksheetTitle.trim().endsWith('.pdf') ? worksheetTitle.trim() : `${worksheetTitle.trim()}.pdf`,
-          url: '#',
-          size: worksheetSize || '1.2 MB'
+          url: worksheetUrl || '#',
+          size: worksheetSize || 'Auto-detected'
         } : undefined
       });
 
@@ -278,45 +252,32 @@ export const CreateReelModal: React.FC<CreateReelModalProps> = ({ isOpen, onClos
                   </div>
                   <div>
                     <p className="text-xs font-bold text-neutral-200">No video selected</p>
-                    <p className="text-[11px] text-neutral-400 mt-1">Upload video or pick a sample study clip</p>
+                    <p className="text-[11px] text-neutral-400 mt-1">Select an educational video to upload</p>
                   </div>
                   <div className="flex flex-col gap-2 w-full max-w-[200px]">
                     <button
                       type="button"
-                      onClick={() => setShowFilestackPicker(true)}
-                      className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md transition-all cursor-pointer flex items-center justify-center gap-1.5"
-                    >
-                      <CloudUpload className="h-4 w-4" />
-                      Upload to Cloud
-                    </button>
-                    <button
-                      type="button"
                       onClick={() => fileInputRef.current?.click()}
-                      className="px-3 py-1.5 rounded-xl bg-neutral-800 hover:bg-neutral-750 text-neutral-300 font-semibold text-xs border border-neutral-700 transition-all cursor-pointer"
+                      className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md transition-all cursor-pointer flex items-center justify-center gap-2"
                     >
-                      Browse Local Video
+                      <Upload className="h-4 w-4" />
+                      <span>Upload</span>
                     </button>
                   </div>
                 </div>
               )}
             </div>
 
-            {/* Change video button if already picked */}
+            {/* Change video button if already picked - consolidated into single Upload button */}
             {videoUrl && (
               <div className="flex items-center gap-3">
                 <button
                   type="button"
-                  onClick={() => setShowFilestackPicker(true)}
-                  className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 cursor-pointer"
-                >
-                  <CloudUpload className="h-3.5 w-3.5" /> Upload Different Video (Filestack)
-                </button>
-                <button
-                  type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="text-xs font-semibold text-gray-500 hover:underline flex items-center gap-1 cursor-pointer"
+                  className="px-3 py-1.5 rounded-xl bg-gray-100 hover:bg-gray-200 dark:bg-neutral-800 dark:hover:bg-neutral-750 text-xs font-semibold text-blue-600 dark:text-blue-400 flex items-center gap-1.5 cursor-pointer transition-colors"
                 >
-                  <RefreshCw className="h-3 w-3" /> Local File
+                  <Upload className="h-3.5 w-3.5" />
+                  <span>Upload</span>
                 </button>
               </div>
             )}
@@ -332,29 +293,6 @@ export const CreateReelModal: React.FC<CreateReelModalProps> = ({ isOpen, onClos
 
           {/* Right Column: Reel Details Form (7 cols) */}
           <form onSubmit={handleSubmit} className="md:col-span-7 flex flex-col space-y-4">
-            {/* Quick Presets for instant testing */}
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
-                  <Sparkles className="h-3.5 w-3.5 text-amber-500" />
-                  Quick Sample Educational Clips:
-                </span>
-                <span className="text-[10px] text-gray-400">One-click test</span>
-              </div>
-              <div className="grid grid-cols-2 gap-1.5">
-                {PRESET_STUDY_VIDEOS.map((preset, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    onClick={() => handleSelectPreset(preset)}
-                    className="p-2 text-left rounded-xl bg-gray-50 dark:bg-neutral-800/80 hover:bg-blue-50 dark:hover:bg-neutral-750 border border-gray-200 dark:border-neutral-700 transition-all text-[11px] font-semibold truncate flex items-center gap-1.5 cursor-pointer text-gray-700 dark:text-gray-200"
-                  >
-                    <span className="truncate">{preset.title}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
             {/* Direct Video URL toggle */}
             <div className="pt-1">
               <div className="flex items-center justify-between mb-1">
@@ -427,41 +365,77 @@ export const CreateReelModal: React.FC<CreateReelModalProps> = ({ isOpen, onClos
               </div>
             </div>
 
-            {/* Optional Worksheet / Notes Attachment */}
+            {/* Automated PDF Worksheet Validation: exclusively accept PDF document types with auto-detected size */}
             <div className="p-3 rounded-xl bg-gray-50 dark:bg-neutral-800/60 border border-gray-200 dark:border-neutral-700/80 space-y-2">
               <label className="flex items-center gap-2 cursor-pointer select-none">
                 <input
                   type="checkbox"
                   checked={hasWorksheet}
-                  onChange={e => setHasWorksheet(e.target.checked)}
+                  onChange={e => {
+                    setHasWorksheet(e.target.checked);
+                    if (!e.target.checked) {
+                      setWorksheetTitle('');
+                      setWorksheetSize('');
+                      setWorksheetUrl('');
+                    }
+                  }}
                   className="rounded text-blue-600 focus:ring-blue-500 h-4 w-4"
                 />
                 <span className="text-xs font-bold text-gray-800 dark:text-gray-200 flex items-center gap-1.5">
                   <FileText className="h-3.5 w-3.5 text-red-500" />
-                  Attach Free Study Notes / Worksheet (PDF)
+                  Attach Free Study Notes / Worksheet (PDF only)
                 </span>
               </label>
 
               {hasWorksheet && (
-                <div className="grid grid-cols-3 gap-2 pt-1 animate-in fade-in duration-150">
-                  <div className="col-span-2">
-                    <input
-                      type="text"
-                      value={worksheetTitle}
-                      onChange={e => setWorksheetTitle(e.target.value)}
-                      placeholder="e.g. Formula_Shortcuts_Summary.pdf"
-                      className="w-full px-2.5 py-1.5 rounded-lg text-xs bg-white dark:bg-neutral-900 border border-gray-300 dark:border-neutral-700 focus:outline-none text-gray-900 dark:text-white"
-                    />
-                  </div>
-                  <div>
-                    <input
-                      type="text"
-                      value={worksheetSize}
-                      onChange={e => setWorksheetSize(e.target.value)}
-                      placeholder="Size (e.g. 1.5 MB)"
-                      className="w-full px-2.5 py-1.5 rounded-lg text-xs bg-white dark:bg-neutral-900 border border-gray-300 dark:border-neutral-700 focus:outline-none text-gray-900 dark:text-white"
-                    />
-                  </div>
+                <div className="pt-1 space-y-2 animate-in fade-in duration-150">
+                  <input
+                    ref={pdfInputRef}
+                    type="file"
+                    accept="application/pdf,.pdf"
+                    onChange={handlePdfUpload}
+                    className="hidden"
+                  />
+
+                  {worksheetTitle ? (
+                    <div className="flex items-center justify-between p-2.5 rounded-xl bg-white dark:bg-neutral-900 border border-gray-200 dark:border-neutral-700">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="h-8 w-8 rounded-lg bg-red-100 dark:bg-red-950/50 flex items-center justify-center text-red-600 dark:text-red-400 shrink-0">
+                          <FileText className="h-4 w-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-xs font-semibold text-gray-800 dark:text-gray-200 truncate">
+                            {worksheetTitle}
+                          </p>
+                          <p className="text-[10px] text-gray-400">
+                            PDF Document • {worksheetSize} (Auto-detected file size)
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setWorksheetTitle('');
+                          setWorksheetSize('');
+                          setWorksheetUrl('');
+                          if (pdfInputRef.current) pdfInputRef.current.value = '';
+                        }}
+                        className="text-gray-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-neutral-800 cursor-pointer"
+                        title="Remove worksheet"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => pdfInputRef.current?.click()}
+                      className="w-full py-2.5 px-3 rounded-xl border-2 border-dashed border-gray-300 dark:border-neutral-700 hover:border-blue-500 dark:hover:border-blue-400 text-gray-600 dark:text-gray-300 text-xs font-semibold flex items-center justify-center gap-2 bg-white dark:bg-neutral-900 transition-all cursor-pointer"
+                    >
+                      <Upload className="h-3.5 w-3.5 text-blue-500" />
+                      <span>Select Worksheet PDF Document (.pdf)</span>
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -473,64 +447,38 @@ export const CreateReelModal: React.FC<CreateReelModalProps> = ({ isOpen, onClos
               </div>
             )}
 
-            {/* Modal Actions */}
-            <div className="pt-2 flex items-center justify-between border-t border-gray-200 dark:border-neutral-800 mt-auto">
-              <div className="flex items-center gap-1.5 text-[11px] text-gray-400">
-                <Globe className="h-3.5 w-3.5 text-blue-500" />
-                <span>Audience: Public (All Students)</span>
-              </div>
+            {/* Modal Actions - Consolidated without Audience row */}
+            <div className="pt-3 flex items-center justify-end gap-2 border-t border-gray-200 dark:border-neutral-800 mt-auto">
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={isSubmitting}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
 
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  disabled={isSubmitting}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
-                >
-                  Cancel
-                </button>
-
-                <button
-                  type="submit"
-                  disabled={isSubmitting || !videoUrl}
-                  className="px-5 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white shadow-md hover:shadow-lg transition-all flex items-center gap-1.5 cursor-pointer"
-                >
-                  {isSubmitting ? (
-                    <>
-                      <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                      Publishing...
-                    </>
-                  ) : (
-                    <>
-                      <Check className="h-3.5 w-3.5" />
-                      Publish Reel
-                    </>
-                  )}
-                </button>
-              </div>
+              <button
+                type="submit"
+                disabled={isSubmitting || !videoUrl}
+                className="px-5 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white shadow-md hover:shadow-lg transition-all flex items-center gap-1.5 cursor-pointer"
+              >
+                {isSubmitting ? (
+                  <>
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    Publishing...
+                  </>
+                ) : (
+                  <>
+                    <Check className="h-3.5 w-3.5" />
+                    Publish Reel
+                  </>
+                )}
+              </button>
             </div>
           </form>
         </div>
       </div>
-
-      {/* Filestack Cloud Video Picker Overlay */}
-      {showFilestackPicker && (
-        <PickerOverlay
-          apikey={FILESTACK_API_KEY}
-          onSuccess={handleFilestackUploadDone}
-          onError={(err: any) => {
-            console.error('Filestack video upload error:', err);
-            setErrorMsg('Failed to upload video to cloud. Please try again.');
-            setShowFilestackPicker(false);
-          }}
-          pickerOptions={{
-            accept: ['video/*'],
-            maxFiles: 1,
-            fromSources: ['local_file_system', 'url', 'googledrive', 'dropbox', 'instagram'],
-            modalSize: [800, 600]
-          }}
-        />
-      )}
     </div>
   );
 };

@@ -330,6 +330,12 @@ export interface Reel {
     size: string;
   };
   createdAt?: string;
+  timestamp?: string;
+  createdDate?: string;
+  algorithmScore?: number;
+  scoreBreakdown?: AlgorithmScoreBreakdown;
+  seenPenalty?: number;
+  isSeen?: boolean;
 }
 
 export interface BinderFolder {
@@ -344,15 +350,18 @@ export interface MarketplaceItem {
   title: string;
   price: number; // 0 for free
   image: string;
+  images?: string[]; // multi-image attachment uploads for product listings
   category: 'textbooks' | 'hardware' | 'notes' | 'other';
   distance: number; // in km
   seller: {
+    id?: string;
     name: string;
     avatar: string;
     rating: number;
   };
   description: string;
   isFree?: boolean;
+  createdAt?: string;
 }
 
 export interface Message {
@@ -382,6 +391,7 @@ export interface Friend {
   bio?: string;
   addedAt: string;
   isOnline?: boolean;
+  lastActivityTime?: string;
 }
 
 export interface FriendRequest {

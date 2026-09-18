@@ -416,3 +416,129 @@ export const formatMessengerTimestamp = (timestampStr?: string, fallbackIso?: st
 
   return str;
 };
+
+/**
+ * Robust computation of a friend's last activity timestamp in milliseconds.
+ * Factors in:
+ * 1. Last direct chat message timestamp / chat.lastUpdated
+ * 2. Explicit friend.lastActivityTime ISO string
+ * 3. Online status (active within last 30s)
+ * 4. friend.addedAt parsed or relative ('Just now' -> near real-time, 'Recently' -> recent)
+ * 5. Posts authored by the friend in the academic feed
+ * 6. Group chat messages contributed by the friend
+ */
+export const getFriendLastActivityTimestamp = (
+  friend: any,
+  directChats?: DirectChat[],
+  posts?: any[],
+  groupChats?: any[]
+): number => {
+  if (!friend) return 0;
+  let latestTime = 0;
+
+  // 1. Direct chats
+  if (directChats && Array.isArray(directChats)) {
+    const chat = directChats.find(c =>
+      c.participants?.some(p =>
+        (p.id && (p.id === friend.id || p.id === `u_${friend.id}`)) ||
+        (friend.email && p.email && p.email.toLowerCase() === friend.email.toLowerCase()) ||
+        (p.name && friend.name && p.name.trim().toLowerCase() === friend.name.trim().toLowerCase())
+      )
+    );
+
+    if (chat) {
+      if (chat.lastUpdated) {
+        const t = new Date(chat.lastUpdated).getTime();
+        if (!isNaN(t) && t > latestTime) latestTime = t;
+      }
+      if (Array.isArray(chat.messages) && chat.messages.length > 0) {
+        const lastMsg = chat.messages[chat.messages.length - 1];
+        const msgTime = getMessageTimestampNum(lastMsg?.timestamp, chat.lastUpdated, (lastMsg as any)?.createdAt);
+        if (msgTime > latestTime) latestTime = msgTime;
+      }
+    }
+  }
+
+  // 2. Explicit friend.lastActivityTime
+  if (friend.lastActivityTime) {
+    const t = new Date(friend.lastActivityTime).getTime();
+    if (!isNaN(t) && t > latestTime) latestTime = t;
+  }
+
+  // 3. Online status
+  if (friend.isOnline) {
+    latestTime = Math.max(latestTime, Date.now() - 30000);
+  }
+
+  // 4. Friend's addedAt timestamp
+  if (friend.addedAt) {
+    if (friend.addedAt === 'Just now' || friend.addedAt === 'Vừa xong') {
+      latestTime = Math.max(latestTime, Date.now() - 60000);
+    } else if (friend.addedAt === 'Recently' || friend.addedAt === 'Gần đây') {
+      latestTime = Math.max(latestTime, Date.now() - 3600000);
+    } else {
+      const t = new Date(friend.addedAt).getTime();
+      if (!isNaN(t) && t > latestTime) latestTime = t;
+    }
+  }
+
+  // 5. Check posts authored by friend
+  if (posts && Array.isArray(posts)) {
+    for (const p of posts) {
+      if (p.authorId === friend.id || p.user?.id === friend.id) {
+        const pt = p.timestamp ? new Date(p.timestamp).getTime() : 0;
+        if (!isNaN(pt) && pt > latestTime) latestTime = pt;
+      }
+    }
+  }
+
+  // 6. Check group chat activity by friend
+  if (groupChats && Array.isArray(groupChats)) {
+    for (const gc of groupChats) {
+      if (Array.isArray(gc.messages)) {
+        for (let i = gc.messages.length - 1; i >= 0; i--) {
+          const m = gc.messages[i];
+          if (m?.sender?.id === friend.id) {
+            const mt = getMessageTimestampNum(m?.timestamp, gc.lastUpdated, m?.createdAt);
+            if (mt > latestTime) {
+              latestTime = mt;
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return latestTime;
+};
+
+/**
+ * Sorts friends strictly based on last activity time (descending), respecting optional pinned chats.
+ */
+export const sortFriendsByLastActivity = (
+  friendsList: any[],
+  directChats?: DirectChat[],
+  posts?: any[],
+  groupChats?: any[],
+  isChatPinnedFn?: (id: string) => boolean
+): any[] => {
+  if (!Array.isArray(friendsList)) return [];
+
+  return [...friendsList].sort((a, b) => {
+    if (isChatPinnedFn) {
+      const aPinned = isChatPinnedFn(a.id) ? 1 : 0;
+      const bPinned = isChatPinnedFn(b.id) ? 1 : 0;
+      if (bPinned !== aPinned) {
+        return bPinned - aPinned;
+      }
+    }
+    const timeA = getFriendLastActivityTimestamp(a, directChats, posts, groupChats);
+    const timeB = getFriendLastActivityTimestamp(b, directChats, posts, groupChats);
+    if (timeB !== timeA) {
+      return timeB - timeA;
+    }
+    return (a.name || '').localeCompare(b.name || '');
+  });
+};
+
