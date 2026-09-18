@@ -89,9 +89,6 @@ export const initialCommunityUsers: User[] = [];
 export const initialPosts: Post[] = [
   {
     id: 'p_fresh_1',
-    groupId: 'g_1788665354922',
-    groupName: 'Test',
-    groupAvatar: 'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&q=80&w=400',
     user: sampleUsers.u_maya,
     authorId: sampleUsers.u_maya.id,
     authorName: sampleUsers.u_maya.name,
@@ -223,158 +220,7 @@ export const initialPosts: Post[] = [
   }
 ];
 
-export const initialGroups: StudyGroup[] = [
-  {
-    id: 'g_1788665354922',
-    name: 'Grade 10 Math & Physics Cohort',
-    coverImage: 'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&q=80&w=600',
-    description: 'Collaborative problem solving, homework discussions, and revision for Grade 10 Math and Physics.',
-    category: 'Math & Science',
-    creatorId: 'u_current',
-    memberCount: 28,
-    membersCount: 28,
-    countdownLabel: 'Mid-term Exams',
-    countdownDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-    adminUserIds: ['u_current', 'u_elena'],
-    leaderUserIds: ['u_marcus'],
-    memberUserIds: ['u_current', 'u_marcus', 'u_elena', 'u_maya'],
-    memberRoles: {
-      u_current: 'admin',
-      u_elena: 'admin',
-      u_marcus: 'leader',
-      u_maya: 'member'
-    },
-    members: [
-      {
-        id: 'u_current',
-        name: 'You (Current User)',
-        avatar: SILHOUETTE_AVATAR,
-        role: 'admin',
-        grade: 'Grade 10',
-        joinedAt: 'Cohort Founder'
-      },
-      {
-        id: 'u_elena',
-        name: 'Prof. Elena Rostova',
-        avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&q=80&w=250',
-        role: 'admin',
-        grade: 'College',
-        joinedAt: '1 month ago'
-      },
-      {
-        id: 'u_marcus',
-        name: 'Marcus Chen',
-        avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=250',
-        role: 'leader',
-        grade: 'Grade 11',
-        joinedAt: '3 weeks ago'
-      },
-      {
-        id: 'u_maya',
-        name: 'Maya Patel',
-        avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=250',
-        role: 'member',
-        grade: 'Grade 12',
-        joinedAt: '2 weeks ago'
-      }
-    ],
-    files: [
-      {
-        id: 'f_math_1',
-        title: 'Quadratic_Equations_Formulas.pdf',
-        uploader: 'Prof. Elena Rostova',
-        uploaderId: 'u_elena',
-        date: 'Yesterday',
-        size: '1.8 MB',
-        type: 'PDF',
-        isPinned: true,
-        pinnedBy: 'Prof. Elena Rostova',
-        pinnedAt: 'Yesterday'
-      },
-      {
-        id: 'f_math_2',
-        title: 'Newtonian_Mechanics_Cheatsheet.pdf',
-        uploader: 'Marcus Chen',
-        uploaderId: 'u_marcus',
-        date: '3 days ago',
-        size: '2.4 MB',
-        type: 'PDF',
-        isPinned: false
-      }
-    ],
-    events: [
-      {
-        id: 'ev_1',
-        title: 'Trigonometry & Circle Theorems Workshop',
-        tutor: 'Marcus Chen',
-        time: 'Tomorrow, 19:30',
-        attendees: 16,
-        isGoing: true
-      }
-    ]
-  },
-  {
-    id: 'g_english_ielts',
-    name: 'IELTS & Academic Writing Circle',
-    coverImage: 'https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?auto=format&fit=crop&q=80&w=600',
-    description: 'Daily essay feedback, vocabulary building, and speaking practice for high school IELTS candidates.',
-    category: 'Languages',
-    creatorId: 'u_maya',
-    memberCount: 35,
-    membersCount: 35,
-    countdownLabel: 'IELTS Examination',
-    countdownDate: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString(),
-    adminUserIds: ['u_maya'],
-    leaderUserIds: ['u_current'],
-    memberUserIds: ['u_maya', 'u_current', 'u_marcus'],
-    memberRoles: {
-      u_maya: 'admin',
-      u_current: 'leader',
-      u_marcus: 'member'
-    },
-    members: [
-      {
-        id: 'u_maya',
-        name: 'Maya Patel',
-        avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=250',
-        role: 'admin',
-        grade: 'Grade 12',
-        joinedAt: 'Circle Founder'
-      },
-      {
-        id: 'u_current',
-        name: 'You (Current User)',
-        avatar: SILHOUETTE_AVATAR,
-        role: 'leader',
-        grade: 'Grade 10',
-        joinedAt: '1 week ago'
-      },
-      {
-        id: 'u_marcus',
-        name: 'Marcus Chen',
-        avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=250',
-        role: 'member',
-        grade: 'Grade 11',
-        joinedAt: '3 days ago'
-      }
-    ],
-    files: [
-      {
-        id: 'f_ielts_1',
-        title: 'Task2_Vocabulary_Collocations.pdf',
-        uploader: 'Maya Patel',
-        uploaderId: 'u_maya',
-        date: '2 days ago',
-        size: '950 KB',
-        type: 'PDF',
-        isPinned: true,
-        pinnedBy: 'Maya Patel',
-        pinnedAt: '2 days ago'
-      }
-    ],
-    events: []
-  }
-];
+export const initialGroups: StudyGroup[] = [];
 
 export const initialTutors: TutorPage[] = [];
 
@@ -450,26 +296,7 @@ export const initialReels: Reel[] = [
 
 export const initialMarketplaceItems: MarketplaceItem[] = [];
 
-export const initialGroupChats: GroupChat[] = [
-  {
-    groupId: 'g_1788665354922',
-    groupName: 'Grade 10 Math & Physics Cohort',
-    messages: [
-      {
-        id: 'gm_1',
-        sender: sampleUsers.u_liam,
-        content: 'Hi everyone! Does anyone have the solution steps for Question 4 on the parabola worksheet?',
-        timestamp: '09:15'
-      },
-      {
-        id: 'gm_2',
-        sender: sampleUsers.u_marcus,
-        content: 'I solved it using vertex formula x = -b/(2a). Let me know if you want me to share the breakdown!',
-        timestamp: '09:18'
-      }
-    ]
-  }
-];
+export const initialGroupChats: GroupChat[] = [];
 
 export const initialFriends: Friend[] = [];
 

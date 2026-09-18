@@ -12,6 +12,7 @@ import {
   canUserAssignLeader,
   canUserAssignModerator,
   canUserModifySettings,
+  canUserDeleteGroup,
   checkUserCanPostInGroup,
   checkUserCanChatInGroup,
   canUserApprovePosts,
@@ -77,6 +78,8 @@ export const GroupsView: React.FC = () => {
     removeGroupMember,
     updateGroupSettings,
     updateGroupDetails,
+    deleteStudyGroup,
+    transferAdminOwnership,
     approveJoinRequest,
     rejectJoinRequest,
     approvePendingPost,
@@ -145,6 +148,9 @@ export const GroupsView: React.FC = () => {
   const activeGroup = groups.find(g => g.id === selectedGroupId) || groups[0];
   const activeChat = groupChats.find(c => c.groupId === selectedGroupId);
 
+  const [showDeleteGroupModal, setShowDeleteGroupModal] = useState(false);
+  const [isDeletingGroup, setIsDeletingGroup] = useState(false);
+
   // Role-based permissions for current cohort
   const effectiveRole: GroupRole = getUserGroupRole(activeGroup, user, simulatedGroupRole);
   const permissions = getRolePermissions(effectiveRole);
@@ -153,6 +159,34 @@ export const GroupsView: React.FC = () => {
   const canManageMembers = canUserManageMembers(activeGroup, user, simulatedGroupRole);
   const canAssignModerator = canUserAssignModerator(activeGroup, user, simulatedGroupRole);
   const canAssignLeader = canAssignModerator;
+  const canDeleteGroup = canUserDeleteGroup(activeGroup, user, simulatedGroupRole);
+
+  const handleConfirmDeleteGroup = async () => {
+    if (!activeGroup || isDeletingGroup) return;
+    setIsDeletingGroup(true);
+    try {
+      const res = await deleteStudyGroup(activeGroup.id);
+      if (res.success) {
+        const remaining = groups.filter(g => g.id !== activeGroup.id);
+        const nextId = remaining[0]?.id || '';
+        setSelectedGroupId(nextId);
+        if (nextId) {
+          localStorage.setItem('sb_selected_group_id', nextId);
+        } else {
+          localStorage.removeItem('sb_selected_group_id');
+        }
+        setShowDeleteGroupModal(false);
+        setShowEditGroupModal(false);
+      } else {
+        alert(res.message || 'Failed to delete group');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('An error occurred while deleting the group.');
+    } finally {
+      setIsDeletingGroup(false);
+    }
+  };
 
   const handleOpenEditGroupModal = () => {
     if (!activeGroup) return;
@@ -243,13 +277,31 @@ export const GroupsView: React.FC = () => {
         avatar: currentUserAvatar,
         role: effectiveRole === 'admin' ? 'admin' : (effectiveRole === 'moderator' || effectiveRole === 'leader' ? 'moderator' : 'member'),
         grade: user?.grade || 'Grade 10',
-        joinedAt: effectiveRole === 'admin' ? 'Cohort Founder' : 'Joined'
+        joinedAt: 'Recently'
       });
     }
 
     // Filter out any fake bot cohort members from displayed roster
     const BOT_MEMBER_IDS = new Set(['u_elena', 'u_marcus', 'u_maya', 'u_liam']);
     list = list.filter(m => !BOT_MEMBER_IDS.has(m.id));
+
+    // STRICT RULE: Exactly at most ONE admin in the list!
+    let hasAdminInList = false;
+    list = list.map(m => {
+      let role = m.role;
+      if (role === 'admin') {
+        if (!hasAdminInList) {
+          hasAdminInList = true;
+        } else {
+          role = 'moderator';
+        }
+      }
+      let joinedAt = m.joinedAt;
+      if (joinedAt && joinedAt.toLowerCase().includes('founder')) {
+        joinedAt = 'Recently';
+      }
+      return { ...m, role, joinedAt };
+    });
 
     return list;
   }, [activeGroup?.members, activeGroup?.creatorId, user, effectiveRole]);
@@ -617,33 +669,118 @@ export const GroupsView: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex gap-2 justify-end pt-3 border-t border-gray-150 dark:border-slate-700">
-              <button
-                type="button"
-                onClick={() => setShowEditGroupModal(false)}
-                className="px-4 py-2.5 rounded-xl text-xs font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={isSavingGroupDetails}
-                className="px-5 py-2.5 rounded-xl text-xs font-extrabold bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white shadow-md shadow-blue-500/20 transition-all cursor-pointer flex items-center gap-1.5"
-              >
-                {isSavingGroupDetails ? (
-                  <>
-                    <Clock className="h-3.5 w-3.5 animate-spin" />
-                    <span>Saving...</span>
-                  </>
-                ) : (
-                  <>
-                    <Check className="h-3.5 w-3.5" />
-                    <span>Save Changes</span>
-                  </>
-                )}
-              </button>
+            <div className="flex items-center justify-between pt-3 border-t border-gray-150 dark:border-slate-700">
+              {canDeleteGroup ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEditGroupModal(false);
+                    setShowDeleteGroupModal(true);
+                  }}
+                  className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5 shadow-sm shadow-rose-600/25"
+                  title="Delete group"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  <span>Delete group</span>
+                </button>
+              ) : <div />}
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowEditGroupModal(false)}
+                  className="px-4 py-2.5 rounded-xl text-xs font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingGroupDetails}
+                  className="px-5 py-2.5 rounded-xl text-xs font-extrabold bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white shadow-md shadow-blue-500/20 transition-all cursor-pointer flex items-center gap-1.5"
+                >
+                  {isSavingGroupDetails ? (
+                    <>
+                      <Clock className="h-3.5 w-3.5 animate-spin" />
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="h-3.5 w-3.5" />
+                      <span>Save Changes</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </form>
+        </div>
+      </div>
+    );
+  };
+
+  const renderDeleteGroupModal = () => {
+    if (!showDeleteGroupModal || !activeGroup) return null;
+
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in">
+        <div className="bg-white dark:bg-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl border border-rose-200 dark:border-rose-900/50 space-y-4">
+          <div className="flex items-center gap-3">
+            <div className="p-3 rounded-xl bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 shrink-0">
+              <Trash2 className="h-6 w-6" />
+            </div>
+            <div>
+              <h3 className="text-base font-extrabold text-gray-900 dark:text-white">
+                Delete Study Group
+              </h3>
+              <p className="text-xs text-rose-600 dark:text-rose-400 font-semibold">
+                Admin Destructive Action
+              </p>
+            </div>
+          </div>
+
+          <div className="bg-rose-50/60 dark:bg-rose-950/30 p-4 rounded-xl border border-rose-200/60 dark:border-rose-900/40 text-xs text-gray-700 dark:text-gray-300 leading-relaxed space-y-2">
+            <p>
+              Are you sure you want to permanently delete <strong className="font-extrabold text-gray-900 dark:text-white">"{activeGroup.name}"</strong>?
+            </p>
+            <ul className="space-y-1 text-[11px] text-gray-600 dark:text-gray-400 list-disc list-inside">
+              <li>All timeline discussions and replies will be permanently removed</li>
+              <li>All shared study resources will be deleted</li>
+              <li>All group chat messages will be cleared</li>
+              <li>All member associations will be terminated</li>
+            </ul>
+            <p className="font-bold text-rose-700 dark:text-rose-400 text-[11px] pt-1">
+              This action cannot be undone. Only the single Group Admin has authority to delete this group.
+            </p>
+          </div>
+
+          <div className="flex items-center justify-end gap-2.5 pt-2">
+            <button
+              type="button"
+              onClick={() => setShowDeleteGroupModal(false)}
+              disabled={isDeletingGroup}
+              className="px-4 py-2.5 rounded-xl text-xs font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 transition cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirmDeleteGroup}
+              disabled={isDeletingGroup}
+              className="px-5 py-2.5 rounded-xl text-xs font-extrabold bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white shadow-md shadow-rose-600/25 transition cursor-pointer flex items-center gap-1.5"
+            >
+              {isDeletingGroup ? (
+                <>
+                  <Clock className="h-3.5 w-3.5 animate-spin" />
+                  <span>Deleting...</span>
+                </>
+              ) : (
+                <>
+                  <Trash2 className="h-3.5 w-3.5" />
+                  <span>Delete group</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -717,28 +854,62 @@ export const GroupsView: React.FC = () => {
 
   if (!activeGroup || groups.length === 0) {
     return (
-      <div className="flex-1 p-6 max-w-4xl mx-auto h-[calc(100vh-57px)] flex flex-col items-center justify-center text-center">
-        <div className="p-5 rounded-full bg-blue-50 dark:bg-slate-800 text-blue-500 mb-4 shadow-sm border border-blue-100 dark:border-slate-700">
-          <Users className="h-10 w-10" />
+      <div className="flex-1 flex flex-col md:flex-row h-[calc(100vh-57px)] bg-slate-50 dark:bg-slate-900 transition-colors">
+        {/* Left side list of cohorts */}
+        <div className="w-full md:w-80 shrink-0 border-r border-gray-150 dark:border-slate-800 bg-white dark:bg-slate-800 p-4 space-y-4 flex flex-col justify-between overflow-y-auto">
+          <div className="space-y-4">
+            <div className="flex justify-between items-center">
+              <h3 className="font-display font-extrabold text-base text-gray-800 dark:text-white flex items-center gap-1.5">
+                <Users className="h-5 w-5 text-blue-600" />
+                Classes & Groups
+              </h3>
+              <button 
+                onClick={handleCreateGroupPrompt}
+                className="p-1 rounded-full bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-950/40 dark:text-blue-300 transition-colors cursor-pointer border-none"
+                title="Create new Study Group"
+              >
+                <Plus className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="py-8 px-4 text-center border border-dashed border-gray-200 dark:border-slate-700 rounded-2xl bg-gray-50/50 dark:bg-slate-800/50">
+              <Users className="h-8 w-8 text-gray-300 dark:text-slate-600 mx-auto mb-2" />
+              <p className="text-xs font-semibold text-gray-700 dark:text-gray-200">No groups in database</p>
+              <p className="text-[11px] text-gray-400 mt-1">Create your first group below</p>
+            </div>
+          </div>
+
+          <button
+            onClick={handleCreateGroupPrompt}
+            className="w-full mt-4 py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs flex items-center justify-center gap-2 shadow-md hover:shadow-lg transition-all border-none cursor-pointer transform hover:scale-[1.01] active:scale-[0.99]"
+          >
+            <Plus className="h-4.5 w-4.5" />
+            CREATE NEW GROUP
+          </button>
         </div>
-        <h2 className="font-display font-bold text-lg text-gray-800 dark:text-white">No Study Groups Joined Yet</h2>
-        <p className="text-xs text-gray-400 mt-1 max-w-md mb-6 leading-relaxed">
-          Create your first study group to share resources, chat in real-time, and track exam countdowns!
-        </p>
-        <button
-          type="button"
-          onClick={() => {
-            playSound('pop');
-            setShowCreateGroupModal(true);
-          }}
-          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-extrabold px-6 py-3 rounded-xl text-xs shadow-lg shadow-blue-500/25 transition-all cursor-pointer transform hover:scale-105 active:scale-95"
-        >
-          <Plus className="h-4.5 w-4.5" />
-          Create Study Group
-        </button>
+
+        {/* Right side empty state */}
+        <div className="flex-1 p-6 flex flex-col items-center justify-center text-center max-w-lg mx-auto">
+          <div className="p-5 rounded-3xl bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 mb-4 border border-blue-100 dark:border-blue-900/60 shadow-sm">
+            <Users className="h-10 w-10" />
+          </div>
+          <h2 className="font-display font-extrabold text-xl text-gray-900 dark:text-white">No Study Groups in Database</h2>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 mb-6 leading-relaxed">
+            There are currently no study groups in the database. Create a new cohort to share study resources, chat in real-time, and collaborate with peers!
+          </p>
+          <button
+            type="button"
+            onClick={handleCreateGroupPrompt}
+            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-extrabold px-6 py-3 rounded-xl text-xs shadow-lg shadow-blue-500/25 transition-all cursor-pointer transform hover:scale-105 active:scale-95"
+          >
+            <Plus className="h-4.5 w-4.5" />
+            <span>Create Study Group</span>
+          </button>
+        </div>
 
         {renderCreateGroupModal()}
         {renderEditGroupModal()}
+        {renderDeleteGroupModal()}
       </div>
     );
   }
@@ -817,6 +988,29 @@ export const GroupsView: React.FC = () => {
               </div>
 
               <div className="flex items-center gap-2">
+                {canDeleteGroup && (
+                  <button
+                    type="button"
+                    onClick={() => setShowDeleteGroupModal(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-md shadow-rose-950/40 transition-all cursor-pointer border border-rose-500/30"
+                    title="Delete group"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    <span>Delete group</span>
+                  </button>
+                )}
+
+                {canModifySettings && (
+                  <button
+                    type="button"
+                    onClick={handleOpenEditGroupModal}
+                    className="p-1.5 rounded-full bg-black/40 hover:bg-black/60 text-white backdrop-blur-xs transition-colors cursor-pointer border border-white/10"
+                    title="Edit Group Info"
+                  >
+                    <Edit3 className="h-4 w-4" />
+                  </button>
+                )}
+
                 {isMember ? (
                   <button
                     type="button"
@@ -1414,13 +1608,31 @@ export const GroupsView: React.FC = () => {
                                 )}
                               </div>
                               <p className="text-[10px] text-gray-400 mt-0.5">
-                                {member.grade || 'Student'} • Joined {member.joinedAt || 'Recently'}
+                                {member.grade || 'Student'}
+                                {member.joinedAt && !member.joinedAt.toLowerCase().includes('founder') ? ` • Joined ${member.joinedAt}` : ' • Joined recently'}
                               </p>
                             </div>
                           </div>
 
                           {/* Management Controls */}
                           <div className="flex items-center gap-1.5 shrink-0">
+                            {/* Admin-only: Transfer Admin ownership (Strictly enforces 1 admin rule) */}
+                            {canDeleteGroup && !isCurrentUser && memberRole !== 'admin' && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (window.confirm(`Transfer Admin ownership of "${activeGroup.name}" to ${member.name}? You will step down to Moderator. There can only be 1 Admin.`)) {
+                                    updateGroupMemberRole(activeGroup.id, member.id, 'admin');
+                                  }
+                                }}
+                                className="text-[10px] font-bold bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 px-2 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1 border border-rose-200 dark:border-rose-800"
+                                title="Make Admin (Demotes current admin to maintain single admin rule)"
+                              >
+                                <Crown className="h-3 w-3" />
+                                Make Admin
+                              </button>
+                            )}
+
                             {/* Admin-only: Assign Moderator role / Demote to Member */}
                             {canAssignModerator && !isCurrentUser && memberRole !== 'admin' && (
                               <>
@@ -1549,17 +1761,30 @@ export const GroupsView: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Edit Group Button alongside Your Role */}
-                    {effectiveRole === 'admin' && (
-                      <button
-                        type="button"
-                        onClick={handleOpenEditGroupModal}
-                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition-all cursor-pointer shadow-sm flex items-center justify-center gap-1.5 shrink-0"
-                      >
-                        <Edit3 className="h-3.5 w-3.5" />
-                        <span>Edit Group</span>
-                      </button>
-                    )}
+                    {/* Actions alongside Your Role */}
+                    <div className="flex items-center gap-2 shrink-0">
+                      {effectiveRole === 'admin' && (
+                        <button
+                          type="button"
+                          onClick={handleOpenEditGroupModal}
+                          className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition-all cursor-pointer shadow-sm flex items-center justify-center gap-1.5"
+                        >
+                          <Edit3 className="h-3.5 w-3.5" />
+                          <span>Edit Group</span>
+                        </button>
+                      )}
+                      {canDeleteGroup && (
+                        <button
+                          type="button"
+                          onClick={() => setShowDeleteGroupModal(true)}
+                          className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl transition-all cursor-pointer shadow-sm flex items-center justify-center gap-1.5"
+                          title="Delete group"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          <span>Delete group</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -1905,6 +2130,35 @@ export const GroupsView: React.FC = () => {
                     )}
                   </div>
                 )}
+
+                {/* Danger Zone: Delete Group (Admin Only) */}
+                {canDeleteGroup && (
+                  <div className="bg-white dark:bg-slate-800 rounded-2xl border border-rose-200 dark:border-rose-900/60 p-5 shadow-xs bg-gradient-to-r from-rose-50/40 via-white to-white dark:from-rose-950/20 dark:via-slate-800 dark:to-slate-800 space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div className="flex items-start gap-3">
+                        <div className="p-2.5 rounded-xl bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 shrink-0">
+                          <Trash2 className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-extrabold text-rose-900 dark:text-rose-200">
+                            Danger Zone: Delete Group
+                          </h4>
+                          <p className="text-[11px] text-rose-700/80 dark:text-rose-400/80 mt-0.5 max-w-lg">
+                            Permanently delete <strong className="font-semibold text-rose-900 dark:text-rose-200">"{activeGroup.name}"</strong>. All uploaded study resources, timeline discussions, and chat history will be permanently deleted. Only the group admin can delete the group.
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowDeleteGroupModal(true)}
+                        className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold rounded-xl transition-all cursor-pointer shadow-sm shadow-rose-500/20 flex items-center justify-center gap-1.5 shrink-0 self-start sm:self-center"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        <span>Delete group</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
               </motion.div>
             )}
           </AnimatePresence>
@@ -1913,6 +2167,7 @@ export const GroupsView: React.FC = () => {
       </div>
       {renderCreateGroupModal()}
       {renderEditGroupModal()}
+      {renderDeleteGroupModal()}
     </div>
   );
 };

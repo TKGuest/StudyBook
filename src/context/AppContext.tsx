@@ -466,9 +466,28 @@ const normalizeGroupForUser = (g: StudyGroup, userOrId?: User | string | null): 
   );
 
   if (isUserAdminOfGroup) {
-    if (!adminUserIds.includes(currentUserId)) adminUserIds.push(currentUserId);
+    // STRICT RULE: Only 1 admin allowed! Current user is the sole admin
+    adminUserIds = [currentUserId];
     if (!memberUserIds.includes(currentUserId)) memberUserIds.push(currentUserId);
+    Object.keys(memberRoles).forEach(uid => {
+      if (uid !== currentUserId && memberRoles[uid] === 'admin') {
+        memberRoles[uid] = 'moderator';
+        if (!leaderUserIds.includes(uid)) leaderUserIds.push(uid);
+      }
+    });
     memberRoles[currentUserId] = 'admin';
+  } else {
+    // Current user is not admin - ensure at most 1 admin exists
+    if (adminUserIds.length > 1) {
+      const primaryAdminId = (creatorId && adminUserIds.includes(creatorId)) ? creatorId : adminUserIds[0];
+      adminUserIds = [primaryAdminId];
+      Object.keys(memberRoles).forEach(uid => {
+        if (uid !== primaryAdminId && memberRoles[uid] === 'admin') {
+          memberRoles[uid] = 'moderator';
+          if (!leaderUserIds.includes(uid)) leaderUserIds.push(uid);
+        }
+      });
+    }
   }
 
   // Make sure admin and leader ids are in memberUserIds
@@ -506,7 +525,7 @@ const normalizeGroupForUser = (g: StudyGroup, userOrId?: User | string | null): 
       avatar: currentUserAvatar,
       role: isUserAdminOfGroup ? 'admin' : (memberRoles[currentUserId] || 'member'),
       grade: userObj?.grade || 'Grade 10',
-      joinedAt: isUserAdminOfGroup ? 'Cohort Founder' : 'Recently'
+      joinedAt: 'Recently'
     });
   }
 
@@ -531,11 +550,24 @@ const normalizeGroupForUser = (g: StudyGroup, userOrId?: User | string | null): 
   adminUserIds = adminUserIds.filter(id => !BOT_MEMBER_IDS.has(id));
   leaderUserIds = leaderUserIds.filter(id => !BOT_MEMBER_IDS.has(id));
 
-  // Normalize roles on existing members
+  // Normalize roles on existing members - strictly ensure ONLY 1 admin and remove any founder text
+  let hasAdminAssigned = false;
   members = members.map(m => {
     const roleFromMap = memberRoles[m.id];
-    const role = (roleFromMap === 'leader' ? 'moderator' : roleFromMap) || m.role || 'member';
-    return { ...m, role };
+    let role = (roleFromMap === 'leader' ? 'moderator' : roleFromMap) || m.role || 'member';
+    if (role === 'admin') {
+      if (!hasAdminAssigned && adminUserIds.includes(m.id)) {
+        hasAdminAssigned = true;
+      } else {
+        role = 'moderator';
+        if (memberRoles[m.id] === 'admin') memberRoles[m.id] = 'moderator';
+      }
+    }
+    let joinedAt = m.joinedAt;
+    if (joinedAt && joinedAt.toLowerCase().includes('founder')) {
+      joinedAt = 'Recently';
+    }
+    return { ...m, role, joinedAt };
   });
 
   const isMember = Boolean(
@@ -716,12 +748,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const saved = localStorage.getItem('sb_groups');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].members && parsed[0].members.length > 0) {
-          return parsed;
+        if (Array.isArray(parsed)) {
+          return parsed.filter(g => g.id !== 'g_1788665354922' && g.id !== 'g_english_ielts');
         }
       }
-      return initialGroups;
-    } catch (_) { return initialGroups; }
+      return [];
+    } catch (_) { return []; }
   });
 
   const [simulatedGroupRole, setSimulatedGroupRole] = useState<GroupRole | null>(null);
@@ -768,21 +800,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [groupChats, setGroupChats] = useState<GroupChat[]>(() => {
     try {
       const saved = localStorage.getItem('sb_group_chats');
-      const loaded: GroupChat[] = saved ? JSON.parse(saved) : initialGroupChats;
-      return (loaded || []).map(c => ({
+      const loaded: GroupChat[] = saved ? JSON.parse(saved) : [];
+      const filtered = (loaded || []).filter(c => c.groupId !== 'g_1788665354922' && c.groupId !== 'g_english_ielts');
+      return filtered.map(c => ({
         ...c,
         messages: cleanGroupChatMessages(c.messages)
       }));
-    } catch (_) { return initialGroupChats; }
+    } catch (_) { return []; }
   });
 
   const [joinedGroupIds, setJoinedGroupIds] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem('sb_joined_groups');
-      if (saved) return JSON.parse(saved);
-      return ['g_1788665354922']; // Default join the active group
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          return parsed.filter(id => id !== 'g_1788665354922' && id !== 'g_english_ielts');
+        }
+      }
+      return [];
     } catch (_) {
-      return ['g_1788665354922'];
+      return [];
     }
   });
 
@@ -1280,17 +1318,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // B. Sync Groups
     const unsubscribeGroups = onSnapshot(collection(db, 'groups'), async (snapshot) => {
       if (snapshot.empty) {
-        // Auto-seed groups
-        for (const g of initialGroups) {
-          try {
-            await setDoc(doc(db, 'groups', g.id), cleanForFirestore(g));
-          } catch (e) {
-            console.warn('Failed to seed group:', e);
-          }
-        }
+        setGroups([]);
+        try { localStorage.setItem('sb_groups', JSON.stringify([])); } catch (_) {}
       } else {
         const loaded: StudyGroup[] = [];
-        snapshot.forEach((d) => loaded.push(d.data() as StudyGroup));
+        snapshot.forEach((d) => {
+          const g = d.data() as StudyGroup;
+          if (g.id !== 'g_1788665354922' && g.id !== 'g_english_ielts') {
+            loaded.push(g);
+          } else {
+            deleteDoc(doc(db, 'groups', d.id)).catch(console.warn);
+          }
+        });
         const normalized = loaded.map(g => normalizeGroupForUser(g, user));
         setGroups(normalized);
         localStorage.setItem('sb_groups', JSON.stringify(loaded));
@@ -1301,13 +1340,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (saved) {
         try { 
           const loaded = JSON.parse(saved);
-          setGroups(loaded.map((g: StudyGroup) => normalizeGroupForUser(g, user))); 
-        } catch (_) { 
-          setGroups(initialGroups.map(g => normalizeGroupForUser(g, user))); 
-        }
-      } else {
-        setGroups(initialGroups.map(g => normalizeGroupForUser(g, user)));
+          if (Array.isArray(loaded)) {
+            const filtered = loaded.filter((g: StudyGroup) => g.id !== 'g_1788665354922' && g.id !== 'g_english_ielts');
+            setGroups(filtered.map((g: StudyGroup) => normalizeGroupForUser(g, user))); 
+            return;
+          }
+        } catch (_) {}
       }
+      setGroups([]);
     });
 
     // C. Sync Tutors
@@ -1416,17 +1456,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // F. Sync Group Chats
     const unsubscribeChats = onSnapshot(collection(db, 'groupChats'), async (snapshot) => {
       if (snapshot.empty) {
-        // Auto-seed group chats
-        for (const c of initialGroupChats) {
-          try {
-            await setDoc(doc(db, 'groupChats', c.groupId), cleanForFirestore(c));
-          } catch (e) {
-            console.warn('Failed to seed group chat:', e);
-          }
-        }
+        setGroupChats([]);
+        try { localStorage.setItem('sb_group_chats', JSON.stringify([])); } catch (_) {}
       } else {
         const loaded: GroupChat[] = [];
-        snapshot.forEach((d) => loaded.push(d.data() as GroupChat));
+        snapshot.forEach((d) => {
+          const c = d.data() as GroupChat;
+          if (c.groupId !== 'g_1788665354922' && c.groupId !== 'g_english_ielts') {
+            loaded.push(c);
+          } else {
+            deleteDoc(doc(db, 'groupChats', d.id)).catch(console.warn);
+          }
+        });
         const cleanedChats = loaded.map(c => ({
           ...c,
           messages: cleanGroupChatMessages(c.messages)
@@ -1440,15 +1481,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (saved) {
         try {
           const parsed = JSON.parse(saved);
-          const cleaned = (parsed || []).map((c: any) => ({
-            ...c,
-            messages: cleanGroupChatMessages(c.messages)
-          }));
-          setGroupChats(cleaned);
-        } catch (_) { setGroupChats(initialGroupChats); }
-      } else {
-        setGroupChats(initialGroupChats);
+          if (Array.isArray(parsed)) {
+            const filtered = parsed.filter((c: any) => c.groupId !== 'g_1788665354922' && c.groupId !== 'g_english_ielts');
+            const cleaned = filtered.map((c: any) => ({
+              ...c,
+              messages: cleanGroupChatMessages(c.messages)
+            }));
+            setGroupChats(cleaned);
+            return;
+          }
+        } catch (_) {}
       }
+      setGroupChats([]);
     });
 
     // G. Sync Direct Chats across accounts
@@ -2645,7 +2689,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           avatar: user.avatar || SILHOUETTE_AVATAR,
           role: 'admin',
           grade: user.grade,
-          joinedAt: 'Cohort Founder'
+          joinedAt: 'Recently'
         }
       ],
       files: [],
@@ -2794,7 +2838,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const currentRoles = { ...(g.memberRoles || {}) };
         currentRoles[memberId] = newRole;
 
-        const currentMembers = (g.members || []).map(m => {
+        let currentMembers = (g.members || []).map(m => {
           if (m.id === memberId) {
             return { ...m, role: newRole };
           }
@@ -2807,8 +2851,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const leaderIds = new Set(g.leaderUserIds || []);
 
         if (newRole === 'admin') {
+          // STRICT RULE: Only 1 admin allowed!
+          adminIds.clear();
           adminIds.add(memberId);
           leaderIds.delete(memberId);
+
+          // Demote any previous admin(s) in currentRoles and currentMembers
+          Object.keys(currentRoles).forEach(uid => {
+            if (uid !== memberId && currentRoles[uid] === 'admin') {
+              currentRoles[uid] = 'moderator';
+              leaderIds.add(uid);
+            }
+          });
+          currentRoles[memberId] = 'admin';
+
+          currentMembers = currentMembers.map(m => {
+            if (m.id === memberId) return { ...m, role: 'admin' as GroupRole };
+            if (m.role === 'admin') return { ...m, role: 'moderator' as GroupRole };
+            return m;
+          });
+          updatedMembersList = currentMembers;
         } else if (newRole === 'leader' || newRole === 'moderator') {
           leaderIds.add(memberId);
           adminIds.delete(memberId);
@@ -2844,8 +2906,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
         firestoreMembers = firestoreMembers.map(m => m.id === memberId ? { ...m, role: newRole } : m);
         if (newRole === 'admin') {
-          firestoreAdmins = Array.from(new Set([...firestoreAdmins, memberId]));
+          firestoreAdmins = [memberId];
           firestoreLeaders = firestoreLeaders.filter(id => id !== memberId);
+          firestoreMembers = firestoreMembers.map(m => {
+            if (m.id === memberId) return { ...m, role: 'admin' as GroupRole };
+            if (m.role === 'admin') return { ...m, role: 'moderator' as GroupRole };
+            return m;
+          });
         } else if (newRole === 'leader' || newRole === 'moderator') {
           firestoreLeaders = Array.from(new Set([...firestoreLeaders, memberId]));
           firestoreAdmins = firestoreAdmins.filter(id => id !== memberId);
@@ -2945,8 +3012,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         const adminIds = new Set(g.adminUserIds || []);
         const leaderIds = new Set(g.leaderUserIds || []);
+        adminIds.clear();
         adminIds.add(newAdminId);
-        adminIds.delete(user.id);
         leaderIds.add(user.id);
         leaderIds.delete(newAdminId);
 
@@ -2968,7 +3035,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         await updateDoc(groupRef, {
           [`memberRoles.${newAdminId}`]: 'admin',
           [`memberRoles.${user.id}`]: 'leader',
-          adminUserIds: arrayUnion(newAdminId),
+          adminUserIds: [newAdminId],
           leaderUserIds: arrayUnion(user.id)
         });
       } catch (err) {
@@ -3050,7 +3117,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     setPosts(prev => {
-      const next = prev.filter(p => p.groupId !== groupId);
+      const next = prev.filter(p => p.groupId !== groupId && (p as any).groupInfo?.groupId !== groupId);
       try { localStorage.setItem('sb_posts', JSON.stringify(next)); } catch (_) {}
       return next;
     });
@@ -3063,9 +3130,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setJoinedGroupIds(prev => prev.filter(id => id !== groupId));
 
+    try {
+      const selected = localStorage.getItem('sb_selected_group_id');
+      if (selected === groupId) {
+        const remaining = groups.filter(g => g.id !== groupId);
+        if (remaining.length > 0) {
+          localStorage.setItem('sb_selected_group_id', remaining[0].id);
+        } else {
+          localStorage.removeItem('sb_selected_group_id');
+        }
+      }
+    } catch (_) {}
+
     if (isFirebaseConfigured) {
       try {
         await deleteDoc(doc(db, 'groups', groupId));
+        await deleteDoc(doc(db, 'groupChats', groupId));
       } catch (err) {
         console.warn('Failed to delete group from Firestore:', err);
       }
