@@ -1,4 +1,4 @@
-import { User, StudyGroup, GroupRole, GroupMember, GroupSettings, Reel, AppSettings } from '../types';
+import { User, StudyGroup, GroupRole, GroupMember, GroupSettings, Reel, AppSettings, MarketplaceItem } from '../types';
 
 export type { GroupRole };
 
@@ -524,6 +524,61 @@ export function interceptMarketplacePrivacySettings(
     settings,
     wasModified: false
   };
+}
+
+/**
+ * Checks if a given user is the creator/seller of a marketplace listing.
+ */
+export function isUserListingSeller(
+  item: MarketplaceItem | null | undefined,
+  user: User | null | undefined
+): boolean {
+  if (!user || !item) return false;
+
+  const currentUserId = (user.id || '').trim().toLowerCase();
+  const currentUserName = (user.name || '').trim().toLowerCase();
+
+  // 1. Check seller ID match
+  if (item.seller?.id) {
+    const sId = item.seller.id.trim().toLowerCase();
+    if (
+      sId === currentUserId ||
+      sId === `u_${currentUserId}` ||
+      (currentUserId.startsWith('u_') && sId === currentUserId.replace(/^u_/, '')) ||
+      (currentUserId === 'u_current' && (sId === 'u_current' || sId === 'guest')) ||
+      (currentUserId === 'guest' && (sId === 'guest' || sId === 'u_current'))
+    ) {
+      return true;
+    }
+  }
+
+  // 2. Check seller name match
+  if (item.seller?.name && currentUserName) {
+    if (item.seller.name.trim().toLowerCase() === currentUserName) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Permission rule for deleting a Marketplace Listing:
+ * - A seller has exclusive authority to delete their own listing.
+ * - Application Admins maintain overriding authority to delete anyone's listing.
+ */
+export function canUserDeleteMarketplaceItem(
+  item: MarketplaceItem | null | undefined,
+  user: User | null | undefined
+): boolean {
+  if (!user || !item) return false;
+
+  // Application Admins maintain overriding authority to delete anyone's listing
+  const isGlobalAdmin = user.role === 'admin' || user.email?.toLowerCase() === 'billkute030709@gmail.com';
+  if (isGlobalAdmin) return true;
+
+  // A seller has exclusive authority to delete their own listing
+  return isUserListingSeller(item, user);
 }
 
 

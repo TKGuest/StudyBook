@@ -12,7 +12,6 @@ import { GroupsView } from './components/GroupsView';
 import { ProfileView } from './components/ProfileView';
 import { ReelsView } from './components/ReelsView';
 import { MarketplaceView } from './components/MarketplaceView';
-import { GamesView } from './components/GamesView';
 import { SettingsView } from './components/SettingsView';
 import { FriendsView } from './components/FriendsView';
 import { AuthScreen } from './components/AuthScreen';
@@ -20,6 +19,7 @@ import { OnboardingScreen } from './components/OnboardingScreen';
 import { RightSidebar } from './components/RightSidebar';
 import { FloatingChats } from './components/FloatingChats';
 import { SinglePostView } from './components/SinglePostView';
+import { ChatNotificationBanner } from './components/ChatNotificationBanner';
 import { isFirebaseConfigured } from './lib/firebase';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -28,10 +28,10 @@ import {
   GraduationCap, 
   Film, 
   ShoppingBag, 
-  Gamepad2, 
   Settings as SettingsIcon,
   UserCheck,
-  UserCircle2
+  UserCircle2,
+  MessageCircle
 } from 'lucide-react';
 
 const AppContent: React.FC = () => {
@@ -91,8 +91,6 @@ const AppContent: React.FC = () => {
         return <ReelsView />;
       case 'marketplace':
         return <MarketplaceView />;
-      case 'games':
-        return <GamesView />;
       case 'settings':
         return <SettingsView />;
       default:
@@ -102,18 +100,19 @@ const AppContent: React.FC = () => {
 
   const mobileNavItems = [
     { id: 'feed', icon: Rss, label: 'Feed' },
+    { id: 'friends', icon: MessageCircle, label: 'Chat' },
     { id: 'groups', icon: Users, label: 'Groups' },
-    { id: 'friends', icon: UserCheck, label: 'Friends' },
     { id: 'profiles', icon: UserCircle2, label: 'Profiles' },
     { id: 'reels', icon: Film, label: 'Reels' },
     { id: 'marketplace', icon: ShoppingBag, label: 'Bazaar' },
-    { id: 'games', icon: Gamepad2, label: 'Battle' },
     { id: 'settings', icon: SettingsIcon, label: 'Settings' }
   ];
 
   return (
     <div className={`h-screen w-screen overflow-hidden flex flex-col font-sans transition-colors duration-200 ${settings?.darkMode ? 'dark bg-slate-900 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
-      
+      {/* Global Real-Time Chat Notification Dynamic Popup */}
+      <ChatNotificationBanner />
+
       {/* Top Header Panel */}
       <Header onSearchQuery={setSearchQuery} />
 

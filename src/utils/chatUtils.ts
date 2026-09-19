@@ -186,6 +186,8 @@ export const consolidateDirectChats = (
           names: new Set([chat.groupName || 'Group Chat']),
           chat: {
             ...chat,
+            type: 'group_chat',
+            participantIds: Array.isArray(chat.participants) ? chat.participants.map(p => p.id) : [],
             messages: Array.isArray(chat.messages) ? [...chat.messages] : []
           },
           otherParticipant: {
@@ -216,6 +218,25 @@ export const consolidateDirectChats = (
       continue;
     }
 
+    // STRICT PARTICIPANT ISOLATION:
+    // For 1-on-1 individual direct messages, current user MUST be an explicit participant!
+    const isCurrentUserParticipant = chat.participants.some(p => {
+      const pId = String(p?.id || '').trim().toLowerCase();
+      const pName = String(p?.name || '').trim().toLowerCase();
+      return (
+        (curIdLower && pId === curIdLower) || 
+        (curNameLower && pName === curNameLower) || 
+        pId === 'u_current' || 
+        pId === 'guest'
+      );
+    });
+
+    if (!isCurrentUserParticipant && currentUserId && curIdLower !== 'guest' && curIdLower !== 'u_current') {
+      // The current user is NOT in this 1-on-1 private chat!
+      // Strictly prevent private messages between two other users from leaking globally.
+      continue;
+    }
+
     // Find the OTHER person in this conversation
     let other = chat.participants.find(p => {
       const pId = String(p?.id || '').trim().toLowerCase();
@@ -238,6 +259,30 @@ export const consolidateDirectChats = (
     const pName = String(other.name || '').trim().toLowerCase();
     const pEmail = String(other.email || '').trim().toLowerCase();
 
+    // Helper: Verify if a direct message strictly belongs between current user and the peer
+    const isStrictParticipantMessage = (m: DirectMessage): boolean => {
+      if (!m) return false;
+      const sId = String(m.senderId || '').trim().toLowerCase();
+      const rId = String(m.receiverId || '').trim().toLowerCase();
+      const curId = curIdLower || 'u_current';
+      const otherId = pId;
+
+      const isFromCurrent = sId === curId || sId === 'u_current' || sId === 'guest';
+      const isFromOther = sId === otherId;
+
+      if (isFromCurrent) {
+        // Must be addressed to otherId or untargeted legacy
+        return !rId || rId === otherId || rId === 'group';
+      }
+      if (isFromOther) {
+        // Must be addressed to current user or untargeted legacy
+        return !rId || rId === curId || rId === 'u_current' || rId === 'guest' || rId === 'group';
+      }
+
+      // Any message from a third party (e.g. "P" in a chat with Le Quy Duongz) is discarded
+      return false;
+    };
+
     // Check if this person is already in canonical entries
     const existingIndex = entries.findIndex(e => {
       // Match by ID
@@ -248,6 +293,8 @@ export const consolidateDirectChats = (
       if (pName && pName.length >= 2 && e.names.has(pName)) return true;
       return false;
     });
+
+    const validInitialMessages = (Array.isArray(chat.messages) ? chat.messages : []).filter(isStrictParticipantMessage);
 
     if (existingIndex === -1) {
       // New conversation
@@ -265,7 +312,9 @@ export const consolidateDirectChats = (
         names,
         chat: {
           ...chat,
-          messages: Array.isArray(chat.messages) ? [...chat.messages] : []
+          type: 'individual_dm',
+          participantIds: [currentUserId || 'u_current', other.id].filter(Boolean),
+          messages: validInitialMessages
         },
         otherParticipant: other
       });
@@ -289,13 +338,12 @@ export const consolidateDirectChats = (
         target.otherParticipant.name = other.name;
       }
 
-      // Merge messages from both chats uniquely
+      // Merge messages from both chats uniquely, strictly filtering to the two participants
       const existingMsgSignatures = new Set(
         target.chat.messages.map(m => `${m.id}_${m.content}_${m.timestamp}`)
       );
 
-      const incomingMsgs = Array.isArray(chat.messages) ? chat.messages : [];
-      for (const msg of incomingMsgs) {
+      for (const msg of validInitialMessages) {
         const sig = `${msg.id}_${msg.content}_${msg.timestamp}`;
         if (!existingMsgSignatures.has(sig)) {
           target.chat.messages.push(msg);
@@ -324,14 +372,46 @@ export const consolidateDirectChats = (
     }
   }
 
-  // Messenger ordering: most recent conversation at top
+  // Messenger ordering: most recent incoming/outgoing conversation straight to top
   return entries.map(e => e.chat).sort((a, b) => {
-    const lastMsgA = a.messages && a.messages.length > 0 ? a.messages[a.messages.length - 1].timestamp : a.lastUpdated;
-    const lastMsgB = b.messages && b.messages.length > 0 ? b.messages[b.messages.length - 1].timestamp : b.lastUpdated;
-    const timeA = getMessageTimestampNum(lastMsgA, a.lastUpdated);
-    const timeB = getMessageTimestampNum(lastMsgB, b.lastUpdated);
+    const timeA = getChatLatestActivityTime(a);
+    const timeB = getChatLatestActivityTime(b);
     return timeB - timeA;
   });
+};
+
+/**
+ * Extract latest incoming or outgoing timestamp in milliseconds for high-performance sorting
+ */
+export const getChatLatestActivityTime = (chat: DirectChat): number => {
+  let highest = 0;
+  if (chat.lastUpdated) {
+    const lu = new Date(chat.lastUpdated).getTime();
+    if (!isNaN(lu) && lu > highest) highest = lu;
+  }
+  if (Array.isArray(chat.messages) && chat.messages.length > 0) {
+    const last = chat.messages[chat.messages.length - 1];
+    const mt = getMessageTimestampNum(last.timestamp, chat.lastUpdated, last.createdAt);
+    if (mt > highest) highest = mt;
+  }
+  return highest;
+};
+
+/**
+ * High-performance list sorting comparison method:
+ * Pinned conversations first (if applicable), then dynamically pushes the thread with the
+ * most recent incoming/outgoing activity directly to the top of the column.
+ */
+export const compareChatsByRecentActivity = <T extends { timestampNum: number; isPinned?: boolean }>(
+  a: T,
+  b: T
+): number => {
+  const pinA = a.isPinned ? 1 : 0;
+  const pinB = b.isPinned ? 1 : 0;
+  if (pinA !== pinB) {
+    return pinB - pinA;
+  }
+  return b.timestampNum - a.timestampNum;
 };
 
 /**
@@ -540,5 +620,48 @@ export const sortFriendsByLastActivity = (
     }
     return (a.name || '').localeCompare(b.name || '');
   });
+};
+
+/**
+ * Checks if a marketplace listing is a fake or sample placeholder to be removed.
+ */
+export const isFakeMarketplaceItem = (item: any): boolean => {
+  if (!item || !item.id) return true;
+  const idLower = String(item.id || '').toLowerCase();
+  
+  // Check known placeholder IDs
+  const fakeIds = [
+    'm1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7', 'm8',
+    'm_1', 'm_2', 'm_3', 'm_4', 'm_5',
+    'm_calc', 'm_book', 'm_ipad', 'm_notes', 'm_textbook', 'm_calculus',
+    'mock_1', 'mock_2', 'mock_item', 'sample_1', 'sample_2', 'placeholder_1'
+  ];
+  if (fakeIds.includes(idLower)) return true;
+  if (
+    idLower.startsWith('mock_') || 
+    idLower.startsWith('fake_') || 
+    idLower.startsWith('placeholder_') || 
+    idLower.startsWith('sample_')
+  ) {
+    return true;
+  }
+
+  const sellerNameLower = String(item.seller?.name || '').toLowerCase();
+  const sellerIdLower = String(item.seller?.id || '').toLowerCase();
+
+  // Banned bot/fake seller names
+  if (
+    sellerNameLower.includes('phung gia binh') ||
+    sellerNameLower.includes('phùng gia bình') ||
+    sellerNameLower.includes('sarah jenkins') ||
+    sellerNameLower.includes('bot') ||
+    sellerIdLower.includes('sarah') ||
+    sellerIdLower.includes('phunggiabinh') ||
+    sellerIdLower.includes('bot')
+  ) {
+    return true;
+  }
+
+  return false;
 };
 

@@ -207,54 +207,75 @@ export const FloatingChats: React.FC = () => {
                         </div>
 
                     {/* Messages list */}
-                    {isDirect && directChat ? (
-                      directChat.messages.length === 0 ? (
-                        <p className="text-center text-xs text-gray-400 my-auto py-4">No messages yet. Send a greeting to start chatting!</p>
-                      ) : (
-                        directChat.messages.map(msg => {
-                          const isMe = msg.senderId === user.id;
-                          return (
-                            <div 
-                              key={msg.id} 
-                              className={`flex items-start gap-2 max-w-[85%] ${isMe ? 'self-end flex-row-reverse' : 'self-start'}`}
-                            >
+                    {isDirect && directChat ? (() => {
+                      const curId = (user.id || 'u_current').toLowerCase();
+                      const peerId = (otherParticipant?.id || '').toLowerCase();
+                      const peerName = (otherParticipant?.name || '').toLowerCase();
+
+                      const isolatedMsgs = directChat.messages.filter(msg => {
+                        const sId = String(msg.senderId || '').trim().toLowerCase();
+                        const rId = String(msg.receiverId || '').trim().toLowerCase();
+                        const sName = String(msg.senderName || '').trim().toLowerCase();
+
+                        const isFromMe = sId === curId || sId === 'u_current' || sId === 'guest';
+                        const isFromPeer = (peerId && sId === peerId) || (peerName && sName === peerName);
+
+                        if (isFromMe) {
+                          return !rId || (peerId && rId === peerId) || rId === 'group' || rId === 'unknown';
+                        }
+                        if (isFromPeer) {
+                          return !rId || rId === curId || rId === 'u_current' || rId === 'guest' || rId === 'group';
+                        }
+                        return false;
+                      });
+
+                      if (isolatedMsgs.length === 0) {
+                        return <p className="text-center text-xs text-gray-400 my-auto py-4">No messages yet. Send a greeting to start chatting!</p>;
+                      }
+
+                      return isolatedMsgs.map(msg => {
+                        const isMe = msg.senderId === user.id;
+                        return (
+                          <div 
+                            key={msg.id} 
+                            className={`flex items-start gap-2 max-w-[85%] ${isMe ? 'self-end flex-row-reverse' : 'self-start'}`}
+                          >
+                            {!isMe && (
+                              <img 
+                                src={msg.senderAvatar || avatarSrc || ''} 
+                                alt={msg.senderName} 
+                                className="h-6.5 w-6.5 rounded-full object-cover shrink-0 border border-gray-100 dark:border-slate-700" 
+                              />
+                            )}
+                            <div className="flex flex-col">
                               {!isMe && (
-                                <img 
-                                  src={msg.senderAvatar || avatarSrc || ''} 
-                                  alt={msg.senderName} 
-                                  className="h-6.5 w-6.5 rounded-full object-cover shrink-0 border border-gray-100 dark:border-slate-700" 
-                                />
-                              )}
-                              <div className="flex flex-col">
-                                {!isMe && (
-                                  <span className="text-[9px] text-gray-400 font-bold ml-1 mb-0.5">
-                                    {msg.senderName.split(' ')[0]}
-                                  </span>
-                                )}
-                                {msg.content === '👍' ? (
-                                  <div className="p-0.5 my-0.5">
-                                    <ThumbsUp className="h-7 w-7 text-[#0084ff] fill-[#0084ff]" />
-                                  </div>
-                                ) : (
-                                  <div 
-                                    className={`rounded-[16px] px-3 py-1.5 text-xs leading-relaxed break-words shadow-2xs ${
-                                      isMe 
-                                        ? 'bg-[#0084ff] text-white' 
-                                        : 'bg-[#e4e6eb] dark:bg-[#3a3b3c] text-gray-900 dark:text-gray-100'
-                                    }`}
-                                  >
-                                    {msg.content}
-                                  </div>
-                                )}
-                                <span className={`text-[8px] text-gray-400 mt-0.5 ${isMe ? 'text-right mr-1' : 'ml-1'}`}>
-                                  {msg.timestamp}
+                                <span className="text-[9px] text-gray-400 font-bold ml-1 mb-0.5">
+                                  {msg.senderName.split(' ')[0]}
                                 </span>
-                              </div>
+                              )}
+                              {msg.content === '👍' ? (
+                                <div className="p-0.5 my-0.5">
+                                  <ThumbsUp className="h-7 w-7 text-[#0084ff] fill-[#0084ff]" />
+                                </div>
+                              ) : (
+                                <div 
+                                  className={`rounded-[16px] px-3 py-1.5 text-xs leading-relaxed break-words shadow-2xs ${
+                                    isMe 
+                                      ? 'bg-[#0084ff] text-white' 
+                                      : 'bg-[#e4e6eb] dark:bg-[#3a3b3c] text-gray-900 dark:text-gray-100'
+                                  }`}
+                                >
+                                  {msg.content}
+                                </div>
+                              )}
+                              <span className={`text-[8px] text-gray-400 mt-0.5 ${isMe ? 'text-right mr-1' : 'ml-1'}`}>
+                                {msg.timestamp}
+                              </span>
                             </div>
-                          );
-                        })
-                      )
-                    ) : groupChat ? (
+                          </div>
+                        );
+                      });
+                    })() : groupChat ? (
                       groupChat.messages.map(msg => {
                         const isMe = msg.sender.id === user.id;
                         return (

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import { DirectChat, DirectMessage, StudyGroup, GroupChat, Message } from '../types';
-import { consolidateDirectChats, formatMessengerTimestamp, getMessageTimestampNum, sortFriendsByLastActivity } from '../utils/chatUtils';
+import { consolidateDirectChats, formatMessengerTimestamp, getMessageTimestampNum, sortFriendsByLastActivity, compareChatsByRecentActivity, getChatLatestActivityTime } from '../utils/chatUtils';
 import { playSound } from '../utils/soundEffects';
 import { SILHOUETTE_AVATAR } from '../data/mockData';
 import { 
@@ -27,7 +27,10 @@ import {
   UserPlus,
   Check,
   Pin,
-  PinOff
+  PinOff,
+  Bell,
+  BellOff,
+  Volume2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChatEmojiPicker } from './ChatEmojiPicker';
@@ -52,6 +55,8 @@ interface UnifiedChat {
   timeText: string;
   timestampNum: number;
   isPinned?: boolean;
+  unreadCount: number;
+  hasUnread: boolean;
   directChat?: DirectChat;
   group?: StudyGroup;
   groupChat?: GroupChat;
@@ -77,7 +82,16 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
     createGroupChat,
     pinnedChatIds,
     togglePinChat,
-    isChatPinned
+    isChatPinned,
+    chatNotificationPrefs,
+    toggleChatNotifications,
+    areChatNotificationsEnabled,
+    activeChatNotifications,
+    dismissChatNotification,
+    activeOpenChatId,
+    setActiveOpenChatId,
+    markChatAsRead,
+    triggerSimulatedIncomingMessage
   } = useApp();
 
   const [filterTab, setFilterTab] = useState<'all' | 'direct' | 'groups'>('all');
@@ -86,6 +100,7 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
   const [showInfoSidebar, setShowInfoSidebar] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [pinToast, setPinToast] = useState<{ message: string; type: 'success' | 'warning' } | null>(null);
+  const [notifToast, setNotifToast] = useState<{ message: string; type: 'success' | 'warning' } | null>(null);
 
   const handleTogglePin = (chatId: string, alternateId?: string, e?: React.MouseEvent) => {
     if (e) {
@@ -126,13 +141,16 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
   const directChatItems = useMemo<UnifiedChat[]>(() => {
     return cleanDirectChats.map(chat => {
       const isPinned = isChatPinned(chat.id);
+      const unreadCount = (chat.messages || []).filter(m => m.senderId !== user.id && m.read === false).length;
+      const hasUnread = unreadCount > 0;
+      const timestampNum = getChatLatestActivityTime(chat);
+
       if (chat.isGroupChat) {
         const lastMsg = chat.messages && chat.messages.length > 0 ? chat.messages[chat.messages.length - 1] : null;
         const isMe = lastMsg ? lastMsg.senderId === user.id : false;
         const timeText = lastMsg 
           ? formatMessengerTimestamp(lastMsg.timestamp, chat.lastUpdated, lastMsg.createdAt) 
           : (chat.lastUpdated ? formatMessengerTimestamp(chat.lastUpdated) : '');
-        const timestampNum = getMessageTimestampNum(lastMsg?.timestamp, chat.lastUpdated, lastMsg?.createdAt);
 
         return {
           id: chat.id,
@@ -148,6 +166,8 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
           timeText,
           timestampNum,
           isPinned,
+          unreadCount,
+          hasUnread,
           directChat: chat
         };
       }
@@ -160,7 +180,6 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
       const timeText = lastMsg 
         ? formatMessengerTimestamp(lastMsg.timestamp, chat.lastUpdated, lastMsg.createdAt) 
         : (chat.lastUpdated ? formatMessengerTimestamp(chat.lastUpdated) : '');
-      const timestampNum = getMessageTimestampNum(lastMsg?.timestamp, chat.lastUpdated, lastMsg?.createdAt);
       const isPinnedDirect = isChatPinned(chat.id, other?.id);
 
       return {
@@ -175,6 +194,8 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
         timeText,
         timestampNum,
         isPinned: isPinnedDirect,
+        unreadCount,
+        hasUnread,
         directChat: chat
       };
     });
@@ -196,12 +217,17 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
         return true;
       });
 
+      const unreadCount = validMessages.filter(m => m.sender?.id !== user.id && (m as any).read === false).length;
+      const hasUnread = unreadCount > 0;
       const lastMsg = validMessages.length > 0 ? validMessages[validMessages.length - 1] : null;
       const isMe = lastMsg ? (lastMsg.sender?.id === user.id) : false;
       const timeText = lastMsg 
         ? formatMessengerTimestamp(lastMsg.timestamp, chat?.lastUpdated, (lastMsg as any)?.createdAt) 
         : (chat?.lastUpdated ? formatMessengerTimestamp(chat.lastUpdated) : '');
-      const timestampNum = getMessageTimestampNum(lastMsg?.timestamp, chat?.lastUpdated, lastMsg?.createdAt);
+      const timestampNum = Math.max(
+        getMessageTimestampNum(lastMsg?.timestamp, chat?.lastUpdated, (lastMsg as any)?.createdAt),
+        chat?.lastUpdated ? new Date(chat.lastUpdated).getTime() : 0
+      );
       const isPinned = isChatPinned(`group_${g.id}`, g.id);
 
       return {
@@ -218,6 +244,8 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
         timeText,
         timestampNum,
         isPinned,
+        unreadCount,
+        hasUnread,
         group: g,
         groupChat: chat ? { ...chat, messages: validMessages } : { groupId: g.id, groupName: g.name, messages: [] }
       };
@@ -226,14 +254,7 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
 
   // Helper to sort chats: pinned items on top (up to 10), then most recent activity
   const sortUnifiedChats = (items: UnifiedChat[]): UnifiedChat[] => {
-    return [...items].sort((a, b) => {
-      const pinA = isChatPinned(a.id, a.targetId) ? 1 : 0;
-      const pinB = isChatPinned(b.id, b.targetId) ? 1 : 0;
-      if (pinA !== pinB) {
-        return pinB - pinA; // Pinned always on top
-      }
-      return b.timestampNum - a.timestampNum; // Most recent activity pushed up
-    });
+    return [...items].sort((a, b) => compareChatsByRecentActivity(a, b));
   };
 
   // 4. Combined conversation list
@@ -283,11 +304,46 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
     }
   }, [allConversations, selectedChatId]);
 
+  // Reset Condition: Clear counter to 0 the exact moment the user opens that specific chat box
+  // Silent Suppression: Set activeOpenChatId so incoming messages while inside the chat don't trigger popups or counts
+  useEffect(() => {
+    if (selectedChatId) {
+      markChatAsRead(selectedChatId);
+      setActiveOpenChatId(selectedChatId);
+    } else {
+      setActiveOpenChatId(null);
+    }
+    return () => {
+      setActiveOpenChatId(null);
+    };
+  }, [selectedChatId, markChatAsRead, setActiveOpenChatId]);
+
+  const handleToggleNotifications = (chatId: string, alternateId?: string, e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+    const target = alternateId || chatId;
+    const nextState = toggleChatNotifications(target);
+    setNotifToast({
+      message: nextState ? 'Notifications enabled for this chat' : 'Notifications muted for this chat',
+      type: 'success'
+    });
+    setTimeout(() => {
+      setNotifToast(null);
+    }, 3000);
+  };
+
   const activeConversation = useMemo(() => {
     return allConversations.find(c => c.id === selectedChatId || c.targetId === selectedChatId) || null;
   }, [allConversations, selectedChatId]);
 
   const isPinnedActive = Boolean(activeConversation && isChatPinned(activeConversation.id, activeConversation.targetId));
+  const isNotifActive = Boolean(
+    activeConversation && 
+    areChatNotificationsEnabled(activeConversation.id) && 
+    areChatNotificationsEnabled(activeConversation.targetId)
+  );
 
   const { pinnedChats, otherChats } = useMemo(() => {
     const pinned: UnifiedChat[] = [];
@@ -315,6 +371,34 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
   }, [activeConversation, user.id]);
 
   const isBlocked = otherParticipant ? isUserBlocked(otherParticipant.id) : false;
+
+  // Strict participant message isolation for private 1-on-1 direct messages
+  const isolatedDirectMessages = useMemo(() => {
+    if (!activeConversation?.directChat?.messages) return [];
+    const msgs = activeConversation.directChat.messages;
+    if (isGroupChat) return msgs;
+
+    const currentUid = (user.id || 'u_current').toLowerCase();
+    const peerUid = (otherParticipant?.id || '').toLowerCase();
+    const peerName = (otherParticipant?.name || '').toLowerCase();
+
+    return msgs.filter(msg => {
+      const sId = String(msg.senderId || '').trim().toLowerCase();
+      const rId = String(msg.receiverId || '').trim().toLowerCase();
+      const sName = String(msg.senderName || '').trim().toLowerCase();
+
+      const isFromMe = sId === currentUid || sId === 'u_current' || sId === 'guest';
+      const isFromPeer = (peerUid && sId === peerUid) || (peerName && sName === peerName);
+
+      if (isFromMe) {
+        return !rId || (peerUid && rId === peerUid) || rId === 'group' || rId === 'unknown';
+      }
+      if (isFromPeer) {
+        return !rId || rId === currentUid || rId === 'u_current' || rId === 'guest' || rId === 'group';
+      }
+      return false;
+    });
+  }, [activeConversation?.directChat?.messages, isGroupChat, user.id, otherParticipant?.id, otherParticipant?.name]);
 
   const filteredFriends = useMemo(() => {
     const sorted = sortFriendsByLastActivity(friends, cleanDirectChats, posts, groupChats);
@@ -410,6 +494,9 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
         onClick={() => {
           playSound('pop');
           setSelectedChatId(item.id);
+          // Reset Condition: Clear counter to 0 the exact moment the user opens that specific chat box
+          markChatAsRead(item.id);
+          setActiveOpenChatId(item.id);
         }}
         className={`group flex items-center gap-3 p-2.5 rounded-xl cursor-pointer transition-all relative ${
           isSelected 
@@ -447,8 +534,10 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-1 mb-0.5">
             <div className="flex items-center gap-1.5 min-w-0">
-              <p className={`text-xs font-semibold truncate ${
-                isSelected ? 'text-gray-900 dark:text-white' : 'text-gray-800 dark:text-gray-200'
+              <p className={`text-xs truncate ${
+                item.hasUnread 
+                  ? 'font-black text-gray-950 dark:text-white' 
+                  : isSelected ? 'text-gray-900 dark:text-white font-semibold' : 'text-gray-800 dark:text-gray-200 font-medium'
               }`}>
                 {item.name}
               </p>
@@ -462,26 +551,40 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
               )}
             </div>
             {item.timeText && (
-              <span className="text-[10px] text-gray-400 dark:text-gray-500 shrink-0">
+              <span className={`text-[10px] shrink-0 ${
+                item.hasUnread ? 'font-bold text-[#0084ff] dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'
+              }`}>
                 {item.timeText}
               </span>
             )}
           </div>
 
-          <div className="flex items-center justify-between gap-1">
-            <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate leading-snug flex-1">
+          <div className="flex items-center justify-between gap-1.5">
+            {/* Unread message styled using bold, brighter typography */}
+            <p className={`text-[11px] truncate leading-snug flex-1 ${
+              item.hasUnread 
+                ? 'font-bold text-gray-950 dark:text-white' 
+                : 'text-gray-500 dark:text-gray-400 font-normal'
+            }`}>
               {item.lastMessageSenderName && !item.lastMessageIsMe ? (
-                <span className="text-gray-700 dark:text-gray-300 font-medium">
+                <span className={item.hasUnread ? 'font-black text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300 font-medium'}>
                   {item.lastMessageSenderName}: 
                 </span>
               ) : null}
               {item.lastMessageIsMe ? (
                 <span className="text-gray-600 dark:text-gray-300 font-medium">You: </span>
               ) : null}
-              <span className={item.lastMessageText === 'Start conversation' || item.lastMessageText === 'Start group discussion' ? 'italic text-gray-400 dark:text-gray-500' : ''}>
+              <span className={item.lastMessageText === 'Start conversation' || item.lastMessageText === 'Start group discussion' ? 'italic text-gray-400 dark:text-gray-500 font-normal' : ''}>
                 {item.lastMessageText}
               </span>
             </p>
+
+            {/* Dynamic unread count badge */}
+            {item.hasUnread && (
+              <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-[#0084ff] text-white text-[10px] font-black flex items-center justify-center shrink-0 shadow-sm animate-pulse">
+                {item.unreadCount}
+              </span>
+            )}
 
             {/* Quick Pin/Unpin Action Button */}
             <button
@@ -504,7 +607,7 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
 
   return (
     <div className="bg-white dark:bg-[#18191a] overflow-hidden flex flex-col h-full w-full flex-1 min-h-0 transition-colors relative">
-      {/* Pin action toast */}
+      {/* Pin action toast & notification toast */}
       <AnimatePresence>
         {pinToast && (
           <motion.div
@@ -521,6 +624,23 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
             <span>{pinToast.message}</span>
             <button 
               onClick={() => setPinToast(null)}
+              className="ml-1 p-0.5 hover:bg-white/20 rounded-full cursor-pointer"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </motion.div>
+        )}
+        {notifToast && (
+          <motion.div
+            initial={{ opacity: 0, y: -20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, scale: 0.95 }}
+            className="absolute top-12 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full shadow-lg text-xs font-semibold flex items-center gap-2 border backdrop-blur-md bg-gray-900/90 text-white border-gray-700"
+          >
+            <Bell className="h-3.5 w-3.5 text-blue-400 fill-current" />
+            <span>{notifToast.message}</span>
+            <button 
+              onClick={() => setNotifToast(null)}
               className="ml-1 p-0.5 hover:bg-white/20 rounded-full cursor-pointer"
             >
               <X className="h-3 w-3" />
@@ -546,6 +666,18 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
               </span>
             </div>
             <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  triggerSimulatedIncomingMessage();
+                }}
+                className="p-1.5 rounded-full bg-gray-100 dark:bg-[#252728] hover:bg-gray-200 dark:hover:bg-[#333537] text-gray-600 dark:text-gray-300 transition-all flex items-center gap-1 text-[11px] font-semibold cursor-pointer border border-gray-200 dark:border-[#333537]"
+                title="Test incoming chat notification (plays crisp sound effect & triggers single dynamic popup)"
+              >
+                <Bell className="h-3.5 w-3.5 text-[#0084ff]" />
+                <span className="hidden sm:inline">Simulate Ping</span>
+              </button>
+
               <button
                 type="button"
                 onClick={() => {
@@ -764,8 +896,23 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
                     </div>
                   </div>
 
-                  {/* Header Action Buttons (Pin, Info) */}
+                  {/* Header Action Buttons (Notifications, Pin, Info) */}
                   <div className="flex items-center gap-1 text-[#0084ff]">
+                    {/* Turn on/off Notifications Toggle */}
+                    <button
+                      onClick={(e) => handleToggleNotifications(activeConversation.id, activeConversation.targetId, e)}
+                      className={`p-2 rounded-full hover:bg-gray-100 dark:hover:bg-[#252728] transition-colors cursor-pointer ${
+                        isNotifActive ? 'text-[#0084ff] bg-blue-50 dark:bg-blue-950/40' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
+                      }`}
+                      title={isNotifActive ? "Turn off notifications for this conversation" : "Turn on notifications for this conversation"}
+                    >
+                      {isNotifActive ? (
+                        <Bell className="h-4.5 w-4.5 fill-current" />
+                      ) : (
+                        <BellOff className="h-4.5 w-4.5" />
+                      )}
+                    </button>
+
                     <button
                       onClick={(e) => handleTogglePin(activeConversation.id, activeConversation.targetId, e)}
                       className={`p-2 rounded-full hover:bg-gray-100 dark:hover:bg-[#252728] transition-colors cursor-pointer ${
@@ -841,13 +988,13 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
                   ) : (
                     <>
                       {/* Messages stream */}
-                      {activeConversation.directChat.messages.length === 0 ? (
+                      {isolatedDirectMessages.length === 0 ? (
                         <div className="text-center py-8 text-xs text-gray-400 my-auto">
                           <Sparkles className="h-5 w-5 text-[#0084ff] mx-auto mb-1.5 opacity-80" />
                           Say hello to {isGroupChat ? activeConversation.name : (otherParticipant?.name || 'your classmate')} or send a 👍 to start chatting!
                         </div>
                       ) : (
-                        activeConversation.directChat.messages.map((msg, index) => {
+                        isolatedDirectMessages.map((msg, index) => {
                           const isMe = msg.senderId === user.id;
                           const isThumbsUp = msg.content === '👍';
 
@@ -1032,6 +1179,21 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
 
                   {/* Header Action Buttons */}
                   <div className="flex items-center gap-1.5">
+                    {/* Turn on/off Notifications for group */}
+                    <button
+                      onClick={(e) => handleToggleNotifications(activeConversation.id, activeConversation.targetId, e)}
+                      className={`p-2 rounded-full hover:bg-gray-100 dark:hover:bg-[#252728] transition-colors cursor-pointer ${
+                        isNotifActive ? 'text-[#0084ff] bg-blue-50 dark:bg-blue-950/40' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
+                      }`}
+                      title={isNotifActive ? "Turn off notifications for this study group" : "Turn on notifications for this study group"}
+                    >
+                      {isNotifActive ? (
+                        <Bell className="h-4.5 w-4.5 fill-current" />
+                      ) : (
+                        <BellOff className="h-4.5 w-4.5" />
+                      )}
+                    </button>
+
                     <button
                       onClick={() => {
                         localStorage.setItem('sb_selected_group_id', activeConversation.group!.id);
@@ -1298,6 +1460,33 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
                     }`}
                   >
                     {isPinnedActive ? 'Unpin' : 'Pin'}
+                  </button>
+                </div>
+
+                {/* Turn on Notifications Card */}
+                <div className="mt-2.5 p-2.5 rounded-xl bg-gray-50 dark:bg-[#2a2b2c] border border-gray-150 dark:border-[#3a3b3c] flex items-center justify-between">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className={`p-1.5 rounded-lg shrink-0 ${isNotifActive ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-[#3a3b3c] text-gray-500'}`}>
+                      {isNotifActive ? <Bell className="h-3.5 w-3.5 fill-current" /> : <BellOff className="h-3.5 w-3.5" />}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-gray-800 dark:text-gray-200 truncate">
+                        Notifications
+                      </p>
+                      <p className="text-[10px] text-gray-400">
+                        {isNotifActive ? 'Crisp sound & popups on' : 'Muted'}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={(e) => handleToggleNotifications(activeConversation.id, activeConversation.targetId, e)}
+                    className={`px-3 py-1 rounded-full text-xs font-bold cursor-pointer transition-colors shrink-0 ${
+                      isNotifActive 
+                        ? 'bg-blue-100 dark:bg-blue-900/50 text-[#0084ff] hover:bg-blue-200' 
+                        : 'bg-gray-200 dark:bg-[#3a3b3c] text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-[#4a4b4c]'
+                    }`}
+                  >
+                    {isNotifActive ? 'Turn Off' : 'Turn On'}
                   </button>
                 </div>
 

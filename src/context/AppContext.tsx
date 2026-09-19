@@ -1,9 +1,9 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { User, Post, StudyGroup, GroupRole, GroupMember, GroupFile, TutorPage, Reel, MarketplaceItem, GroupChat, AppSettings, AcademicReactionType, Comment, Message, BinderFolder, TutorRequest, RequestHistoryLog, Friend, FriendRequest, DirectMessage, DirectChat, BlockedUser, CreatorScore, GroupSettings, GroupJoinRequest, GlobalAlgorithmConfig, DEFAULT_GLOBAL_ALGORITHM_CONFIG } from '../types';
+import { User, Post, StudyGroup, GroupRole, GroupMember, GroupFile, TutorPage, Reel, MarketplaceItem, GroupChat, AppSettings, AcademicReactionType, Comment, Message, BinderFolder, TutorRequest, RequestHistoryLog, Friend, FriendRequest, DirectMessage, DirectChat, BlockedUser, CreatorScore, GroupSettings, GroupJoinRequest, GlobalAlgorithmConfig, DEFAULT_GLOBAL_ALGORITHM_CONFIG, ActiveChatNotification } from '../types';
 import { currentUser, initialPosts, initialGroups, initialTutors, initialReels, initialMarketplaceItems, initialGroupChats, defaultSettings, SILHOUETTE_AVATAR, initialFriends, initialFriendRequests, initialDirectChats, initialCommunityUsers } from '../data/mockData';
 import { ALGORITHM_CONFIG } from '../utils/feedAlgorithm';
 import { playSound } from '../utils/soundEffects';
-import { isPlaceholderBinhChat, consolidateDirectChats, isFakeOrBotTutor } from '../utils/chatUtils';
+import { isPlaceholderBinhChat, consolidateDirectChats, isFakeOrBotTutor, isFakeMarketplaceItem } from '../utils/chatUtils';
 import { 
   canUserRemoveSpam, 
   canUserManageMembers, 
@@ -23,7 +23,9 @@ import {
   canUserReviewJoinRequests,
   canUserApprovePosts,
   canUserDeleteReel,
-  interceptMarketplacePrivacySettings
+  interceptMarketplacePrivacySettings,
+  canUserDeleteMarketplaceItem,
+  isUserListingSeller
 } from '../utils/permissionUtils';
 import {
   extractPostIdFromUrl,
@@ -51,6 +53,8 @@ import {
   collection, 
   onSnapshot, 
   query,
+  where,
+  writeBatch,
   orderBy,
   addDoc,
   serverTimestamp,
@@ -134,6 +138,7 @@ interface AppContextType {
   closeSinglePost: () => void;
 
   addMarketplaceItem: (item: Omit<MarketplaceItem, 'id' | 'seller' | 'distance'>) => void;
+  deleteMarketplaceItem: (itemId: string) => Promise<void>;
   sendGroupMessage: (groupId: string, text: string) => void;
   exportResume: () => void;
   speakText: (text: string) => void;
@@ -181,7 +186,11 @@ interface AppContextType {
   removeFriend: (friendId: string) => Promise<void>;
   getFriendshipStatus: (targetUserId: string) => 'none' | 'pending_sent' | 'pending_received' | 'friends';
 
-  openDirectChat: (targetUser: { id: string; name: string; avatar: string; email?: string; role?: string; allowDMsFromStrangers?: boolean }) => void;
+  openDirectChat: (
+    targetUser: { id: string; name: string; avatar: string; email?: string; role?: string; allowDMsFromStrangers?: boolean },
+    initialMessage?: string,
+    isMarketplaceInquiry?: boolean
+  ) => void;
   sendDirectMessage: (chatId: string, content: string) => Promise<void>;
   closeDirectChat: (chatId: string) => void;
   openDirectChatIds: string[];
@@ -233,6 +242,17 @@ interface AppContextType {
 
   // Messenger Group Chat creation (with friends only)
   createGroupChat: (groupName: string, friendIds: string[]) => Promise<DirectChat | null>;
+
+  // Real-Time Chat Notification System & Unread Tracking
+  chatNotificationPrefs: Record<string, boolean>;
+  toggleChatNotifications: (targetId: string) => boolean;
+  areChatNotificationsEnabled: (targetId: string) => boolean;
+  activeChatNotifications: Record<string, ActiveChatNotification>;
+  dismissChatNotification: (chatId: string) => void;
+  activeOpenChatId: string | null;
+  setActiveOpenChatId: (chatId: string | null) => void;
+  markChatAsRead: (chatId: string) => void;
+  triggerSimulatedIncomingMessage?: (senderFriendId?: string) => void;
 }
 
 const safeGetTime = (ts?: string) => {
@@ -726,14 +746,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   
   // Ensure old mock items in localStorage are cleared once
   try {
-    if (typeof window !== 'undefined' && window.localStorage && !localStorage.getItem('sb_v4_clean')) {
-      localStorage.removeItem('sb_posts');
-      localStorage.removeItem('sb_groups');
-      localStorage.removeItem('sb_tutors');
-      localStorage.removeItem('sb_reels');
-      localStorage.removeItem('sb_marketplace');
-      localStorage.removeItem('sb_group_chats');
-      localStorage.setItem('sb_v4_clean', 'true');
+    if (typeof window !== 'undefined' && window.localStorage) {
+      if (!localStorage.getItem('sb_v5_marketplace_clean')) {
+        const savedM = localStorage.getItem('sb_marketplace');
+        if (savedM) {
+          try {
+            const parsed = JSON.parse(savedM);
+            if (Array.isArray(parsed)) {
+              const cleaned = parsed.filter(m => !isFakeMarketplaceItem(m));
+              localStorage.setItem('sb_marketplace', JSON.stringify(cleaned));
+            }
+          } catch (_) {}
+        }
+        localStorage.setItem('sb_v5_marketplace_clean', 'true');
+      }
+
+      if (!localStorage.getItem('sb_v4_clean')) {
+        localStorage.removeItem('sb_posts');
+        localStorage.removeItem('sb_groups');
+        localStorage.removeItem('sb_tutors');
+        localStorage.removeItem('sb_reels');
+        localStorage.removeItem('sb_marketplace');
+        localStorage.removeItem('sb_group_chats');
+        localStorage.setItem('sb_v4_clean', 'true');
+      }
     }
   } catch (_) {}
 
@@ -789,8 +825,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [marketplace, setMarketplace] = useState<MarketplaceItem[]>(() => {
     try {
       const saved = localStorage.getItem('sb_marketplace');
-      return saved ? JSON.parse(saved) : initialMarketplaceItems;
-    } catch (_) { return initialMarketplaceItems; }
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          return parsed.filter(m => !isFakeMarketplaceItem(m));
+        }
+      }
+      return initialMarketplaceItems.filter(m => !isFakeMarketplaceItem(m));
+    } catch (_) { return []; }
   });
 
   const cleanGroupChatMessages = (messages: any[]): any[] => {
@@ -1091,6 +1133,197 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   const [openDirectChatIds, setOpenDirectChatIds] = useState<string[]>([]);
+
+  // Real-Time Chat Notification Preferences (Individual friends or groups)
+  const [chatNotificationPrefs, setChatNotificationPrefs] = useState<Record<string, boolean>>(() => {
+    try {
+      const saved = localStorage.getItem('sb_chat_notif_prefs');
+      return saved ? JSON.parse(saved) : {};
+    } catch (_) { return {}; }
+  });
+
+  const areChatNotificationsEnabled = useCallback((targetId: string): boolean => {
+    if (!targetId) return true;
+    const pref = chatNotificationPrefs[targetId];
+    return pref !== false; // Enabled by default unless explicitly toggled off
+  }, [chatNotificationPrefs]);
+
+  const toggleChatNotifications = useCallback((targetId: string): boolean => {
+    if (!targetId) return true;
+    const current = areChatNotificationsEnabled(targetId);
+    const next = !current;
+    setChatNotificationPrefs(prev => {
+      const updated = { ...prev, [targetId]: next };
+      try {
+        localStorage.setItem('sb_chat_notif_prefs', JSON.stringify(updated));
+      } catch (_) {}
+      return updated;
+    });
+    playSound('toggle');
+    return next;
+  }, [areChatNotificationsEnabled]);
+
+  // Active chat notification popups with dynamically updating counter
+  const [activeChatNotifications, setActiveChatNotifications] = useState<Record<string, ActiveChatNotification>>({});
+  const [activeOpenChatId, setActiveOpenChatId] = useState<string | null>(null);
+
+  const dismissChatNotification = useCallback((chatId: string) => {
+    setActiveChatNotifications(prev => {
+      if (!prev[chatId]) return prev;
+      const next = { ...prev };
+      delete next[chatId];
+      return next;
+    });
+  }, []);
+
+  const markChatAsRead = useCallback((chatId: string) => {
+    if (!chatId) return;
+
+    // Reset Condition: Clear this counter to 0 the exact moment the user opens that specific chat box
+    setActiveChatNotifications(prev => {
+      if (!prev[chatId]) return prev;
+      const next = { ...prev };
+      delete next[chatId];
+      return next;
+    });
+
+    setDirectChats(prev => {
+      let changed = false;
+      const updated = prev.map(chat => {
+        const isMatch = chat.id === chatId || 
+          chat.participants.some(p => p.id === chatId || (chatId.includes(p.id) && p.id !== user.id));
+        if (isMatch) {
+          const hasUnread = chat.messages.some(m => m.read === false);
+          if (hasUnread || (chat.unreadCount && chat.unreadCount > 0)) {
+            changed = true;
+            return {
+              ...chat,
+              unreadCount: 0,
+              messages: chat.messages.map(m => ({ ...m, read: true }))
+            };
+          }
+        }
+        return chat;
+      });
+
+      if (changed) {
+        try {
+          localStorage.setItem('sb_direct_chats', JSON.stringify(updated));
+        } catch (_) {}
+        return updated;
+      }
+      return prev;
+    });
+  }, [user.id]);
+
+  // Central dispatch for incoming chat messages
+  const handleIncomingChatMessage = useCallback((
+    chatId: string,
+    sender: { id: string; name: string; avatar: string },
+    messageText: string,
+    targetType: 'direct' | 'group' = 'direct'
+  ) => {
+    // Silent Suppression: If the user is already inside the open chat box when the message arrives, do not send any popup notification or trigger counts
+    const isInsideChat = (activeOpenChatId === chatId) || openDirectChatIds.includes(chatId);
+    if (isInsideChat) {
+      // User is actively reading the conversation: silent suppression, no popup or sound
+      return;
+    }
+
+    // Check if notifications are enabled for this specific friend or group
+    const isEnabled = areChatNotificationsEnabled(chatId) && areChatNotificationsEnabled(sender.id);
+    if (!isEnabled) {
+      return;
+    }
+
+    // Trigger only ONE single initial notification popup that text-updates the counter dynamically (e.g., "A has sent you 3 messages")
+    setActiveChatNotifications(prev => {
+      const existing = prev[chatId];
+      const newCount = existing ? existing.count + 1 : 1;
+      return {
+        ...prev,
+        [chatId]: {
+          id: chatId,
+          chatId,
+          senderId: sender.id,
+          senderName: sender.name,
+          senderAvatar: sender.avatar,
+          targetType,
+          count: newCount,
+          latestMessage: messageText,
+          timestamp: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+        }
+      };
+    });
+
+    // Sound Effect Trigger: If the app is open on screen, play a crisp "ting" audio sound effect when a message arrives from a notification-enabled friend
+    playSound('ting');
+  }, [activeOpenChatId, openDirectChatIds, areChatNotificationsEnabled]);
+
+  // Simulated message trigger for immediate verification & interactive testing
+  const triggerSimulatedIncomingMessage = useCallback((senderFriendId?: string) => {
+    const friend = (friends || []).find(f => senderFriendId ? f.id === senderFriendId : f.id !== user.id) || friends[0];
+    if (!friend) return;
+
+    const sampleMessages = [
+      "Hey! Did you check the sample solution for Calculus chapter 4?",
+      "I just uploaded our study group notes, take a look when you're free!",
+      "Are you available for a quick study session this evening?",
+      "Thanks for sharing the textbook link, it helped a ton!",
+      "Let's review the mock exam problems together!"
+    ];
+    const text = sampleMessages[Math.floor(Math.random() * sampleMessages.length)];
+    const chatId = `dm_${friend.id}`;
+    const isoNow = new Date().toISOString();
+    const formattedTime = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+
+    const newMsg: DirectMessage = {
+      id: `dm_msg_${Date.now()}_sim`,
+      senderId: friend.id,
+      senderName: friend.name,
+      senderAvatar: friend.avatar,
+      receiverId: user.id || 'u_current',
+      receiverName: user.name,
+      receiverAvatar: user.avatar,
+      content: text,
+      timestamp: formattedTime,
+      createdAt: isoNow,
+      read: false
+    };
+
+    setDirectChats(prev => {
+      const idx = prev.findIndex(c => c.id === chatId || c.participants.some(p => p.id === friend.id));
+      let updated: DirectChat[];
+      if (idx >= 0) {
+        const target = prev[idx];
+        const updatedChat: DirectChat = {
+          ...target,
+          messages: [...target.messages, newMsg],
+          lastUpdated: isoNow,
+          unreadCount: (target.unreadCount || 0) + 1
+        };
+        updated = [...prev];
+        updated[idx] = updatedChat;
+      } else {
+        const newChat: DirectChat = {
+          id: chatId,
+          participants: [
+            { id: user.id || 'u_current', name: user.name || 'You', avatar: user.avatar || SILHOUETTE_AVATAR },
+            { id: friend.id, name: friend.name, avatar: friend.avatar, role: friend.role }
+          ],
+          messages: [newMsg],
+          lastUpdated: isoNow,
+          unreadCount: 1
+        };
+        updated = [...prev, newChat];
+      }
+      const consolidated = consolidateDirectChats(updated, user.id || 'u_current', user.name || '');
+      localStorage.setItem('sb_direct_chats', JSON.stringify(consolidated));
+      return consolidated;
+    });
+
+    handleIncomingChatMessage(chatId, { id: friend.id, name: friend.name, avatar: friend.avatar }, text);
+  }, [friends, user, handleIncomingChatMessage]);
 
   // Pinned chat IDs (up to 10 friends/groups)
   const [pinnedChatIds, setPinnedChatIds] = useState<string[]>(() => {
@@ -1473,17 +1706,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // E. Sync Marketplace
     const unsubscribeMarket = onSnapshot(collection(db, 'marketplace'), async (snapshot) => {
       if (snapshot.empty) {
-        // Auto-seed marketplace
-        for (const m of initialMarketplaceItems) {
-          try {
-            await setDoc(doc(db, 'marketplace', m.id), cleanForFirestore(m));
-          } catch (e) {
-            console.warn('Failed to seed marketplace item:', e);
-          }
-        }
+        setMarketplace([]);
+        try { localStorage.setItem('sb_marketplace', JSON.stringify([])); } catch (_) {}
       } else {
         const loaded: MarketplaceItem[] = [];
-        snapshot.forEach((d) => loaded.push(d.data() as MarketplaceItem));
+        snapshot.forEach((d) => {
+          const item = d.data() as MarketplaceItem;
+          const fullItem = { ...item, id: d.id };
+          if (isFakeMarketplaceItem(fullItem)) {
+            // Remove fake placeholder directly from Firestore
+            deleteDoc(doc(db, 'marketplace', d.id)).catch(console.warn);
+          } else {
+            loaded.push(item);
+          }
+        });
         setMarketplace(loaded);
         localStorage.setItem('sb_marketplace', JSON.stringify(loaded));
       }
@@ -1491,9 +1727,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       console.warn('Firestore marketplace sync failed (falling back to local):', error);
       const saved = localStorage.getItem('sb_marketplace');
       if (saved) {
-        try { setMarketplace(JSON.parse(saved)); } catch (_) { setMarketplace(initialMarketplaceItems); }
+        try { 
+          const parsed = JSON.parse(saved);
+          setMarketplace(Array.isArray(parsed) ? parsed.filter(m => !isFakeMarketplaceItem(m)) : []); 
+        } catch (_) { 
+          setMarketplace([]); 
+        }
       } else {
-        setMarketplace(initialMarketplaceItems);
+        setMarketplace([]);
       }
     });
 
@@ -1539,29 +1780,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setGroupChats([]);
     });
 
-    // G. Sync Direct Chats across accounts
+    // G. Sync Direct Chats across accounts with strict participant isolation
     const unsubscribeDirectChats = onSnapshot(collection(db, 'directChats'), async (snapshot) => {
       if (snapshot.empty) {
-        const cleanedInitial = consolidateDirectChats(initialDirectChats);
-        for (const c of cleanedInitial) {
-          try {
-            await setDoc(doc(db, 'directChats', c.id), cleanForFirestore(c));
-          } catch (e) {
-            console.warn('Failed to seed direct chat:', e);
-          }
-        }
-        setDirectChats(cleanedInitial);
+        setDirectChats([]);
+        try { localStorage.setItem('sb_direct_chats', JSON.stringify([])); } catch (_) {}
       } else {
         const loaded: DirectChat[] = [];
+        const curIdLower = (user.id || 'u_current').toLowerCase();
+        const curEmailLower = (user.email || '').toLowerCase();
+
         snapshot.forEach((d) => {
           const data = d.data() as DirectChat;
           const withId = { ...data, id: d.id };
           if (isPlaceholderBinhChat(withId)) {
             // Delete Binh placeholder chat document immediately from Firestore
             deleteDoc(doc(db, 'directChats', d.id)).catch(() => {});
-          } else {
-            loaded.push(withId);
+            return;
           }
+
+          // Individual DM security check: current user must be one of the participants
+          const isParticipant = Array.isArray(withId.participantIds)
+            ? withId.participantIds.some(pid => pid.toLowerCase() === curIdLower || pid === 'u_current' || pid === 'guest')
+            : (Array.isArray(withId.participants) && withId.participants.some(p => {
+                const pId = String(p?.id || '').toLowerCase();
+                const pEmail = String(p?.email || '').toLowerCase();
+                return pId === curIdLower || (curEmailLower && pEmail === curEmailLower) || pId === 'u_current' || pId === 'guest';
+              }));
+
+          if (!withId.isGroupChat && !isParticipant && user.id && user.id !== 'guest' && user.id !== 'u_current') {
+            // Private chat between two other users: do not load or leak!
+            return;
+          }
+
+          loaded.push(withId);
         });
 
         // Consolidate duplicates by person identity and clean stale duplicate docs in Firestore
@@ -1575,7 +1827,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         );
 
         setDirectChats(consolidated);
-        localStorage.setItem('sb_direct_chats', JSON.stringify(consolidated));
+        try { localStorage.setItem('sb_direct_chats', JSON.stringify(consolidated)); } catch (_) {}
       }
     }, (error) => {
       console.warn('Firestore directChats sync failed (falling back to local):', error);
@@ -1585,7 +1837,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const parsed = JSON.parse(saved);
           setDirectChats(consolidateDirectChats(parsed, user.id || 'u_current', user.name || '')); 
         } catch (_) { 
-          setDirectChats(consolidateDirectChats(initialDirectChats)); 
+          setDirectChats(consolidateDirectChats(initialDirectChats, user.id || 'u_current', user.name || '')); 
         }
       }
     });
@@ -1610,16 +1862,48 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       console.warn('Firestore friendRequests sync failed:', error);
     });
 
-    // I. Sync Friends across accounts
-    const unsubscribeFriends = onSnapshot(collection(db, 'friends'), async (snapshot) => {
-      if (!snapshot.empty) {
-        const loaded: Friend[] = [];
-        snapshot.forEach((d) => loaded.push(d.data() as Friend));
-        setFriends(loaded);
-        localStorage.setItem('sb_friends', JSON.stringify(loaded));
-      }
+    // I. Sync Friends strictly isolated by authenticated user (Two-Way Mutual Friendship)
+    const friendsQuery = query(collection(db, 'friends'), where('userId', '==', user.id || 'u_current'));
+    const unsubscribeFriends = onSnapshot(friendsQuery, async (snapshot) => {
+      const loaded: Friend[] = [];
+      snapshot.forEach((d) => {
+        const f = d.data() as any;
+        if (f && (f.friendId || f.id) && f.userId === (user.id || 'u_current')) {
+          const friendObj: Friend = {
+            id: f.friendId || f.id,
+            userId: f.userId,
+            friendId: f.friendId || f.id,
+            name: f.name || 'Friend',
+            avatar: f.avatar || SILHOUETTE_AVATAR,
+            email: f.email,
+            role: f.role,
+            grade: f.grade,
+            institution: f.institution,
+            bio: f.bio,
+            addedAt: f.addedAt || 'Recently',
+            isOnline: f.isOnline ?? true,
+            lastActivityTime: f.lastActivityTime
+          };
+          if (friendObj.id !== user.id) {
+            loaded.push(friendObj);
+          }
+        }
+      });
+      setFriends(loaded);
+      try { localStorage.setItem('sb_friends', JSON.stringify(loaded)); } catch (_) {}
     }, (error) => {
-      console.warn('Firestore friends sync failed:', error);
+      console.warn('Firestore friends sync failed (falling back to local):', error);
+      const saved = localStorage.getItem('sb_friends');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed)) {
+            setFriends(parsed.filter(f => f.id !== user.id));
+            return;
+          }
+        } catch (_) {}
+      }
+      setFriends([]);
     });
 
     // J. Sync Community Users across accounts
@@ -1853,7 +2137,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       localStorage.removeItem('sb_local_logged_in');
       localStorage.removeItem('sb_user');
       localStorage.removeItem('sb_current_email');
+      localStorage.removeItem('sb_friends');
+      localStorage.removeItem('sb_friend_requests');
+      localStorage.removeItem('sb_direct_chats');
     } catch (_) {}
+    setFriends([]);
+    setFriendRequests([]);
+    setDirectChats([]);
     if (isFirebaseConfigured) {
       try {
         await signOut(auth);
@@ -3477,6 +3767,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const deleteMarketplaceItem = async (itemId: string) => {
+    const targetItem = marketplace.find(m => m.id === itemId);
+    if (!targetItem) return;
+
+    if (!canUserDeleteMarketplaceItem(targetItem, user)) {
+      alert("Permission denied: Only the listing's seller or an Application Admin can delete this listing.");
+      return;
+    }
+
+    // Optimistic local state update
+    setMarketplace(prev => {
+      const next = prev.filter(m => m.id !== itemId);
+      try {
+        localStorage.setItem('sb_marketplace', JSON.stringify(next));
+      } catch (_) {}
+      return next;
+    });
+
+    playSound('delete');
+
+    if (isFirebaseConfigured) {
+      try {
+        await deleteDoc(doc(db, 'marketplace', itemId));
+      } catch (err) {
+        console.warn('Failed to delete marketplace item from Firestore:', err);
+      }
+    }
+  };
+
   const sendGroupMessage = async (groupId: string, text: string) => {
     const targetChat = groupChats.find(c => c.groupId === groupId);
     if (!targetChat) return;
@@ -4310,8 +4629,11 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
     const req = friendRequests.find(r => r.id === requestId);
     if (!req) return;
 
-    const newFriend: Friend = {
+    // User A (Sender) represented as a Friend for User B (Current User)
+    const userAFriendForB: Friend = {
       id: req.senderId,
+      userId: user.id,
+      friendId: req.senderId,
       name: req.senderName,
       avatar: req.senderAvatar,
       email: req.senderEmail,
@@ -4320,9 +4642,27 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
       lastActivityTime: new Date().toISOString()
     };
 
+    // User B (Current User) represented as a Friend for User A (Sender)
+    const userBFriendForA: Friend = {
+      id: user.id,
+      userId: req.senderId,
+      friendId: user.id,
+      name: user.name || 'Friend',
+      avatar: user.avatar || SILHOUETTE_AVATAR,
+      email: user.email,
+      role: user.role,
+      institution: user.institution,
+      grade: user.grade,
+      bio: user.bio,
+      addedAt: 'Just now',
+      isOnline: true,
+      lastActivityTime: new Date().toISOString()
+    };
+
+    // 1. Optimistically update local state for current user (User B)
     setFriends(prev => {
-      if (prev.some(f => f.id === newFriend.id)) return prev;
-      const next = [...prev, newFriend];
+      if (prev.some(f => f.id === userAFriendForB.id || (f as any).friendId === userAFriendForB.id)) return prev;
+      const next = [...prev, userAFriendForB];
       localStorage.setItem('sb_friends', JSON.stringify(next));
       return next;
     });
@@ -4333,14 +4673,45 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
       return next;
     });
 
+    setUser(prev => {
+      const existing = prev.friendIds || [];
+      if (existing.includes(req.senderId)) return prev;
+      const updated = { ...prev, friendIds: [...existing, req.senderId] };
+      try { localStorage.setItem('sb_user', JSON.stringify(updated)); } catch (_) {}
+      return updated;
+    });
+
     playSound('pop');
 
+    // 2. Perform atomic mutual two-way update in Firestore database
     if (isFirebaseConfigured) {
       try {
-        await updateDoc(doc(db, 'friendRequests', requestId), { status: 'accepted' });
-        await setDoc(doc(db, 'friends', `${user.id}_${req.senderId}`), cleanForFirestore({ ...newFriend, userId: user.id }));
+        const batch = writeBatch(db);
+
+        // A. Update friend request status to accepted
+        batch.update(doc(db, 'friendRequests', requestId), { 
+          status: 'accepted',
+          acceptedAt: new Date().toISOString()
+        });
+
+        // B. Add User A's ID to User B's friends list
+        batch.set(doc(db, 'friends', `${user.id}_${req.senderId}`), cleanForFirestore(userAFriendForB));
+
+        // C. Simultaneously add User B's ID to User A's friends list
+        batch.set(doc(db, 'friends', `${req.senderId}_${user.id}`), cleanForFirestore(userBFriendForA));
+
+        // D. Update user profile documents with reciprocal friendIds
+        batch.set(doc(db, 'users', user.id), {
+          friendIds: arrayUnion(req.senderId)
+        }, { merge: true });
+
+        batch.set(doc(db, 'users', req.senderId), {
+          friendIds: arrayUnion(user.id)
+        }, { merge: true });
+
+        await batch.commit();
       } catch (e) {
-        console.warn('Firebase accept friend request failed:', e);
+        console.warn('Firebase two-way mutual accept friend request failed:', e);
       }
     }
   };
@@ -4385,24 +4756,42 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
 
   const removeFriend = async (friendId: string) => {
     setFriends(prev => {
-      const next = prev.filter(f => f.id !== friendId);
+      const next = prev.filter(f => f.id !== friendId && (f as any).friendId !== friendId);
       localStorage.setItem('sb_friends', JSON.stringify(next));
       return next;
+    });
+
+    setUser(prev => {
+      const existing = prev.friendIds || [];
+      const updated = { ...prev, friendIds: existing.filter(id => id !== friendId) };
+      try { localStorage.setItem('sb_user', JSON.stringify(updated)); } catch (_) {}
+      return updated;
     });
 
     playSound('delete');
 
     if (isFirebaseConfigured) {
       try {
-        await deleteDoc(doc(db, 'friends', `${user.id}_${friendId}`));
+        const batch = writeBatch(db);
+        // Mutual reciprocal deletion in Firestore
+        batch.delete(doc(db, 'friends', `${user.id}_${friendId}`));
+        batch.delete(doc(db, 'friends', `${friendId}_${user.id}`));
+        batch.set(doc(db, 'users', user.id), {
+          friendIds: arrayRemove(friendId)
+        }, { merge: true });
+        batch.set(doc(db, 'users', friendId), {
+          friendIds: arrayRemove(user.id)
+        }, { merge: true });
+        await batch.commit();
       } catch (e) {
-        console.warn('Firebase remove friend failed:', e);
+        console.warn('Firebase mutual remove friend failed:', e);
       }
     }
   };
 
   const getFriendshipStatus = (targetUserId: string): 'none' | 'pending_sent' | 'pending_received' | 'friends' => {
-    if (friends.some(f => f.id === targetUserId)) return 'friends';
+    if (friends.some(f => f.id === targetUserId || (f as any).friendId === targetUserId)) return 'friends';
+    if (user.friendIds && user.friendIds.includes(targetUserId)) return 'friends';
 
     const sent = friendRequests.find(r => r.senderId === user.id && r.receiverId === targetUserId && r.status === 'pending');
     if (sent) return 'pending_sent';
@@ -4636,7 +5025,11 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
   };
 
   // Direct Messaging Actions across accounts
-  const openDirectChat = (targetUser: { id: string; name: string; avatar: string; email?: string; role?: string; allowDMsFromStrangers?: boolean }) => {
+  const openDirectChat = (
+    targetUser: { id: string; name: string; avatar: string; email?: string; role?: string; allowDMsFromStrangers?: boolean },
+    initialMessage?: string,
+    isMarketplaceInquiry?: boolean
+  ) => {
     if (!targetUser.id) return;
 
     // Check if blocked
@@ -4651,8 +5044,8 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
       (f.name.toLowerCase() === targetUser.name.toLowerCase())
     );
 
-    // Check stranger DM permission
-    if (targetUser.allowDMsFromStrangers === false && !isFriend && user.role !== 'admin') {
+    // Check stranger DM permission (bypassed if explicit marketplace inquiry or admin)
+    if (!isMarketplaceInquiry && targetUser.allowDMsFromStrangers === false && !isFriend && user.role !== 'admin') {
       alert(`${targetUser.name} only accepts direct messages from approved friends. Please send them a friend request first!`);
       return;
     }
@@ -4705,6 +5098,64 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
       }
     }
 
+    // If initial inquiry message is provided (e.g. from marketplace listing), send it directly
+    if (initialMessage && initialMessage.trim()) {
+      const msgContent = initialMessage.trim();
+      const isoNow = new Date().toISOString();
+      const formattedClockTime = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+      const newMsg: DirectMessage = {
+        id: `dm_msg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        senderId: user.id || 'guest',
+        senderName: user.name || 'You',
+        senderAvatar: user.avatar || SILHOUETTE_AVATAR,
+        receiverId: targetUser.id || 'receiver',
+        receiverName: targetUser.name,
+        receiverAvatar: targetUser.avatar,
+        content: msgContent,
+        timestamp: formattedClockTime,
+        createdAt: isoNow,
+        read: false
+      };
+
+      setDirectChats(prev => {
+        const chatExists = prev.some(c => c.id === chatId);
+        let updated: DirectChat[];
+        if (chatExists) {
+          updated = prev.map(c => {
+            if (c.id === chatId) {
+              const isDup = c.messages.some(m => m.content === msgContent && m.senderId === (user.id || 'guest'));
+              if (isDup) return c;
+              return {
+                ...c,
+                messages: [...c.messages, newMsg],
+                lastUpdated: isoNow
+              };
+            }
+            return c;
+          });
+        } else {
+          updated = [...prev, {
+            id: chatId,
+            participants: [
+              { id: user.id || 'guest', name: user.name || 'You', avatar: user.avatar || SILHOUETTE_AVATAR, role: user.role },
+              { id: targetUser.id, name: targetUser.name, avatar: targetUser.avatar, email: targetUser.email, role: targetUser.role }
+            ],
+            messages: [newMsg],
+            lastUpdated: isoNow
+          }];
+        }
+        localStorage.setItem('sb_direct_chats', JSON.stringify(updated));
+        return updated;
+      });
+
+      if (isFirebaseConfigured) {
+        setDoc(doc(db, 'directChats', chatId), {
+          messages: arrayUnion(cleanForFirestore(newMsg)),
+          lastUpdated: isoNow
+        }, { merge: true }).catch(e => console.warn('Firebase marketplace initial DM failed:', e));
+      }
+    }
+
     // Open chat window and ensure no duplicate window for the same person
     setOpenChatIds(prev => {
       const cleaned = prev.filter(id => {
@@ -4728,6 +5179,10 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
       return [...prev, chatId].slice(-3);
     });
 
+    // Reset Condition: Clear counter to 0 the exact moment the user opens that specific chat box
+    markChatAsRead(chatId);
+    setActiveOpenChatId(chatId);
+
     playSound('pop');
   };
 
@@ -4742,6 +5197,7 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
       return;
     }
 
+    const otherId = otherP?.id || (chatId.startsWith('gc_') || chatId.startsWith('group_') ? 'group' : (chatId.replace('dm_', '').split('_').find(id => id !== user.id) || 'unknown'));
     const isoNow = new Date().toISOString();
     const formattedClockTime = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
     const newMsg: DirectMessage = {
@@ -4749,7 +5205,9 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
       senderId: user.id || 'guest',
       senderName: user.name || 'StudyBook Learner',
       senderAvatar: user.avatar || SILHOUETTE_AVATAR,
-      receiverId: chatId.startsWith('gc_') || chatId.startsWith('group_') ? 'group' : chatId.replace('dm_', '').replace(user.id || 'guest', '').replace('_', ''),
+      receiverId: otherId,
+      receiverName: otherP?.name,
+      receiverAvatar: otherP?.avatar,
       content: content.trim(),
       timestamp: formattedClockTime,
       createdAt: isoNow,
@@ -4764,6 +5222,8 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
         const existingChat = prev[targetIndex];
         const updatedChat: DirectChat = {
           ...existingChat,
+          type: existingChat.isGroupChat ? 'group_chat' : 'individual_dm',
+          participantIds: [user.id || 'guest', otherId].filter(id => id && id !== 'unknown' && id !== 'group'),
           messages: [...existingChat.messages, newMsg],
           lastUpdated: isoNow
         };
@@ -4772,7 +5232,12 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
       } else {
         const newChat: DirectChat = {
           id: chatId,
-          participants: [{ id: user.id, name: user.name, avatar: user.avatar }],
+          type: 'individual_dm',
+          participantIds: [user.id || 'guest', otherId].filter(id => id && id !== 'unknown' && id !== 'group'),
+          participants: [
+            { id: user.id, name: user.name, avatar: user.avatar },
+            ...(otherP ? [otherP] : [])
+          ],
           messages: [newMsg],
           lastUpdated: isoNow
         };
@@ -4812,6 +5277,9 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
   const closeDirectChat = (chatId: string) => {
     setOpenDirectChatIds(prev => prev.filter(id => id !== chatId));
     setOpenChatIds(prev => prev.filter(id => id !== chatId));
+    if (activeOpenChatId === chatId) {
+      setActiveOpenChatId(null);
+    }
   };
 
   const isChatPinned = (chatId: string, alternateId?: string): boolean => {
@@ -5018,6 +5486,16 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
       togglePinChat,
       isChatPinned,
 
+      chatNotificationPrefs,
+      toggleChatNotifications,
+      areChatNotificationsEnabled,
+      activeChatNotifications,
+      dismissChatNotification,
+      activeOpenChatId,
+      setActiveOpenChatId,
+      markChatAsRead,
+      triggerSimulatedIncomingMessage,
+
       blockedUsers,
       isUserBlocked,
       blockUser,
@@ -5090,6 +5568,7 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
       openSinglePost,
       closeSinglePost,
       addMarketplaceItem,
+      deleteMarketplaceItem,
       sendGroupMessage,
       exportResume,
       speakText,

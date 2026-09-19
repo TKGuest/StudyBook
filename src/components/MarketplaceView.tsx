@@ -7,7 +7,6 @@ import {
   Plus, 
   MapPin, 
   Tag, 
-  Star, 
   MessageSquare, 
   Upload, 
   X, 
@@ -16,13 +15,27 @@ import {
   Image as ImageIcon,
   ShieldCheck,
   Check,
-  Sparkles
+  Sparkles,
+  Trash2
 } from 'lucide-react';
 import { playSound } from '../utils/soundEffects';
-import { interceptMarketplacePrivacySettings } from '../utils/permissionUtils';
+import { 
+  interceptMarketplacePrivacySettings, 
+  canUserDeleteMarketplaceItem, 
+  isUserListingSeller 
+} from '../utils/permissionUtils';
 
 export const MarketplaceView: React.FC = () => {
-  const { marketplace, addMarketplaceItem, user, setUser, settings, setSettings } = useApp();
+  const { 
+    marketplace, 
+    addMarketplaceItem, 
+    deleteMarketplaceItem, 
+    user, 
+    setUser, 
+    settings, 
+    setSettings, 
+    openDirectChat 
+  } = useApp();
   
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [onlyFreebies, setOnlyFreebies] = useState(false);
@@ -175,11 +188,57 @@ export const MarketplaceView: React.FC = () => {
 
   const handleInAppChatInit = (item: MarketplaceItem, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
+
+    // Hide Rule: If a user views their own listing, hide/disable the Chat button entirely.
+    if (isUserListingSeller(item, user)) {
+      return;
+    }
+
     playSound('pop');
     const formattedPrice = item.price === 0 ? 'free (0 VND)' : `${item.price.toLocaleString('en-US')} VND`;
-    const msg = `Hi ${item.seller.name}! I saw your listing for "${item.title}" priced at ${formattedPrice} located ${item.distance} km away on StudyBook. Is this item still available? I would love to discuss further.`;
-    
-    alert(`[MESSENGER REDIRECT]\nCreated chat window with seller "${item.seller.name}":\n\n"${msg}"`);
+    const inquiryMessage = `Hi ${item.seller.name}! I saw your listing for "${item.title}" priced at ${formattedPrice} on StudyBook. Is this item still available? I would love to discuss further.`;
+
+    const sellerId = item.seller.id || `u_${(item.seller.name || 'seller').trim().toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+
+    openDirectChat(
+      {
+        id: sellerId,
+        name: item.seller.name,
+        avatar: item.seller.avatar,
+        role: 'student',
+        allowDMsFromStrangers: true
+      },
+      inquiryMessage,
+      true // isMarketplaceInquiry
+    );
+
+    setSelectedDetailItem(null);
+    showToast(`💬 Connected to ${item.seller.name}! Messenger chat active.`);
+  };
+
+  const handleDeleteListing = async (item: MarketplaceItem, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+
+    // Permission rule check: Seller exclusive authority + Application Admin overriding authority
+    if (!canUserDeleteMarketplaceItem(item, user)) {
+      alert("Permission denied: Only the listing's seller or an Application Admin can delete this listing.");
+      return;
+    }
+
+    const isGlobalAdmin = user.role === 'admin' || user.email?.toLowerCase() === 'billkute030709@gmail.com';
+    const isSeller = isUserListingSeller(item, user);
+
+    const confirmMsg = isGlobalAdmin && !isSeller
+      ? `[Admin Authority] Are you sure you want to delete listing "${item.title}" by ${item.seller.name}?`
+      : `Are you sure you want to delete your listing "${item.title}" from Bazaar?`;
+
+    if (window.confirm(confirmMsg)) {
+      await deleteMarketplaceItem(item.id);
+      if (selectedDetailItem?.id === item.id) {
+        setSelectedDetailItem(null);
+      }
+      showToast('🗑️ Listing deleted from Marketplace.');
+    }
   };
 
   return (
@@ -299,15 +358,16 @@ export const MarketplaceView: React.FC = () => {
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" 
                   />
 
-                  {/* Distance badge */}
-                  <span className="absolute top-2 left-2 flex items-center gap-0.5 bg-black/60 backdrop-blur-xs text-[9px] font-bold text-white px-2 py-0.5 rounded-full z-10">
-                    <MapPin className="h-2.5 w-2.5" />
-                    {item.distance} km away
-                  </span>
-                  
+                  {/* Your listing badge */}
+                  {isUserListingSeller(item, user) && (
+                    <span className="absolute top-2 right-2 bg-blue-600 text-white text-[9px] font-bold px-2 py-0.5 rounded-full z-10 shadow-sm">
+                      YOUR LISTING
+                    </span>
+                  )}
+
                   {/* Giveaway badge */}
                   {item.price === 0 && (
-                    <span className="absolute top-2 right-2 bg-emerald-500 text-white text-[9px] font-bold px-2 py-0.5 rounded-full z-10">
+                    <span className={`absolute top-2 ${isUserListingSeller(item, user) ? 'right-24' : 'right-2'} bg-emerald-500 text-white text-[9px] font-bold px-2 py-0.5 rounded-full z-10 shadow-sm`}>
                       GIVEAWAY
                     </span>
                   )}
@@ -367,21 +427,34 @@ export const MarketplaceView: React.FC = () => {
                         <img src={item.seller.avatar} alt="Seller" className="h-6 w-6 rounded-full object-cover shrink-0" />
                         <div className="min-w-0">
                           <span className="text-[10px] font-bold text-gray-700 dark:text-gray-200 block truncate">{item.seller.name}</span>
-                          <div className="flex items-center gap-0.5 text-amber-500">
-                            <Star className="h-2.5 w-2.5 fill-amber-500" />
-                            <span className="text-[8px] font-bold">{item.seller.rating}</span>
-                          </div>
+                          <span className="text-[8px] font-semibold text-blue-600 dark:text-blue-400">Student</span>
                         </div>
                       </div>
 
-                      {/* Pre-filled messenger chat integration */}
-                      <button
-                        onClick={(e) => handleInAppChatInit(item, e)}
-                        className="p-1.5 bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/60 text-blue-600 dark:text-blue-300 rounded-lg transition-colors shrink-0"
-                        title="Contact seller"
-                      >
-                        <MessageSquare className="h-3.5 w-3.5" />
-                      </button>
+                      {/* Actions: Chat button & Deletion rights */}
+                      <div className="flex items-center gap-1 shrink-0">
+                        {/* Hide Rule: If a user views their own listing, hide the Chat button entirely. */}
+                        {!isUserListingSeller(item, user) && (
+                          <button
+                            onClick={(e) => handleInAppChatInit(item, e)}
+                            className="p-1.5 bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/60 text-blue-600 dark:text-blue-300 rounded-lg transition-colors shrink-0 cursor-pointer"
+                            title="Chat with seller via Messenger"
+                          >
+                            <MessageSquare className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+
+                        {/* Listing Deletion Rights: Seller exclusive authority + Application Admin overriding authority */}
+                        {canUserDeleteMarketplaceItem(item, user) && (
+                          <button
+                            onClick={(e) => handleDeleteListing(item, e)}
+                            className="p-1.5 bg-red-50 hover:bg-red-100 dark:bg-red-950/60 text-red-600 dark:text-red-400 rounded-lg transition-colors shrink-0 cursor-pointer"
+                            title={isUserListingSeller(item, user) ? "Delete your listing" : "Delete listing (Admin Authority)"}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
 
@@ -691,9 +764,6 @@ export const MarketplaceView: React.FC = () => {
                   <span className="text-base font-black text-blue-600 dark:text-blue-400">
                     {selectedDetailItem.price === 0 ? 'FREE / GIVEAWAY' : `${selectedDetailItem.price.toLocaleString('en-US')} VND`}
                   </span>
-                  <span className="text-xs text-gray-400 flex items-center gap-0.5">
-                    <MapPin className="h-3 w-3" /> {selectedDetailItem.distance} km away
-                  </span>
                 </div>
 
                 <p className="text-xs text-gray-600 dark:text-gray-300 mt-3 leading-relaxed whitespace-pre-line">
@@ -714,21 +784,43 @@ export const MarketplaceView: React.FC = () => {
                       <span className="text-xs font-bold text-gray-800 dark:text-white block">
                         {selectedDetailItem.seller.name}
                       </span>
-                      <div className="flex items-center gap-1 text-amber-500">
-                        <Star className="h-3 w-3 fill-amber-500" />
-                        <span className="text-[10px] font-bold">{selectedDetailItem.seller.rating} • Verified Student</span>
-                      </div>
+                      <span className="text-[10px] font-semibold text-blue-600 dark:text-blue-400">Verified Student</span>
                     </div>
                   </div>
                 </div>
 
-                <button
-                  onClick={() => handleInAppChatInit(selectedDetailItem)}
-                  className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md transition-colors flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <MessageSquare className="h-4 w-4" />
-                  <span>Contact Seller via Messenger</span>
-                </button>
+                {/* Actions: Chat with Seller (Hidden if own listing) + Delete (Seller / Admin) */}
+                <div className="space-y-2">
+                  {/* Hide Rule: If a user views their own listing, hide the Chat button entirely. */}
+                  {!isUserListingSeller(selectedDetailItem, user) ? (
+                    <button
+                      onClick={() => handleInAppChatInit(selectedDetailItem)}
+                      className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <MessageSquare className="h-4 w-4" />
+                      <span>Chat with Seller via Messenger</span>
+                    </button>
+                  ) : (
+                    <div className="text-center py-2 px-3 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-xl text-xs font-semibold text-blue-700 dark:text-blue-300">
+                      ✨ You are the seller of this listing
+                    </div>
+                  )}
+
+                  {/* Listing Deletion Rights: Seller exclusive authority + Application Admin overriding authority */}
+                  {canUserDeleteMarketplaceItem(selectedDetailItem, user) && (
+                    <button
+                      onClick={() => handleDeleteListing(selectedDetailItem)}
+                      className="w-full py-2.5 rounded-xl bg-red-50 hover:bg-red-100 dark:bg-red-950/50 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/60 text-xs font-bold transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      <span>
+                        {isUserListingSeller(selectedDetailItem, user) 
+                          ? 'Delete Listing' 
+                          : 'Delete Listing (Admin Override)'}
+                      </span>
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           </div>

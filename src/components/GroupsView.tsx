@@ -37,7 +37,6 @@ import {
   Trash2,
   ShieldCheck,
   ShieldAlert,
-  Star,
   Crown,
   UserMinus,
   CheckCircle2,

@@ -7,7 +7,6 @@ import {
   UserCircle2, 
   Film, 
   ShoppingBag, 
-  Gamepad2, 
   Settings as SettingsIcon,
   FolderHeart,
   Flame,
@@ -29,12 +28,11 @@ export const Sidebar: React.FC = () => {
 
   const navItems = [
     { id: 'feed', label: 'Academic Feed', icon: Rss, desc: 'Resources, academic discussion' },
-    { id: 'groups', label: 'Study Groups', icon: Users, desc: 'Virtual classrooms, shared files' },
     { id: 'friends', label: 'Friends & Chat', icon: UserCheck, desc: 'Friends list, 1-on-1 direct messages' },
+    { id: 'groups', label: 'Study Groups', icon: Users, desc: 'Virtual classrooms, shared files' },
     { id: 'profiles', label: 'User Profile', icon: UserCircle2, desc: 'Your bio, grade, streak & study notes' },
     { id: 'reels', label: 'Educational Reels', icon: Film, desc: 'Learn super fast in 60s' },
     { id: 'marketplace', label: 'Bazaar Marketplace', icon: ShoppingBag, desc: 'Calculators, textbooks, giveaways' },
-    { id: 'games', label: 'Quizz & Flashcards', icon: Gamepad2, desc: 'Solve flashcards, rank weekly' },
     { id: 'settings', label: 'Study Settings', icon: SettingsIcon, desc: 'Timer options, vocabulary filters' }
   ];
 

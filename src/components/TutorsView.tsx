@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
-import { Award, Star, MessageSquare, Plus, CheckCircle, ChevronLeft, ChevronRight, ThumbsUp, BadgeCheck } from 'lucide-react';
+import { Award, MessageSquare, Plus, CheckCircle, ChevronLeft, ChevronRight, ThumbsUp, BadgeCheck } from 'lucide-react';
 import { playSound } from '../utils/soundEffects';
 import { isFakeOrBotTutor } from '../utils/chatUtils';
 
@@ -90,10 +90,9 @@ export const TutorsView: React.FC = () => {
                   <span className="text-[10px] text-blue-600 bg-blue-50 dark:bg-blue-950/40 dark:text-blue-300 px-2 py-0.5 rounded font-bold">
                     {t.followers.toLocaleString()} Followers
                   </span>
-                  <div className="flex gap-0.5 text-amber-500">
-                    <Star className="h-2.5 w-2.5 fill-amber-500" />
-                    <span className="text-[9px] font-bold">5.0</span>
-                  </div>
+                  <span className="text-[9px] font-bold text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-slate-700 px-1.5 py-0.5 rounded">
+                    Score: 5.0
+                  </span>
                 </div>
               </div>
             </div>
@@ -203,14 +202,14 @@ export const TutorsView: React.FC = () => {
               <div className="flex items-center gap-2">
                 <span className="text-xs font-bold text-gray-600 dark:text-gray-300">Select Rating:</span>
                 <div className="flex gap-1">
-                  {[1, 2, 3, 4, 5].map(star => (
+                  {[1, 2, 3, 4, 5].map(num => (
                     <button
                       type="button"
-                      key={star}
-                      onClick={() => setRating(star)}
-                      className="p-0.5 focus:outline-none"
+                      key={num}
+                      onClick={() => setRating(num)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors ${num === rating ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-300'}`}
                     >
-                      <Star className={`h-4.5 w-4.5 ${star <= rating ? 'fill-amber-500 text-amber-500' : 'text-gray-300'}`} />
+                      {num} / 5
                     </button>
                   ))}
                 </div>
@@ -243,10 +242,8 @@ export const TutorsView: React.FC = () => {
                       <span className="text-[9px] text-gray-400 block mt-0.5">{rev.date}</span>
                     </div>
                   </div>
-                  <div className="flex gap-0.5 text-amber-500">
-                    {Array.from({ length: rev.rating }).map((_, i) => (
-                      <Star key={i} className="h-3 w-3 fill-amber-500" />
-                    ))}
+                  <div className="bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-300 text-[10px] font-bold px-2 py-0.5 rounded">
+                    {rev.rating}/5
                   </div>
                 </div>
                 <p className="text-xs text-gray-600 dark:text-gray-300 italic leading-relaxed font-sans font-normal">

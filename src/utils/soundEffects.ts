@@ -12,6 +12,7 @@ export type SoundType =
   | 'closeModal' 
   | 'toggle' 
   | 'notification' 
+  | 'ting'
   | 'tab' 
   | 'streak'
   | 'error';
@@ -288,6 +289,34 @@ export function playSound(type: SoundType, customVolume?: number) {
           osc.start(startTime);
           osc.stop(startTime + 0.15);
         });
+        break;
+      }
+
+      case 'ting': {
+        // Crisp, high-frequency crystal chime for chat notification
+        const osc1 = ctx.createOscillator();
+        const osc2 = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        osc1.type = 'sine';
+        osc1.frequency.setValueAtTime(1760, now); // A6
+        osc1.frequency.exponentialRampToValueAtTime(1750, now + 0.35);
+
+        osc2.type = 'triangle';
+        osc2.frequency.setValueAtTime(3520, now); // A7 harmonic
+        osc2.frequency.exponentialRampToValueAtTime(3500, now + 0.15);
+
+        gain.gain.setValueAtTime(masterVol * 0.45, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+
+        osc1.connect(gain);
+        osc2.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc1.start(now);
+        osc2.start(now);
+        osc1.stop(now + 0.4);
+        osc2.stop(now + 0.4);
         break;
       }
 

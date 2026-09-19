@@ -18,7 +18,6 @@ import {
   Film,
   ShoppingBag,
   Users,
-  Gamepad2,
   GraduationCap,
   UserCheck,
   UserCircle2,
@@ -632,12 +631,11 @@ export const Header: React.FC<HeaderProps> = ({ onSearchQuery }) => {
       <div className="hidden lg:flex items-center justify-center flex-1 max-w-2xl px-4 h-12">
         {[
           { id: 'feed', icon: Home, label: 'Academic Feed' },
+          { id: 'friends', icon: UserCheck, label: 'Chat & Friends' },
           { id: 'groups', icon: Users, label: 'Study Groups' },
-          { id: 'friends', icon: UserCheck, label: 'Friends & Chat' },
           { id: 'profiles', icon: UserCircle2, label: 'User Profile' },
           { id: 'reels', icon: Film, label: 'Educational Reels' },
-          { id: 'marketplace', icon: ShoppingBag, label: 'Bazaar Marketplace' },
-          { id: 'games', icon: Gamepad2, label: 'Quizz & Flashcards' }
+          { id: 'marketplace', icon: ShoppingBag, label: 'Bazaar Marketplace' }
         ].map(item => {
           const Icon = item.icon;
           const isSelected = activeTab === item.id;

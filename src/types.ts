@@ -93,6 +93,7 @@ export interface User {
   subjects?: string[];
   joinedGroupIds?: string[];
   pinnedChatIds?: string[];
+  friendIds?: string[];
   groupInteractions?: Record<string, {
     score: number;
     lastInteractionTimestamp?: string;
@@ -375,6 +376,7 @@ export interface Message {
 
 export interface GroupChat {
   groupId: string;
+  type?: 'study_group';
   groupName: string;
   messages: Message[];
   lastUpdated?: string;
@@ -382,6 +384,8 @@ export interface GroupChat {
 
 export interface Friend {
   id: string;
+  userId?: string; // Owning user ID in Firestore
+  friendId?: string; // Friend's user ID
   name: string;
   avatar: string;
   email?: string;
@@ -426,10 +430,12 @@ export interface DirectMessage {
 
 export interface DirectChat {
   id: string; // e.g. "dm_userA_userB" or "gc_..."
+  type?: 'individual_dm' | 'group_chat';
   isGroupChat?: boolean;
   groupName?: string;
   groupAvatar?: string;
   adminId?: string;
+  participantIds?: string[]; // Strictly IDs of participating users for secure Firestore indexing and querying
   participants: {
     id: string;
     name: string;
@@ -440,6 +446,25 @@ export interface DirectChat {
   messages: DirectMessage[];
   lastUpdated: string;
   unreadCount?: number;
+}
+
+export interface ActiveChatNotification {
+  id: string; // e.g. senderId or chatId
+  chatId: string;
+  senderId: string;
+  senderName: string;
+  senderAvatar: string;
+  targetType: 'direct' | 'group';
+  count: number; // dynamically updated counter e.g. 1, 2, 3...
+  latestMessage: string;
+  timestamp: string;
+  title?: string;
+}
+
+export interface ChatNotificationConfig {
+  targetId: string; // friend ID or group ID
+  enabled: boolean;
+  updatedAt?: string;
 }
 
 export interface GlobalAlgorithmConfig {
