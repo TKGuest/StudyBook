@@ -82,10 +82,8 @@ export const ROLE_PERMISSIONS: Record<GroupRole, RolePermissions> = {
  */
 export function getUserGroupRole(
   group: StudyGroup | null | undefined,
-  user: User | null | undefined,
-  simulatedRole?: GroupRole | null
+  user: User | null | undefined
 ): GroupRole {
-  if (simulatedRole) return simulatedRole;
   if (!user) return 'member';
 
   // Global platform admin has full admin rights
@@ -125,10 +123,9 @@ export function getRolePermissions(role: GroupRole): RolePermissions {
  */
 export function canUserRemoveSpam(
   group: StudyGroup | null | undefined,
-  user: User | null | undefined,
-  simulatedRole?: GroupRole | null
+  user: User | null | undefined
 ): boolean {
-  const role = getUserGroupRole(group, user, simulatedRole);
+  const role = getUserGroupRole(group, user);
   return getRolePermissions(role).canRemoveSpam;
 }
 
@@ -137,10 +134,9 @@ export function canUserRemoveSpam(
  */
 export function canUserManageMembers(
   group: StudyGroup | null | undefined,
-  user: User | null | undefined,
-  simulatedRole?: GroupRole | null
+  user: User | null | undefined
 ): boolean {
-  const role = getUserGroupRole(group, user, simulatedRole);
+  const role = getUserGroupRole(group, user);
   return getRolePermissions(role).canManageMembers;
 }
 
@@ -149,10 +145,9 @@ export function canUserManageMembers(
  */
 export function canUserPinFiles(
   group: StudyGroup | null | undefined,
-  user: User | null | undefined,
-  simulatedRole?: GroupRole | null
+  user: User | null | undefined
 ): boolean {
-  const role = getUserGroupRole(group, user, simulatedRole);
+  const role = getUserGroupRole(group, user);
   return getRolePermissions(role).canPinFiles;
 }
 
@@ -162,8 +157,7 @@ export function canUserPinFiles(
  */
 export function canUserAssignModerator(
   group: StudyGroup | null | undefined,
-  user: User | null | undefined,
-  simulatedRole?: GroupRole | null
+  user: User | null | undefined
 ): boolean {
   if (!group || !user) return false;
   // Platform admin can assign
@@ -171,7 +165,7 @@ export function canUserAssignModerator(
   // Creator of the group can assign
   if (group.creatorId && group.creatorId === user.id) return true;
   // Admin of the group can assign
-  const role = getUserGroupRole(group, user, simulatedRole);
+  const role = getUserGroupRole(group, user);
   return role === 'admin';
 }
 
@@ -182,10 +176,9 @@ export const canUserAssignLeader = canUserAssignModerator;
  */
 export function canUserManageGroup(
   group: StudyGroup | null | undefined,
-  user: User | null | undefined,
-  simulatedRole?: GroupRole | null
+  user: User | null | undefined
 ): boolean {
-  const role = getUserGroupRole(group, user, simulatedRole);
+  const role = getUserGroupRole(group, user);
   return role === 'admin' || role === 'leader' || role === 'moderator';
 }
 
@@ -248,10 +241,9 @@ export interface GroupActionPermissionResult {
  */
 export function canUserPostInGroup(
   group: StudyGroup | null | undefined,
-  user: User | null | undefined,
-  simulatedRole?: GroupRole | null
+  user: User | null | undefined
 ): boolean {
-  return checkUserCanPostInGroup(group, user, simulatedRole).allowed;
+  return checkUserCanPostInGroup(group, user).allowed;
 }
 
 /**
@@ -260,8 +252,7 @@ export function canUserPostInGroup(
  */
 export function checkUserCanPostInGroup(
   group: StudyGroup | null | undefined,
-  user: User | null | undefined,
-  simulatedRole?: GroupRole | null
+  user: User | null | undefined
 ): GroupActionPermissionResult {
   if (!group) {
     return { allowed: false, role: 'member', reason: 'Study group not found.' };
@@ -270,7 +261,7 @@ export function checkUserCanPostInGroup(
     return { allowed: false, role: 'member', reason: 'You must be signed in to post in this study group.' };
   }
 
-  const role = getUserGroupRole(group, user, simulatedRole);
+  const role = getUserGroupRole(group, user);
 
   // Admin & Moderator have unrestricted posting privileges and never require approval
   if (role === 'admin' || role === 'leader' || role === 'moderator') {
@@ -304,10 +295,9 @@ export function checkUserCanPostInGroup(
  */
 export function canUserChatInGroup(
   group: StudyGroup | null | undefined,
-  user: User | null | undefined,
-  simulatedRole?: GroupRole | null
+  user: User | null | undefined
 ): boolean {
-  return checkUserCanChatInGroup(group, user, simulatedRole).allowed;
+  return checkUserCanChatInGroup(group, user).allowed;
 }
 
 /**
@@ -316,8 +306,7 @@ export function canUserChatInGroup(
  */
 export function checkUserCanChatInGroup(
   group: StudyGroup | null | undefined,
-  user: User | null | undefined,
-  simulatedRole?: GroupRole | null
+  user: User | null | undefined
 ): GroupActionPermissionResult {
   if (!group) {
     return { allowed: false, role: 'member', reason: 'Study group not found.' };
@@ -326,7 +315,7 @@ export function checkUserCanChatInGroup(
     return { allowed: false, role: 'member', reason: 'You must be signed in to participate in group chat.' };
   }
 
-  const role = getUserGroupRole(group, user, simulatedRole);
+  const role = getUserGroupRole(group, user);
 
   // Admin & Moderator bypass chat restrictions
   if (role === 'admin' || role === 'leader' || role === 'moderator') {
@@ -358,10 +347,9 @@ export function canUserJoinFreely(group: StudyGroup | null | undefined): boolean
  */
 export function doesUserPostRequireApproval(
   group: StudyGroup | null | undefined,
-  user: User | null | undefined,
-  simulatedRole?: GroupRole | null
+  user: User | null | undefined
 ): boolean {
-  const role = getUserGroupRole(group, user, simulatedRole);
+  const role = getUserGroupRole(group, user);
   // Admin and Moderator posts are always published immediately
   if (role === 'admin' || role === 'leader' || role === 'moderator') return false;
   return Boolean(group?.settings?.requirePostApproval);
@@ -373,14 +361,13 @@ export function doesUserPostRequireApproval(
  */
 export function validateAdminLeaveGuardrail(
   group: StudyGroup | null | undefined,
-  user: User | null | undefined,
-  simulatedRole?: GroupRole | null
+  user: User | null | undefined
 ): {
   canLeave: boolean;
   reason?: string;
   activeLeaders: { id: string; name: string; avatar: string }[];
 } {
-  const role = getUserGroupRole(group, user, simulatedRole);
+  const role = getUserGroupRole(group, user);
   if (role !== 'admin') {
     return { canLeave: true, activeLeaders: [] };
   }
@@ -424,10 +411,9 @@ export function validateAdminLeaveGuardrail(
  */
 export function canUserDeleteGroup(
   group: StudyGroup | null | undefined,
-  user: User | null | undefined,
-  simulatedRole?: GroupRole | null
+  user: User | null | undefined
 ): boolean {
-  const role = getUserGroupRole(group, user, simulatedRole);
+  const role = getUserGroupRole(group, user);
   return role === 'admin';
 }
 
@@ -436,10 +422,9 @@ export function canUserDeleteGroup(
  */
 export function canUserModifySettings(
   group: StudyGroup | null | undefined,
-  user: User | null | undefined,
-  simulatedRole?: GroupRole | null
+  user: User | null | undefined
 ): boolean {
-  const role = getUserGroupRole(group, user, simulatedRole);
+  const role = getUserGroupRole(group, user);
   return role === 'admin' || role === 'leader' || role === 'moderator';
 }
 
@@ -448,10 +433,9 @@ export function canUserModifySettings(
  */
 export function canUserReviewJoinRequests(
   group: StudyGroup | null | undefined,
-  user: User | null | undefined,
-  simulatedRole?: GroupRole | null
+  user: User | null | undefined
 ): boolean {
-  const role = getUserGroupRole(group, user, simulatedRole);
+  const role = getUserGroupRole(group, user);
   return role === 'admin' || role === 'leader' || role === 'moderator';
 }
 
@@ -460,10 +444,9 @@ export function canUserReviewJoinRequests(
  */
 export function canUserApprovePosts(
   group: StudyGroup | null | undefined,
-  user: User | null | undefined,
-  simulatedRole?: GroupRole | null
+  user: User | null | undefined
 ): boolean {
-  const role = getUserGroupRole(group, user, simulatedRole);
+  const role = getUserGroupRole(group, user);
   return role === 'admin' || role === 'leader' || role === 'moderator';
 }
 

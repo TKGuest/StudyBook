@@ -90,8 +90,7 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
     dismissChatNotification,
     activeOpenChatId,
     setActiveOpenChatId,
-    markChatAsRead,
-    triggerSimulatedIncomingMessage
+    markChatAsRead
   } = useApp();
 
   const [filterTab, setFilterTab] = useState<'all' | 'direct' | 'groups'>('all');
@@ -666,18 +665,6 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
               </span>
             </div>
             <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => {
-                  triggerSimulatedIncomingMessage();
-                }}
-                className="p-1.5 rounded-full bg-gray-100 dark:bg-[#252728] hover:bg-gray-200 dark:hover:bg-[#333537] text-gray-600 dark:text-gray-300 transition-all flex items-center gap-1 text-[11px] font-semibold cursor-pointer border border-gray-200 dark:border-[#333537]"
-                title="Test incoming chat notification (plays crisp sound effect & triggers single dynamic popup)"
-              >
-                <Bell className="h-3.5 w-3.5 text-[#0084ff]" />
-                <span className="hidden sm:inline">Simulate Ping</span>
-              </button>
-
               <button
                 type="button"
                 onClick={() => {

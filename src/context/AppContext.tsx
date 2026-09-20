@@ -115,8 +115,6 @@ interface AppContextType {
   createStudyGroup: (name: string, description?: string, category?: string) => Promise<string>;
   
   // Group Roles & Governance
-  simulatedGroupRole: GroupRole | null;
-  setSimulatedGroupRole: (role: GroupRole | null) => void;
   togglePinGroupFile: (groupId: string, fileId: string) => Promise<void>;
   deleteGroupFile: (groupId: string, fileId: string) => Promise<void>;
   updateGroupMemberRole: (groupId: string, memberId: string, newRole: GroupRole) => Promise<void>;
@@ -252,7 +250,6 @@ interface AppContextType {
   activeOpenChatId: string | null;
   setActiveOpenChatId: (chatId: string | null) => void;
   markChatAsRead: (chatId: string) => void;
-  triggerSimulatedIncomingMessage?: (senderFriendId?: string) => void;
 }
 
 const safeGetTime = (ts?: string) => {
@@ -794,8 +791,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch (_) { return []; }
   });
 
-  const [simulatedGroupRole, setSimulatedGroupRole] = useState<GroupRole | null>(null);
-
   const [tutors, setTutors] = useState<TutorPage[]>(() => {
     try {
       const saved = localStorage.getItem('sb_tutors');
@@ -1259,71 +1254,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Sound Effect Trigger: If the app is open on screen, play a crisp "ting" audio sound effect when a message arrives from a notification-enabled friend
     playSound('ting');
   }, [activeOpenChatId, openDirectChatIds, areChatNotificationsEnabled]);
-
-  // Simulated message trigger for immediate verification & interactive testing
-  const triggerSimulatedIncomingMessage = useCallback((senderFriendId?: string) => {
-    const friend = (friends || []).find(f => senderFriendId ? f.id === senderFriendId : f.id !== user.id) || friends[0];
-    if (!friend) return;
-
-    const sampleMessages = [
-      "Hey! Did you check the sample solution for Calculus chapter 4?",
-      "I just uploaded our study group notes, take a look when you're free!",
-      "Are you available for a quick study session this evening?",
-      "Thanks for sharing the textbook link, it helped a ton!",
-      "Let's review the mock exam problems together!"
-    ];
-    const text = sampleMessages[Math.floor(Math.random() * sampleMessages.length)];
-    const chatId = `dm_${friend.id}`;
-    const isoNow = new Date().toISOString();
-    const formattedTime = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-
-    const newMsg: DirectMessage = {
-      id: `dm_msg_${Date.now()}_sim`,
-      senderId: friend.id,
-      senderName: friend.name,
-      senderAvatar: friend.avatar,
-      receiverId: user.id || 'u_current',
-      receiverName: user.name,
-      receiverAvatar: user.avatar,
-      content: text,
-      timestamp: formattedTime,
-      createdAt: isoNow,
-      read: false
-    };
-
-    setDirectChats(prev => {
-      const idx = prev.findIndex(c => c.id === chatId || c.participants.some(p => p.id === friend.id));
-      let updated: DirectChat[];
-      if (idx >= 0) {
-        const target = prev[idx];
-        const updatedChat: DirectChat = {
-          ...target,
-          messages: [...target.messages, newMsg],
-          lastUpdated: isoNow,
-          unreadCount: (target.unreadCount || 0) + 1
-        };
-        updated = [...prev];
-        updated[idx] = updatedChat;
-      } else {
-        const newChat: DirectChat = {
-          id: chatId,
-          participants: [
-            { id: user.id || 'u_current', name: user.name || 'You', avatar: user.avatar || SILHOUETTE_AVATAR },
-            { id: friend.id, name: friend.name, avatar: friend.avatar, role: friend.role }
-          ],
-          messages: [newMsg],
-          lastUpdated: isoNow,
-          unreadCount: 1
-        };
-        updated = [...prev, newChat];
-      }
-      const consolidated = consolidateDirectChats(updated, user.id || 'u_current', user.name || '');
-      localStorage.setItem('sb_direct_chats', JSON.stringify(consolidated));
-      return consolidated;
-    });
-
-    handleIncomingChatMessage(chatId, { id: friend.id, name: friend.name, avatar: friend.avatar }, text);
-  }, [friends, user, handleIncomingChatMessage]);
 
   // Pinned chat IDs (up to 10 friends/groups)
   const [pinnedChatIds, setPinnedChatIds] = useState<string[]>(() => {
@@ -2115,6 +2045,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (isFirebaseConfigured) {
       try {
         const provider = new GoogleAuthProvider();
+        provider.setCustomParameters({ prompt: 'select_account' });
         await signInWithPopup(auth, provider);
       } catch (err: any) {
         if (isApiKeyError(err)) {
@@ -2251,7 +2182,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (groupInfo?.groupId) {
       const targetGroup = groups.find(g => g.id === groupInfo.groupId);
       if (targetGroup) {
-        const authCheck = checkUserCanPostInGroup(targetGroup, user, simulatedGroupRole);
+        const authCheck = checkUserCanPostInGroup(targetGroup, user);
         if (!authCheck.allowed) {
           alert(authCheck.reason || 'Posting in this study group is restricted to Admins and Group Leaders.');
           return;
@@ -2338,7 +2269,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (targetPost.groupId) {
       const group = groups.find(g => g.id === targetPost.groupId);
       if (group) {
-        isGroupModerator = canUserRemoveSpam(group, user, simulatedGroupRole);
+        isGroupModerator = canUserRemoveSpam(group, user);
       }
     }
 
@@ -3067,7 +2998,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const targetGroup = groups.find(g => g.id === groupId);
     if (!targetGroup) return;
 
-    if (!canUserPinFiles(targetGroup, user, simulatedGroupRole)) {
+    if (!canUserPinFiles(targetGroup, user)) {
       alert('Only Group Leaders and Admins can pin or unpin study files!');
       return;
     }
@@ -3123,7 +3054,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const targetFile = targetGroup.files?.find(f => f.id === fileId);
     const isUploader = targetFile && (targetFile.uploaderId === user.id || targetFile.uploader === user.name);
-    const isMod = canUserRemoveSpam(targetGroup, user, simulatedGroupRole);
+    const isMod = canUserRemoveSpam(targetGroup, user);
 
     if (!isUploader && !isMod) {
       alert('You can only delete files you uploaded, or delete files if you are a Group Leader or Admin!');
@@ -3163,7 +3094,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const targetGroup = groups.find(g => g.id === groupId);
     if (!targetGroup) return;
 
-    if (!canUserAssignModerator(targetGroup, user, simulatedGroupRole)) {
+    if (!canUserAssignModerator(targetGroup, user)) {
       alert('Only Group Admins and Cohort Creators have permission to promote or change Moderator roles!');
       return;
     }
@@ -3276,7 +3207,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const targetGroup = groups.find(g => g.id === groupId);
     if (!targetGroup) return;
 
-    if (!canUserManageMembers(targetGroup, user, simulatedGroupRole)) {
+    if (!canUserManageMembers(targetGroup, user)) {
       alert('Only Group Leaders and Admins can manage or remove cohort members!');
       return;
     }
@@ -3323,7 +3254,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const targetGroup = groups.find(g => g.id === groupId);
     if (!targetGroup) return { success: false, message: 'Group not found' };
 
-    const role = getUserGroupRole(targetGroup, user, simulatedGroupRole);
+    const role = getUserGroupRole(targetGroup, user);
     if (role !== 'admin') {
       return { success: false, message: 'Only an existing Admin can transfer group ownership.' };
     }
@@ -3389,7 +3320,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const targetGroup = groups.find(g => g.id === groupId);
     if (!targetGroup) return { success: false, message: 'Group not found' };
 
-    const guardrail = validateAdminLeaveGuardrail(targetGroup, user, simulatedGroupRole);
+    const guardrail = validateAdminLeaveGuardrail(targetGroup, user);
     if (!guardrail.canLeave) {
       return { 
         success: false, 
@@ -3443,7 +3374,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const targetGroup = groups.find(g => g.id === groupId);
     if (!targetGroup) return { success: false, message: 'Group not found' };
 
-    if (!canUserDeleteGroup(targetGroup, user, simulatedGroupRole)) {
+    if (!canUserDeleteGroup(targetGroup, user)) {
       return { success: false, message: 'Admins have exclusive destructive power to delete the entire group and all associated posts.' };
     }
 
@@ -3501,7 +3432,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const targetGroup = groups.find(g => g.id === groupId);
     if (!targetGroup) return;
 
-    if (!canUserModifySettings(targetGroup, user, simulatedGroupRole)) {
+    if (!canUserModifySettings(targetGroup, user)) {
       alert('Only Group Leaders and Admins can configure group settings!');
       return;
     }
@@ -3545,7 +3476,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const targetGroup = groups.find(g => g.id === groupId);
     if (!targetGroup) return { success: false, message: 'Group not found' };
 
-    const effectiveRole = getUserGroupRole(targetGroup, user, simulatedGroupRole);
+    const effectiveRole = getUserGroupRole(targetGroup, user);
     if (effectiveRole !== 'admin') {
       alert('Permission denied: Only the Group Admin can edit the group name, description, and banner.');
       return { success: false, message: 'Only the Group Admin can edit cohort details.' };
@@ -3627,7 +3558,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const targetGroup = groups.find(g => g.id === groupId);
     if (!targetGroup) return;
 
-    if (!canUserReviewJoinRequests(targetGroup, user, simulatedGroupRole)) {
+    if (!canUserReviewJoinRequests(targetGroup, user)) {
       alert('Only Admins and Group Leaders can approve join requests.');
       return;
     }
@@ -3680,7 +3611,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const targetGroup = groups.find(g => g.id === groupId);
     if (!targetGroup) return;
 
-    if (!canUserReviewJoinRequests(targetGroup, user, simulatedGroupRole)) {
+    if (!canUserReviewJoinRequests(targetGroup, user)) {
       alert('Only Admins and Group Leaders can review join requests.');
       return;
     }
@@ -3802,7 +3733,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const targetGroup = groups.find(g => g.id === groupId);
     if (targetGroup) {
-      const authCheck = checkUserCanChatInGroup(targetGroup, user, simulatedGroupRole);
+      const authCheck = checkUserCanChatInGroup(targetGroup, user);
       if (!authCheck.allowed) {
         alert(authCheck.reason || 'Group chat is restricted to Admins and Group Leaders.');
         return;
@@ -4681,6 +4612,35 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
       return updated;
     });
 
+    // Automatically initialize active conversation thread with the new friend
+    const dmKeyA = user.id || 'guest';
+    const dmKeyB = req.senderId;
+    const initialChatId = `dm_${[dmKeyA, dmKeyB].sort().join('_')}`;
+    const isoNow = new Date().toISOString();
+
+    setDirectChats(prev => {
+      const alreadyHasChat = prev.some(c => 
+        c.id === initialChatId || 
+        c.participants.some(p => p.id === req.senderId)
+      );
+      if (alreadyHasChat) return prev;
+
+      const newFriendChat: DirectChat = {
+        id: initialChatId,
+        participantIds: [dmKeyA, dmKeyB],
+        participants: [
+          { id: user.id || 'guest', name: user.name || 'You', avatar: user.avatar || SILHOUETTE_AVATAR, role: user.role },
+          { id: req.senderId, name: req.senderName, avatar: req.senderAvatar, email: req.senderEmail }
+        ],
+        messages: [],
+        lastUpdated: isoNow
+      };
+
+      const next = consolidateDirectChats([...prev, newFriendChat], user.id || 'u_current', user.name || '');
+      try { localStorage.setItem('sb_direct_chats', JSON.stringify(next)); } catch (_) {}
+      return next;
+    });
+
     playSound('pop');
 
     // 2. Perform atomic mutual two-way update in Firestore database
@@ -5494,7 +5454,6 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
       activeOpenChatId,
       setActiveOpenChatId,
       markChatAsRead,
-      triggerSimulatedIncomingMessage,
 
       blockedUsers,
       isUserBlocked,
@@ -5548,8 +5507,6 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
       addReel,
       deleteReel,
       createStudyGroup,
-      simulatedGroupRole,
-      setSimulatedGroupRole,
       togglePinGroupFile,
       deleteGroupFile,
       updateGroupMemberRole,

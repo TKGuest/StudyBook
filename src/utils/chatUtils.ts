@@ -9,75 +9,11 @@ import { DirectChat, DirectMessage } from '../types';
  */
 export const isIgnoredOrBotChat = (chat: any, currentUserId?: string, currentUserName?: string): boolean => {
   if (!chat) return true;
-  // Group chats created by users should never be filtered out as bot chat
+  // Group chats created by users should never be filtered out
   if (chat.isGroupChat) return false;
-  const idLower = String(chat.id || '').toLowerCase();
-  
-  // Check banned IDs
-  if (
-    idLower.includes('phunggiabinh') || 
-    idLower.includes('phung_gia_binh') || 
-    idLower.includes('phung_binh') || 
-    idLower.includes('tut_phunggiabinh') ||
-    idLower.includes('sarah') ||
-    idLower.includes('std_sarah') ||
-    idLower.includes('u_sarah') ||
-    idLower.includes('bot4') ||
-    idLower.includes('bot_4') ||
-    idLower.includes('u_david') ||
-    idLower.includes('bot') ||
-    idLower.includes('ban_quan_ly') ||
-    idLower.includes('studybot') ||
-    idLower.includes('system') ||
-    idLower.includes('admin')
-  ) {
-    return true;
-  }
 
   const participants = Array.isArray(chat.participants) ? chat.participants : [];
   if (participants.length === 0) return true;
-
-  // Check if any participant is a banned/bot account
-  const hasBannedParticipant = participants.some((p: any) => {
-    const nameLower = String(p?.name || '').trim().toLowerCase();
-    const pidLower = String(p?.id || '').trim().toLowerCase();
-    const emailLower = String(p?.email || '').trim().toLowerCase();
-
-    return (
-      pidLower.includes('phunggiabinh') ||
-      pidLower.includes('phung_binh') ||
-      pidLower === 'tut_phunggiabinh' ||
-      pidLower.includes('bot') ||
-      nameLower.includes('bot') ||
-      nameLower.includes('phùng gia binh') ||
-      nameLower.includes('phung gia binh') ||
-      nameLower.includes('phùng gia bình') ||
-      nameLower.includes('gia binh') ||
-      nameLower.includes('gia bình') ||
-      // Sarah Jenkins fake account
-      pidLower.includes('sarah') ||
-      pidLower === 'std_sarah' ||
-      pidLower === 'u_sarah' ||
-      nameLower.includes('sarah') ||
-      nameLower.includes('jenkins') ||
-      emailLower.includes('sarah') ||
-      // Bot & management test accounts
-      pidLower === 'bot_4' ||
-      pidLower === 'bot4' ||
-      pidLower === 'u_david' ||
-      nameLower === 'bot 4' ||
-      nameLower === 'bot4' ||
-      nameLower === 'david kim' ||
-      nameLower.includes('ban quản lý') ||
-      nameLower.includes('ban quan ly') ||
-      nameLower.includes('studybook') ||
-      nameLower.includes('mai lan') ||
-      nameLower.includes('lucas') ||
-      nameLower.includes('system')
-    );
-  });
-
-  if (hasBannedParticipant) return true;
 
   // Check if all participants are just the current user (chat with self bug)
   const curIdLower = String(currentUserId || '').toLowerCase();
@@ -89,58 +25,22 @@ export const isIgnoredOrBotChat = (chat: any, currentUserId?: string, currentUse
       const pname = String(p?.name || '').trim().toLowerCase();
       return (curIdLower && pid === curIdLower) || (curNameLower && pname === curNameLower) || pid === 'u_current' || pid === 'guest';
     });
-    if (allSelf) return true;
+    if (allSelf && participants.length > 1) return true;
   }
 
   return false;
 };
 
 // Backwards compatibility alias
-export const isPlaceholderBinhChat = (chat: any) => isIgnoredOrBotChat(chat);
+export const isPlaceholderBinhChat = (_chat: any) => false;
 
 /**
- * Checks if a tutor is a placeholder, bot, or fake account to be purged.
+ * Checks if a tutor record is invalid (e.g. missing or malformed).
+ * Unified messaging enables real tutors, mentors, and students across all accounts.
  */
 export const isFakeOrBotTutor = (tutor: any): boolean => {
-  if (!tutor) return true;
-  const nameLower = String(tutor.name || '').trim().toLowerCase();
-  const idLower = String(tutor.id || '').trim().toLowerCase();
-  const bioLower = String(tutor.bio || '').trim().toLowerCase();
-
-  return (
-    nameLower.includes('phùng gia bỉnh') ||
-    nameLower.includes('phùng gia bình') ||
-    nameLower.includes('phung gia binh') ||
-    nameLower.includes('gia bỉnh') ||
-    nameLower.includes('gia bình') ||
-    nameLower.includes('bot 4') ||
-    nameLower.includes('bot4') ||
-    nameLower.includes('physics guru') ||
-    nameLower.includes('sarah') ||
-    nameLower.includes('jenkins') ||
-    nameLower.includes('david kim') ||
-    nameLower.includes('ban quản lý') ||
-    nameLower.includes('ban quan ly') ||
-    nameLower.includes('studybook') ||
-    nameLower.includes('mai lan') ||
-    nameLower.includes('lucas') ||
-    nameLower.includes('system') ||
-    idLower.includes('phunggiabinh') ||
-    idLower.includes('phung_gia_binh') ||
-    idLower.includes('phung_binh') ||
-    idLower.includes('tut_phunggiabinh') ||
-    idLower.includes('bot4') ||
-    idLower.includes('bot_4') ||
-    idLower.includes('bot') ||
-    idLower.includes('sarah') ||
-    idLower.includes('david') ||
-    idLower.includes('ban_quan_ly') ||
-    nameLower.startsWith('bot ') ||
-    nameLower === 'bot' ||
-    nameLower.includes('bot') ||
-    bioLower.includes('bot 4') ||
-    bioLower.includes('physics guru')
-  );
+  if (!tutor || !tutor.id) return true;
+  return false;
 };
 
 /**

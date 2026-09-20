@@ -69,8 +69,6 @@ export const GroupsView: React.FC = () => {
     toggleJoinGroup,
     requestJoinGroup,
     user,
-    simulatedGroupRole,
-    setSimulatedGroupRole,
     togglePinGroupFile,
     deleteGroupFile,
     updateGroupMemberRole,
@@ -151,14 +149,14 @@ export const GroupsView: React.FC = () => {
   const [isDeletingGroup, setIsDeletingGroup] = useState(false);
 
   // Role-based permissions for current cohort
-  const effectiveRole: GroupRole = getUserGroupRole(activeGroup, user, simulatedGroupRole);
+  const effectiveRole: GroupRole = getUserGroupRole(activeGroup, user);
   const permissions = getRolePermissions(effectiveRole);
-  const canRemoveSpam = canUserRemoveSpam(activeGroup, user, simulatedGroupRole);
-  const canPinFiles = canUserPinFiles(activeGroup, user, simulatedGroupRole);
-  const canManageMembers = canUserManageMembers(activeGroup, user, simulatedGroupRole);
-  const canAssignModerator = canUserAssignModerator(activeGroup, user, simulatedGroupRole);
+  const canRemoveSpam = canUserRemoveSpam(activeGroup, user);
+  const canPinFiles = canUserPinFiles(activeGroup, user);
+  const canManageMembers = canUserManageMembers(activeGroup, user);
+  const canAssignModerator = canUserAssignModerator(activeGroup, user);
   const canAssignLeader = canAssignModerator;
-  const canDeleteGroup = canUserDeleteGroup(activeGroup, user, simulatedGroupRole);
+  const canDeleteGroup = canUserDeleteGroup(activeGroup, user);
 
   const handleConfirmDeleteGroup = async () => {
     if (!activeGroup || isDeletingGroup) return;
@@ -310,11 +308,11 @@ export const GroupsView: React.FC = () => {
     return list;
   }, [activeGroup?.members, activeGroup?.creatorId, user, effectiveRole]);
 
-  const canModifySettings = canUserModifySettings(activeGroup, user, simulatedGroupRole);
-  const canReviewJoinReqs = canUserReviewJoinRequests(activeGroup, user, simulatedGroupRole);
-  const canApprovePostList = canUserApprovePosts(activeGroup, user, simulatedGroupRole);
-  const postPermission = checkUserCanPostInGroup(activeGroup, user, simulatedGroupRole);
-  const chatPermission = checkUserCanChatInGroup(activeGroup, user, simulatedGroupRole);
+  const canModifySettings = canUserModifySettings(activeGroup, user);
+  const canReviewJoinReqs = canUserReviewJoinRequests(activeGroup, user);
+  const canApprovePostList = canUserApprovePosts(activeGroup, user);
+  const postPermission = checkUserCanPostInGroup(activeGroup, user);
+  const chatPermission = checkUserCanChatInGroup(activeGroup, user);
 
   const isMember = Boolean(
     activeGroup && (
