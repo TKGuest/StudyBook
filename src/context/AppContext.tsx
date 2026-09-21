@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { User, Post, StudyGroup, GroupRole, GroupMember, GroupFile, TutorPage, Reel, MarketplaceItem, GroupChat, AppSettings, AcademicReactionType, Comment, Message, BinderFolder, TutorRequest, RequestHistoryLog, Friend, FriendRequest, DirectMessage, DirectChat, BlockedUser, CreatorScore, GroupSettings, GroupJoinRequest, GlobalAlgorithmConfig, DEFAULT_GLOBAL_ALGORITHM_CONFIG, ActiveChatNotification } from '../types';
+import { User, Post, StudyGroup, GroupRole, GroupMember, GroupFile, TutorPage, Reel, MarketplaceItem, GroupChat, AppSettings, AcademicReactionType, Comment, Message, BinderFolder, TutorRequest, RequestHistoryLog, Friend, FriendRequest, DirectMessage, DirectChat, BlockedUser, CreatorScore, GroupSettings, GroupJoinRequest, GlobalAlgorithmConfig, DEFAULT_GLOBAL_ALGORITHM_CONFIG, ActiveChatNotification, ConfirmModalOptions } from '../types';
 import { currentUser, initialPosts, initialGroups, initialTutors, initialReels, initialMarketplaceItems, initialGroupChats, defaultSettings, SILHOUETTE_AVATAR, initialFriends, initialFriendRequests, initialDirectChats, initialCommunityUsers } from '../data/mockData';
 import { ALGORITHM_CONFIG } from '../utils/feedAlgorithm';
 import { playSound } from '../utils/soundEffects';
@@ -32,6 +32,7 @@ import {
   pushPostUrl,
   pushHomeUrl
 } from '../utils/urlRouter';
+import { generateUniquePostId } from '../utils/postFactory';
 import { auth, db, isFirebaseConfigured } from '../lib/firebase';
 import { 
   onAuthStateChanged, 
@@ -98,8 +99,10 @@ interface AppContextType {
     attachmentUrl?: string, 
     grade?: string,
     groupInfo?: { groupId: string; groupName: string; groupAvatar?: string },
-    attachmentSize?: string
-  ) => void;
+    attachmentSize?: string,
+    attachmentCdnUrl?: string,
+    attachmentUuid?: string
+  ) => Promise<string | undefined>;
   deletePost: (postId: string) => Promise<void>;
   reactToPost: (postId: string, reaction: AcademicReactionType) => void;
   addComment: (postId: string, content: string) => void;
@@ -134,6 +137,11 @@ interface AppContextType {
   selectedPostId: string | null;
   openSinglePost: (postId: string) => void;
   closeSinglePost: () => void;
+
+  // Custom GUI Confirm Modal
+  confirmModal: ConfirmModalOptions | null;
+  showConfirmModal: (options: ConfirmModalOptions) => void;
+  closeConfirmModal: () => void;
 
   addMarketplaceItem: (item: Omit<MarketplaceItem, 'id' | 'seller' | 'distance'>) => void;
   deleteMarketplaceItem: (itemId: string) => Promise<void>;
@@ -378,9 +386,12 @@ const normalizePostForUser = (p: Post, userId: string): Post => {
   const activeSaveObj = savedByUsersMap[currentUserId];
   const isSaved = !!activeSaveObj?.isSaved;
   const savedFolderId = activeSaveObj?.savedFolderId;
+  const resolvedPostId = p.postId || p.id || generateUniquePostId(p.groupId ? 'gpost' : 'post');
 
   return {
     ...p,
+    id: p.id || resolvedPostId,
+    postId: resolvedPostId,
     userReactionsMap: cleanedMap,
     reactions: combinedCounts,
     userReactions: {
@@ -681,6 +692,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const closeSinglePost = useCallback(() => {
     setSelectedPostId(null);
     pushHomeUrl();
+  }, []);
+
+  // Custom GUI Confirm Modal State
+  const [confirmModal, setConfirmModal] = useState<ConfirmModalOptions | null>(null);
+  const showConfirmModal = useCallback((options: ConfirmModalOptions) => {
+    setConfirmModal(options);
+  }, []);
+  const closeConfirmModal = useCallback(() => {
+    setConfirmModal(null);
   }, []);
 
   const openChatWindow = (groupId: string) => {
@@ -2160,8 +2180,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     attachmentUrl?: string,
     grade?: string,
     groupInfo?: { groupId: string; groupName: string; groupAvatar?: string },
-    attachmentSize?: string
-  ) => {
+    attachmentSize?: string,
+    attachmentCdnUrl?: string,
+    attachmentUuid?: string
+  ): Promise<string | undefined> => {
     const currentUserId = user.id || auth.currentUser?.uid || 'guest';
     const authorName = isAnonymous ? 'Anonymous Scholar' : (user.name || 'User');
     const postGrade = grade || user.grade || 'Grade 10';
@@ -2179,13 +2201,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // Permission & Post Approval Verification for Group Posts
     let postStatus: 'published' | 'pending' = 'published';
-    if (groupInfo?.groupId) {
+    const isGroup = !!groupInfo?.groupId;
+    if (isGroup && groupInfo?.groupId) {
       const targetGroup = groups.find(g => g.id === groupInfo.groupId);
       if (targetGroup) {
         const authCheck = checkUserCanPostInGroup(targetGroup, user);
         if (!authCheck.allowed) {
           alert(authCheck.reason || 'Posting in this study group is restricted to Admins and Group Leaders.');
-          return;
+          return undefined;
         }
         if (authCheck.requiresApproval) {
           postStatus = 'pending';
@@ -2193,7 +2216,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     }
 
+    // Generate unique random post identifier the exact moment it is created
+    const uniquePostId = generateUniquePostId(isGroup ? 'gpost' : 'post');
+
     const newPostData = {
+      id: uniquePostId,
+      postId: uniquePostId,
       content,
       subject,
       grade: postGrade,
@@ -2212,35 +2240,39 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       isAnonymous,
       blockedUserIds: user.blockedUserIds || [],
       authorBlockedUserIds: user.blockedUserIds || [],
-      ...(groupInfo?.groupId ? {
+      ...(isGroup && groupInfo?.groupId ? {
         groupId: groupInfo.groupId,
         groupName: groupInfo.groupName,
-        groupAvatar: groupInfo.groupAvatar
+        groupAvatar: groupInfo.groupAvatar,
+        isGroupPost: true
       } : {}),
       ...(attachmentType && (attachmentTitle || attachmentUrl) ? {
         attachment: {
           type: attachmentType,
           title: attachmentTitle || (attachmentType === 'image' ? 'Attached Photo' : 'Attached File'),
           url: attachmentUrl || '#',
+          cdnUrl: attachmentCdnUrl || attachmentUrl,
+          uuid: attachmentUuid,
           size: attachmentSize || (attachmentType === 'pdf' ? '1.5 MB' : attachmentType === 'doc' ? '850 KB' : attachmentType === 'image' ? 'Image File' : undefined)
         }
       } : {})
     };
 
-    if (groupInfo?.groupId) {
+    if (isGroup && groupInfo?.groupId) {
       recordGroupInteraction(groupInfo.groupId, 'post');
     }
 
     if (isFirebaseConfigured) {
       try {
-        await addDoc(collection(db, 'posts'), cleanForFirestore(newPostData));
+        await setDoc(doc(db, 'posts', uniquePostId), cleanForFirestore(newPostData));
       } catch (err) {
         console.warn('Failed to save post to Firestore:', err);
       }
     } else {
       const rawLocalPost = {
-        id: `p_${Date.now()}`,
         ...newPostData,
+        id: uniquePostId,
+        postId: uniquePostId,
         timestamp: new Date().toISOString()
       };
       const localPost = normalizePostForUser(rawLocalPost as any, currentUserId);
@@ -2252,6 +2284,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     playSound('send');
+    return uniquePostId;
   };
 
   const deletePost = async (postId: string) => {
@@ -5524,6 +5557,9 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
       selectedPostId,
       openSinglePost,
       closeSinglePost,
+      confirmModal,
+      showConfirmModal,
+      closeConfirmModal,
       addMarketplaceItem,
       deleteMarketplaceItem,
       sendGroupMessage,

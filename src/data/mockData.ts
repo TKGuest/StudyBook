@@ -89,6 +89,7 @@ export const initialCommunityUsers: User[] = [];
 export const initialPosts: Post[] = [
   {
     id: 'p_fresh_1',
+    postId: 'p_fresh_1',
     user: sampleUsers.u_maya,
     authorId: sampleUsers.u_maya.id,
     authorName: sampleUsers.u_maya.name,
@@ -117,6 +118,7 @@ export const initialPosts: Post[] = [
   },
   {
     id: 'p_fresh_2',
+    postId: 'p_fresh_2',
     user: sampleUsers.u_marcus,
     authorId: sampleUsers.u_marcus.id,
     authorName: sampleUsers.u_marcus.name,
@@ -130,6 +132,7 @@ export const initialPosts: Post[] = [
   },
   {
     id: 'p_physics_marcus',
+    postId: 'p_physics_marcus',
     user: sampleUsers.u_marcus,
     authorId: sampleUsers.u_marcus.id,
     authorName: sampleUsers.u_marcus.name,
@@ -149,6 +152,7 @@ export const initialPosts: Post[] = [
   },
   {
     id: 'p_college_elena',
+    postId: 'p_college_elena',
     user: sampleUsers.u_elena,
     authorId: sampleUsers.u_elena.id,
     authorName: sampleUsers.u_elena.name,
@@ -168,6 +172,7 @@ export const initialPosts: Post[] = [
   },
   {
     id: 'p_older_maya',
+    postId: 'p_older_maya',
     user: sampleUsers.u_maya,
     authorId: sampleUsers.u_maya.id,
     authorName: sampleUsers.u_maya.name,
@@ -181,6 +186,7 @@ export const initialPosts: Post[] = [
   },
   {
     id: 'p_middle_g8',
+    postId: 'p_middle_g8',
     user: sampleUsers.u_elena,
     authorId: sampleUsers.u_elena.id,
     authorName: sampleUsers.u_elena.name,
@@ -194,6 +200,7 @@ export const initialPosts: Post[] = [
   },
   {
     id: 'p_elementary_g5',
+    postId: 'p_elementary_g5',
     user: sampleUsers.u_maya,
     authorId: sampleUsers.u_maya.id,
     authorName: sampleUsers.u_maya.name,
@@ -207,6 +214,7 @@ export const initialPosts: Post[] = [
   },
   {
     id: 'p_other_cs',
+    postId: 'p_other_cs',
     user: sampleUsers.u_marcus,
     authorId: sampleUsers.u_marcus.id,
     authorName: sampleUsers.u_marcus.name,

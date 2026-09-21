@@ -35,7 +35,7 @@ interface LocalComment {
 }
 
 export const ReelsView: React.FC = () => {
-  const { reels, toggleReelLike, deleteReel, user } = useApp();
+  const { reels, toggleReelLike, deleteReel, user, showConfirmModal } = useApp();
   const [activeReelIndex, setActiveReelIndex] = useState(0);
   const [playingStates, setPlayingStates] = useState<Record<string, boolean>>({});
   const [mutedStates, setMutedStates] = useState<Record<string, boolean>>({});
@@ -177,14 +177,21 @@ export const ReelsView: React.FC = () => {
     });
   };
 
-  const handleDeleteReel = async (reelId: string, e: React.MouseEvent) => {
+  const handleDeleteReel = (reelId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (window.confirm('Are you sure you want to delete this reel?')) {
-      playSound('delete');
-      await deleteReel(reelId);
-      setToastMessage('Reel deleted successfully');
-      setTimeout(() => setToastMessage(null), 3000);
-    }
+    showConfirmModal({
+      title: 'Delete Reel?',
+      message: 'Are you sure you want to delete this study reel? This action cannot be undone.',
+      confirmText: 'Delete Reel',
+      variant: 'danger',
+      icon: 'trash',
+      onConfirm: async () => {
+        playSound('delete');
+        await deleteReel(reelId);
+        setToastMessage('Reel deleted successfully');
+        setTimeout(() => setToastMessage(null), 3000);
+      }
+    });
   };
 
   const handleAddComment = (reelId: string) => {

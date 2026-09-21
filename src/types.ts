@@ -143,7 +143,8 @@ export interface Comment {
 }
 
 export interface Post {
-  id: string;
+  id: string; // Document / primary identifier
+  postId: string; // Explicit unique random string identifier (UUID or timestamp-hash combination)
   user: User;
   authorId?: string;
   authorName?: string;
@@ -161,7 +162,9 @@ export interface Post {
   attachment?: {
     type: 'pdf' | 'doc' | 'link' | 'youtube' | 'image' | 'video' | 'file';
     title: string;
-    url: string;
+    url: string; // CDN direct URL
+    cdnUrl?: string; // Uploadcare direct CDN link
+    uuid?: string; // Uploadcare asset UUID
     size?: string;
     mimetype?: string;
   };
@@ -194,9 +197,17 @@ export interface Post {
   groupId?: string;
   groupName?: string;
   groupAvatar?: string;
+  isGroupPost?: boolean;
   blockedUserIds?: string[];
   authorBlockedUserIds?: string[];
-  status?: 'approved' | 'pending' | 'rejected';
+  status?: 'approved' | 'pending' | 'rejected' | 'published';
+}
+
+export interface GroupPost extends Post {
+  groupId: string;
+  groupName: string;
+  groupAvatar?: string;
+  isGroupPost: true;
 }
 
 export type GroupRole = 'admin' | 'leader' | 'moderator' | 'member';
@@ -539,4 +550,15 @@ export interface AppSettings {
   allowDMsFromStrangers?: boolean;
   hideProfilePosts?: boolean;
   blockedUsers?: BlockedUser[];
+}
+
+export interface ConfirmModalOptions {
+  title: string;
+  message: string;
+  confirmText?: string;
+  cancelText?: string | null;
+  variant?: 'danger' | 'warning' | 'primary' | 'info';
+  icon?: 'trash' | 'alert' | 'userX' | 'shield' | 'info' | 'check';
+  onConfirm?: () => void | Promise<void>;
+  onCancel?: () => void;
 }

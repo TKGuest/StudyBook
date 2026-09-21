@@ -20,6 +20,7 @@ import { RightSidebar } from './components/RightSidebar';
 import { FloatingChats } from './components/FloatingChats';
 import { SinglePostView } from './components/SinglePostView';
 import { ChatNotificationBanner } from './components/ChatNotificationBanner';
+import { ConfirmModal } from './components/ConfirmModal';
 import { isFirebaseConfigured } from './lib/firebase';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -113,6 +114,9 @@ const AppContent: React.FC = () => {
       {/* Global Real-Time Chat Notification Dynamic Popup */}
       <ChatNotificationBanner />
 
+      {/* Global GUI Confirmation Modal */}
+      <ConfirmModal />
+
       {/* Top Header Panel */}
       <Header onSearchQuery={setSearchQuery} />
 
@@ -123,28 +127,22 @@ const AppContent: React.FC = () => {
         {/* Main Feed/Interaction Area */}
         <main className={`flex-1 w-full overflow-hidden relative flex flex-col min-h-0 ${activeTab === 'friends' ? 'h-full bg-white dark:bg-[#18191a]' : 'bg-[#F0F2F5] dark:bg-slate-900'}`}>
           <AnimatePresence mode="wait">
-            {selectedPostId ? (
-              <motion.div
-                key={`post-${selectedPostId}`}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                transition={{ duration: 0.18, ease: 'easeOut' }}
-                className="h-full w-full flex-1 flex flex-col min-h-0"
-              >
-                <SinglePostView postId={selectedPostId} onBack={closeSinglePost} />
-              </motion.div>
-            ) : (
-              <motion.div
-                key={activeTab}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                transition={{ duration: 0.18, ease: 'easeOut' }}
-                className="h-full w-full flex-1 flex flex-col min-h-0"
-              >
-                {renderActiveView()}
-              </motion.div>
+            <motion.div
+              key={activeTab}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.18, ease: 'easeOut' }}
+              className="h-full w-full flex-1 flex flex-col min-h-0"
+            >
+              {renderActiveView()}
+            </motion.div>
+          </AnimatePresence>
+
+          {/* Facebook-style Single Post Close-Up Modal / Lightbox Overlay */}
+          <AnimatePresence>
+            {selectedPostId && (
+              <SinglePostView postId={selectedPostId} onBack={closeSinglePost} />
             )}
           </AnimatePresence>
         </main>

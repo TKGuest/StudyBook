@@ -80,7 +80,9 @@ export const GroupsView: React.FC = () => {
     approveJoinRequest,
     rejectJoinRequest,
     approvePendingPost,
-    rejectPendingPost
+    rejectPendingPost,
+    openSinglePost,
+    showConfirmModal
   } = useApp();
 
   const [selectedGroupId, setSelectedGroupId] = useState<string>(() => {
@@ -1188,13 +1190,21 @@ export const GroupsView: React.FC = () => {
                                   );
                                 })()}
                               </div>
-                              <p className="text-[10px] text-gray-400">
+                              <p 
+                                onClick={() => openSinglePost(p.postId || p.id)}
+                                className="text-[10px] text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer transition-colors"
+                                title="Click to view post closely"
+                              >
                                 {p.timestamp?.includes('T') ? new Date(p.timestamp).toLocaleDateString() : (p.timestamp || 'Just now')} • {p.subject}
                               </p>
                             </div>
                           </div>
                           <div className="flex items-center gap-2">
-                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-300">
+                            <span 
+                              onClick={() => openSinglePost(p.postId || p.id)}
+                              className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-300 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900/60 transition-colors"
+                              title="Click to view post closely"
+                            >
                               Cohort Post
                             </span>
 
@@ -1202,10 +1212,18 @@ export const GroupsView: React.FC = () => {
                             {showModerationDelete && (
                               <button
                                 type="button"
-                                onClick={() => {
-                                  if (window.confirm(isAuthor ? 'Delete your post?' : 'Remove this spam post as Group Moderator/Admin?')) {
-                                    deletePost(p.id);
-                                  }
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  showConfirmModal({
+                                    title: isAuthor ? 'Delete Your Post?' : 'Remove Spam Post?',
+                                    message: isAuthor 
+                                      ? 'Are you sure you want to delete your post from this cohort? This action cannot be undone.'
+                                      : 'As Group Moderator/Admin, are you sure you want to remove this post from the cohort feed?',
+                                    confirmText: isAuthor ? 'Delete Post' : 'Remove Spam',
+                                    variant: 'danger',
+                                    icon: 'trash',
+                                    onConfirm: () => deletePost(p.id)
+                                  });
                                 }}
                                 className="flex items-center gap-1 text-[10px] font-bold text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40 px-2 py-0.5 rounded-md transition-colors cursor-pointer"
                                 title={isAuthor ? 'Delete your post' : 'Remove spam (Admin/Moderator permission)'}
@@ -1216,13 +1234,64 @@ export const GroupsView: React.FC = () => {
                             )}
                           </div>
                         </div>
-                        <p className="text-xs text-gray-700 dark:text-gray-200 leading-relaxed font-sans font-normal">
-                          {p.content}
-                        </p>
-                        <div className="flex items-center gap-3 pt-2 border-t border-gray-100 dark:border-slate-750 text-[11px] text-gray-400">
-                          <span>{p.comments?.length || 0} comments</span>
-                          <span>•</span>
-                          <span>{(p.reactions?.helpful || 0) + (p.reactions?.insightful || 0)} reactions</span>
+
+                        {/* Post content - Clickable to view closely */}
+                        <div 
+                          onClick={() => openSinglePost(p.postId || p.id)}
+                          className="cursor-pointer group"
+                          title="Click to view post closely"
+                        >
+                          <p className="text-xs text-gray-700 dark:text-gray-200 leading-relaxed font-sans font-normal group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                            {p.content}
+                          </p>
+                        </div>
+
+                        {/* Attachment if present */}
+                        {p.attachment && (
+                          <div 
+                            onClick={() => openSinglePost(p.postId || p.id)}
+                            className="cursor-pointer rounded-xl overflow-hidden border border-gray-200 dark:border-slate-700"
+                            title="Click to view attachment closely"
+                          >
+                            {p.attachment.type === 'image' ? (
+                              <img 
+                                src={p.attachment.url} 
+                                alt={p.attachment.title}
+                                className="w-full max-h-[300px] object-cover hover:opacity-95 transition-opacity" 
+                              />
+                            ) : (
+                              <div className="p-3 bg-gray-50 dark:bg-slate-750 flex items-center justify-between text-xs">
+                                <span className="font-semibold text-gray-800 dark:text-white truncate">
+                                  {p.attachment.title}
+                                </span>
+                                <span className="text-blue-600 dark:text-blue-400 font-bold text-[11px]">
+                                  View Attached File
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        <div className="flex items-center justify-between pt-2 border-t border-gray-100 dark:border-slate-750 text-[11px] text-gray-400">
+                          <button
+                            type="button"
+                            onClick={() => openSinglePost(p.postId || p.id)}
+                            className="hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer transition-colors"
+                          >
+                            <span>{p.comments?.length || 0} comments</span>
+                            <span className="mx-1">•</span>
+                            <span>{(p.reactions?.helpful || 0) + (p.reactions?.insightful || 0)} reactions</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => openSinglePost(p.postId || p.id)}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors cursor-pointer"
+                            title="Open close-up view and write a comment"
+                          >
+                            <MessageCircle className="h-3.5 w-3.5" />
+                            <span>View & Comment</span>
+                          </button>
                         </div>
                       </div>
                     );
@@ -1323,9 +1392,16 @@ export const GroupsView: React.FC = () => {
                             <button
                               type="button"
                               onClick={() => {
-                                if (window.confirm(isUploader ? 'Delete your uploaded file?' : 'Remove this file as Group Moderator/Admin?')) {
-                                  deleteGroupFile(activeGroup.id, file.id);
-                                }
+                                showConfirmModal({
+                                  title: isUploader ? 'Delete Uploaded File?' : 'Remove Cohort File?',
+                                  message: isUploader
+                                    ? `Delete "${file.title}" from this cohort library? This cannot be undone.`
+                                    : `As Group Moderator/Admin, remove "${file.title}" from the cohort files?`,
+                                  confirmText: 'Delete File',
+                                  variant: 'danger',
+                                  icon: 'trash',
+                                  onConfirm: () => deleteGroupFile(activeGroup.id, file.id)
+                                });
                               }}
                               className="p-2 text-gray-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-full transition-colors cursor-pointer"
                               title={isUploader ? 'Delete your file' : 'Remove file (Admin/Moderator)'}
@@ -1596,9 +1672,14 @@ export const GroupsView: React.FC = () => {
                               <button
                                 type="button"
                                 onClick={() => {
-                                  if (window.confirm(`Transfer Admin ownership of "${activeGroup.name}" to ${member.name}? You will step down to Moderator. There can only be 1 Admin.`)) {
-                                    updateGroupMemberRole(activeGroup.id, member.id, 'admin');
-                                  }
+                                  showConfirmModal({
+                                    title: 'Transfer Admin Ownership?',
+                                    message: `Transfer primary Admin ownership of "${activeGroup.name}" to ${member.name}? You will step down to Moderator. Groups can only have 1 primary Admin.`,
+                                    confirmText: 'Transfer Admin',
+                                    variant: 'warning',
+                                    icon: 'shield',
+                                    onConfirm: () => updateGroupMemberRole(activeGroup.id, member.id, 'admin')
+                                  });
                                 }}
                                 className="text-[10px] font-bold bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 px-2 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1 border border-rose-200 dark:border-rose-800"
                                 title="Make Admin (Demotes current admin to maintain single admin rule)"
@@ -1639,9 +1720,14 @@ export const GroupsView: React.FC = () => {
                               <button
                                 type="button"
                                 onClick={() => {
-                                  if (window.confirm(`Remove ${member.name} from ${activeGroup.name}?`)) {
-                                    removeGroupMember(activeGroup.id, member.id);
-                                  }
+                                  showConfirmModal({
+                                    title: `Remove ${member.name}?`,
+                                    message: `Are you sure you want to remove ${member.name} from "${activeGroup.name}"? They will lose access to cohort discussions and files.`,
+                                    confirmText: 'Remove Member',
+                                    variant: 'danger',
+                                    icon: 'userX',
+                                    onConfirm: () => removeGroupMember(activeGroup.id, member.id)
+                                  });
                                 }}
                                 className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors cursor-pointer"
                                 title="Remove from cohort"

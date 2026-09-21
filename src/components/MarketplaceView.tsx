@@ -34,7 +34,8 @@ export const MarketplaceView: React.FC = () => {
     setUser, 
     settings, 
     setSettings, 
-    openDirectChat 
+    openDirectChat,
+    showConfirmModal 
   } = useApp();
   
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
@@ -228,17 +229,22 @@ export const MarketplaceView: React.FC = () => {
     const isGlobalAdmin = user.role === 'admin' || user.email?.toLowerCase() === 'billkute030709@gmail.com';
     const isSeller = isUserListingSeller(item, user);
 
-    const confirmMsg = isGlobalAdmin && !isSeller
-      ? `[Admin Authority] Are you sure you want to delete listing "${item.title}" by ${item.seller.name}?`
-      : `Are you sure you want to delete your listing "${item.title}" from Bazaar?`;
-
-    if (window.confirm(confirmMsg)) {
-      await deleteMarketplaceItem(item.id);
-      if (selectedDetailItem?.id === item.id) {
-        setSelectedDetailItem(null);
+    showConfirmModal({
+      title: isGlobalAdmin && !isSeller ? 'Remove Marketplace Listing?' : 'Delete Your Listing?',
+      message: isGlobalAdmin && !isSeller
+        ? `As Administrator, delete listing "${item.title}" by ${item.seller.name}?`
+        : `Are you sure you want to delete your listing "${item.title}" from Bazaar?`,
+      confirmText: 'Delete Listing',
+      variant: 'danger',
+      icon: 'trash',
+      onConfirm: async () => {
+        await deleteMarketplaceItem(item.id);
+        if (selectedDetailItem?.id === item.id) {
+          setSelectedDetailItem(null);
+        }
+        showToast('🗑️ Listing deleted from Marketplace.');
       }
-      showToast('🗑️ Listing deleted from Marketplace.');
-    }
+    });
   };
 
   return (

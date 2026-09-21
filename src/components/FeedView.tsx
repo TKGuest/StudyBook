@@ -3,6 +3,7 @@ import { useApp } from '../context/AppContext';
 import { AcademicReactionType, Post, GRADE_LEVELS, GradeLevel, AlgorithmScoreBreakdown } from '../types';
 import { playSound } from '../utils/soundEffects';
 import { sortFeedPosts, calculatePostScore, calculateFreshnessValue, FeedSortOption, simulateFreshnessDecayTest } from '../utils/feedAlgorithm';
+import { getFullPostShareUrl } from '../utils/urlRouter';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Flame, 
@@ -130,7 +131,8 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
     joinedGroupIds,
     groupInteractions,
     groups,
-    openSinglePost
+    openSinglePost,
+    showConfirmModal
   } = useApp();
 
   const [newPostText, setNewPostText] = useState('');
@@ -165,6 +167,23 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
     isOwner: boolean;
     authorName?: string;
   } | null>(null);
+
+  // Copied post link state for quick feedback
+  const [copiedPostId, setCopiedPostId] = useState<string | null>(null);
+
+  const handleCopyPostLink = (targetPostId: string) => {
+    playSound('pop');
+    const shareUrl = getFullPostShareUrl(targetPostId);
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(shareUrl).then(() => {
+        setCopiedPostId(targetPostId);
+        setTimeout(() => setCopiedPostId(null), 2500);
+      });
+    } else {
+      setCopiedPostId(targetPostId);
+      setTimeout(() => setCopiedPostId(null), 2500);
+    }
+  };
 
   // Filtering based on subject filters AND Search Query AND settings.subjectWeights (if we want to reflect weights or mute tags!)
   const filteredPosts = posts.filter(post => {
@@ -1156,9 +1175,9 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
                         {/* Line 2: Timestamp • Grade Tag • Subject Tag */}
                         <div className="flex items-center gap-2 text-[11px] text-gray-500 dark:text-gray-400 mt-1 flex-wrap">
                           <button
-                            onClick={() => openSinglePost(post.id)}
-                            className="hover:underline hover:text-blue-600 dark:hover:text-blue-400 transition-colors cursor-pointer"
-                            title="Open single post view (/post/[id])"
+                            onClick={() => openSinglePost(post.postId || post.id)}
+                            className="hover:underline hover:text-blue-600 dark:hover:text-blue-400 transition-colors cursor-pointer font-medium"
+                            title={`Open single post direct link (/post/${post.postId || post.id})`}
                           >
                             {new Date(post.timestamp).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                           </button>
@@ -1203,9 +1222,14 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
                       {!post.isAnonymous && post.user?.id && post.user.id !== user.id && (
                         <button 
                           onClick={() => {
-                            if (confirm(`Block ${post.user.name}? They will no longer be able to message you or view your posts.`)) {
-                              blockUser(post.user.id, post.user.name, post.user.avatar);
-                            }
+                            showConfirmModal({
+                              title: `Block ${post.user.name}?`,
+                              message: `${post.user.name} will no longer be able to message you or view your posts. You will also not see their posts in your feed.`,
+                              confirmText: 'Block User',
+                              variant: 'danger',
+                              icon: 'userX',
+                              onConfirm: () => blockUser(post.user.id, post.user.name, post.user.avatar)
+                            });
                           }}
                           className="p-1.5 text-gray-400 hover:text-red-500 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors cursor-pointer"
                           title={`Block ${post.user.name}`}
@@ -1216,36 +1240,38 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
                     </div>
                   </div>
 
-                {/* Post body */}
-                <div className="space-y-3">
-                  <p className="text-xs text-gray-800 dark:text-slate-100 leading-relaxed font-sans font-normal">
+                {/* Post body - Clickable to view closely like Facebook */}
+                <div 
+                  className="space-y-3 cursor-pointer group"
+                  onClick={() => openSinglePost(post.postId || post.id)}
+                  title="Click to view post closely"
+                >
+                  <p className="text-xs sm:text-sm text-gray-800 dark:text-slate-100 leading-relaxed font-sans font-normal group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
                     {post.content}
                   </p>
 
                   {/* Attachment Block (If any) */}
                   {post.attachment && (
-                    <div className="mt-2">
+                    <div className="mt-2" onClick={(e) => e.stopPropagation()}>
                       {post.attachment.type === 'image' ? (
-                        <div className="rounded-xl overflow-hidden border border-gray-200 dark:border-slate-700 bg-gray-100 dark:bg-slate-900 group relative">
+                        <div 
+                          className="rounded-xl overflow-hidden border border-gray-200 dark:border-slate-700 bg-gray-100 dark:bg-slate-900 group relative cursor-pointer"
+                          onClick={() => openSinglePost(post.postId || post.id)}
+                          title="Click to view photo closely"
+                        >
                           <img 
                             src={post.attachment.url} 
                             alt={post.attachment.title}
-                            className="w-full max-h-[440px] object-contain cursor-pointer transition-transform duration-200 group-hover:scale-[1.01]"
-                            onClick={() => window.open(post.attachment?.url, '_blank')}
+                            className="w-full max-h-[440px] object-contain transition-transform duration-200 group-hover:scale-[1.01]"
                           />
                           <div className="p-2.5 flex items-center justify-between text-xs text-gray-600 dark:text-gray-300 bg-gray-50/90 dark:bg-slate-800/90 border-t border-gray-150 dark:border-slate-700">
                             <span className="font-semibold truncate flex items-center gap-1.5">
                               <FileCheck className="h-4 w-4 text-emerald-500" />
                               {post.attachment.title}
                             </span>
-                            <a 
-                              href={post.attachment.url} 
-                              target="_blank" 
-                              rel="noreferrer" 
-                              className="text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 font-bold text-xs"
-                            >
-                              <ExternalLink className="h-3.5 w-3.5" /> Full Size
-                            </a>
+                            <span className="text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 font-bold text-xs">
+                              <ExternalLink className="h-3.5 w-3.5" /> View Closely
+                            </span>
                           </div>
                         </div>
                       ) : post.attachment.type === 'video' ? (
@@ -1360,7 +1386,13 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
                         <span className="text-gray-400 text-[11px]">No reactions yet</span>
                       )}
                     </div>
-                    <span>{post.comments.length} comments • {post.shares} shares</span>
+                    <button 
+                      onClick={() => openSinglePost(post.postId || post.id)}
+                      className="hover:underline hover:text-blue-600 dark:hover:text-blue-400 transition-colors cursor-pointer"
+                      title="View post and all discussion comments"
+                    >
+                      {post.comments.length} comments • {post.shares} shares
+                    </button>
                   </div>
 
                   {/* Actions Row */}
@@ -1400,6 +1432,39 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
                       >
                         <HelpCircle className="h-4 w-4" />
                         <span>Confused</span>
+                      </button>
+
+                      {/* Facebook-style Comment Button to open post closely */}
+                      <button
+                        onClick={() => openSinglePost(post.postId || post.id)}
+                        className="flex items-center gap-1.5 py-1.5 px-2.5 rounded-lg text-xs font-semibold text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                        title="View post and write comment"
+                      >
+                        <MessageSquare className="h-4 w-4 text-blue-500" />
+                        <span className="hidden sm:inline">Comment</span>
+                      </button>
+
+                      {/* Quick Share / Copy Direct Link Button */}
+                      <button
+                        onClick={() => handleCopyPostLink(post.postId || post.id)}
+                        className={`flex items-center gap-1.5 py-1.5 px-2.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                          copiedPostId === (post.postId || post.id)
+                            ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300'
+                            : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700'
+                        }`}
+                        title="Copy direct post link"
+                      >
+                        {copiedPostId === (post.postId || post.id) ? (
+                          <>
+                            <Check className="h-4 w-4 text-emerald-600" />
+                            <span className="text-emerald-700 dark:text-emerald-300 font-bold">Copied!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Share2 className="h-4 w-4" />
+                            <span className="hidden sm:inline">Share</span>
+                          </>
+                        )}
                       </button>
                     </div>
                     {/* Bookmark to Digital Binder Folder */}

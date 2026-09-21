@@ -90,7 +90,8 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
     dismissChatNotification,
     activeOpenChatId,
     setActiveOpenChatId,
-    markChatAsRead
+    markChatAsRead,
+    showConfirmModal
   } = useApp();
 
   const [filterTab, setFilterTab] = useState<'all' | 'direct' | 'groups'>('all');
@@ -1537,8 +1538,15 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
                         onClick={() => {
                           if (isBlocked) {
                             unblockUser(otherParticipant.id);
-                          } else if (confirm(`Block ${otherParticipant.name}? They will no longer be able to message you.`)) {
-                            blockUser(otherParticipant.id, otherParticipant.name, otherParticipant.avatar);
+                          } else {
+                            showConfirmModal({
+                              title: `Block ${otherParticipant.name}?`,
+                              message: `${otherParticipant.name} will no longer be able to message you or view your posts.`,
+                              confirmText: 'Block User',
+                              variant: 'danger',
+                              icon: 'userX',
+                              onConfirm: () => blockUser(otherParticipant.id, otherParticipant.name, otherParticipant.avatar)
+                            });
                           }
                         }}
                         className="w-full flex items-center gap-2.5 p-2.5 rounded-xl hover:bg-red-50 dark:hover:bg-red-950/30 text-red-600 dark:text-red-400 text-xs font-semibold cursor-pointer transition-colors"
@@ -1588,10 +1596,17 @@ export const MessengerView: React.FC<MessengerViewProps> = ({ initialChatId }) =
 
                         <button
                           onClick={() => {
-                            if (confirm(`Leave group "${activeConversation.name}"? You will be removed from this chat.`)) {
-                              toggleJoinGroup(activeConversation.group!.id);
-                              setShowInfoSidebar(false);
-                            }
+                            showConfirmModal({
+                              title: `Leave "${activeConversation.name}"?`,
+                              message: 'You will be removed from this chat and study cohort discussions.',
+                              confirmText: 'Leave Group',
+                              variant: 'danger',
+                              icon: 'alert',
+                              onConfirm: () => {
+                                toggleJoinGroup(activeConversation.group!.id);
+                                setShowInfoSidebar(false);
+                              }
+                            });
                           }}
                           className="w-full flex items-center gap-2.5 p-2.5 rounded-xl hover:bg-red-50 dark:hover:bg-red-950/30 text-red-600 dark:text-red-400 text-xs font-semibold cursor-pointer transition-colors"
                         >

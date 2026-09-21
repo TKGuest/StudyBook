@@ -38,7 +38,8 @@ export const FriendsView: React.FC = () => {
     groupChats,
     tutors,
     posts,
-    user 
+    user,
+    showConfirmModal 
   } = useApp();
 
   // Vertical navigation: Chats, All Friends, Requests, and Find Friends
@@ -437,13 +438,20 @@ export const FriendsView: React.FC = () => {
                           <ExternalLink className="h-3.5 w-3.5" />
                         </button>
                         <button
-                          onClick={async () => {
-                            if (window.confirm(`Are you sure you want to remove ${friend.name} from your friends?`)) {
-                              await removeFriend(friend.id);
-                              playSound('pop');
-                              setFeedbackMessage(`Removed ${friend.name} from friends.`);
-                              setTimeout(() => setFeedbackMessage(null), 3000);
-                            }
+                          onClick={() => {
+                            showConfirmModal({
+                              title: `Remove ${friend.name}?`,
+                              message: `Are you sure you want to remove ${friend.name} from your study friends?`,
+                              confirmText: 'Remove Friend',
+                              variant: 'danger',
+                              icon: 'userX',
+                              onConfirm: async () => {
+                                await removeFriend(friend.id);
+                                playSound('pop');
+                                setFeedbackMessage(`Removed ${friend.name} from friends.`);
+                                setTimeout(() => setFeedbackMessage(null), 3000);
+                              }
+                            });
                           }}
                           className="py-1.5 px-2 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-xl text-xs transition cursor-pointer"
                           title="Unfriend"

@@ -15,7 +15,8 @@ export const FloatingChats: React.FC = () => {
     user,
     blockUser,
     unblockUser,
-    isUserBlocked
+    isUserBlocked,
+    showConfirmModal
   } = useApp();
   const [minimizedIds, setMinimizedIds] = useState<string[]>([]);
   const [chatInputs, setChatInputs] = useState<Record<string, string>>({});
@@ -145,8 +146,15 @@ export const FloatingChats: React.FC = () => {
                       onClick={() => {
                         if (isBlocked) {
                           unblockUser(otherParticipant.id);
-                        } else if (confirm(`Block ${otherParticipant.name}?`)) {
-                          blockUser(otherParticipant.id, otherParticipant.name, otherParticipant.avatar);
+                        } else {
+                          showConfirmModal({
+                            title: `Block ${otherParticipant.name}?`,
+                            message: `${otherParticipant.name} will no longer be able to message you or view your posts.`,
+                            confirmText: 'Block User',
+                            variant: 'danger',
+                            icon: 'userX',
+                            onConfirm: () => blockUser(otherParticipant.id, otherParticipant.name, otherParticipant.avatar)
+                          });
                         }
                       }}
                       className="p-1 rounded-md hover:bg-white/15 transition-colors text-white/80 hover:text-white cursor-pointer"

@@ -7,24 +7,30 @@
 export function extractPostIdFromUrl(): string | null {
   if (typeof window === 'undefined') return null;
 
-  // 1. Path check: /post/:id or /post/p123 or /posts/:id
+  // 1. Path check: /post/:id or /posts/:id
   const pathname = window.location.pathname;
   const pathMatch = pathname.match(/\/(?:post|posts)\/([a-zA-Z0-9_\-]+)/i);
   if (pathMatch && pathMatch[1]) {
     return decodeURIComponent(pathMatch[1]);
   }
 
-  // 2. Query param check: ?post=:id or ?p=:id
+  // Direct unique ID path check: /post_... or /gpost_... or /p_...
+  const directPathMatch = pathname.match(/^\/((?:post_|gpost_|p_)[a-zA-Z0-9_\-]+)$/i);
+  if (directPathMatch && directPathMatch[1]) {
+    return decodeURIComponent(directPathMatch[1]);
+  }
+
+  // 2. Query param check: ?post=:id or ?p=:id or ?postId=:id
   const searchParams = new URLSearchParams(window.location.search);
   const qPost = searchParams.get('post') || searchParams.get('p') || searchParams.get('postId');
   if (qPost) {
     return decodeURIComponent(qPost);
   }
 
-  // 3. Hash check: #post/:id or #/post/:id
+  // 3. Hash check: #post/:id or #/post/:id or #post_...
   const hash = window.location.hash;
-  const hashMatch = hash.match(/(?:post|posts)\/([a-zA-Z0-9_\-]+)/i);
-  if (hashMatch && hashMatch[1]) {
+  const hashMatch = hash.match(/(?:post|posts)?\/?([a-zA-Z0-9_\-]+)/i);
+  if (hashMatch && hashMatch[1] && (hashMatch[1].startsWith('p_') || hashMatch[1].startsWith('post_') || hashMatch[1].startsWith('gpost_') || hash.includes('post/'))) {
     return decodeURIComponent(hashMatch[1]);
   }
 

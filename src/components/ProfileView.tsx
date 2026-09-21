@@ -74,7 +74,9 @@ export const ProfileView: React.FC = () => {
     friends,
     getFriendshipStatus,
     sendFriendRequest,
-    settings
+    settings,
+    openSinglePost,
+    showConfirmModal
   } = useApp();
 
   // Profile view displays current user or target profile if set
@@ -611,7 +613,13 @@ export const ProfileView: React.FC = () => {
                       <img src={post.user?.avatar || profileUser.avatar} alt="Author" className="h-9 w-9 rounded-full object-cover" />
                       <div>
                         <span className="font-bold text-xs text-gray-900 dark:text-white">{post.user?.name || profileUser.name}</span>
-                        <div className="text-[10px] text-gray-400">{post.timestamp} • {post.subject}</div>
+                        <div 
+                          onClick={() => openSinglePost(post.postId || post.id)}
+                          className="text-[10px] text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer transition-colors"
+                          title="Click to view post closely"
+                        >
+                          {post.timestamp} • {post.subject}
+                        </div>
                       </div>
                     </div>
 
@@ -625,11 +633,16 @@ export const ProfileView: React.FC = () => {
                       {isAuthor && (
                         <button
                           onClick={() => {
-                            if (confirm('Delete this study note from your timeline?')) {
-                              deletePost(post.id);
-                            }
+                            showConfirmModal({
+                              title: 'Delete Study Note?',
+                              message: 'This post will be permanently removed from your timeline. This action cannot be undone.',
+                              confirmText: 'Delete Post',
+                              variant: 'danger',
+                              icon: 'trash',
+                              onConfirm: () => deletePost(post.id)
+                            });
                           }}
-                          className="text-gray-400 hover:text-red-600 transition-colors p-1 rounded-lg"
+                          className="text-gray-400 hover:text-red-600 transition-colors p-1 rounded-lg cursor-pointer"
                           title="Delete post"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
@@ -638,8 +651,12 @@ export const ProfileView: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Post Content */}
-                  <p className="text-xs sm:text-sm text-gray-800 dark:text-gray-100 leading-relaxed font-normal whitespace-pre-line">
+                  {/* Post Content - Clickable to view closely */}
+                  <p 
+                    onClick={() => openSinglePost(post.postId || post.id)}
+                    className="text-xs sm:text-sm text-gray-800 dark:text-gray-100 leading-relaxed font-normal whitespace-pre-line cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                    title="Click to view post closely"
+                  >
                     {post.content}
                   </p>
 
@@ -647,26 +664,24 @@ export const ProfileView: React.FC = () => {
                   {post.attachment && (
                     <div className="mt-2.5">
                       {post.attachment.type === 'image' || post.attachment.url?.match(/\.(jpeg|jpg|gif|png|webp)($|\?)/i) ? (
-                        <div className="rounded-xl overflow-hidden border border-gray-200 dark:border-slate-700 bg-gray-100 dark:bg-slate-900 group relative">
+                        <div 
+                          className="rounded-xl overflow-hidden border border-gray-200 dark:border-slate-700 bg-gray-100 dark:bg-slate-900 group relative cursor-pointer"
+                          onClick={() => openSinglePost(post.postId || post.id)}
+                          title="Click to view photo closely"
+                        >
                           <img 
                             src={post.attachment.url} 
                             alt={post.attachment.title}
-                            className="w-full max-h-[380px] object-contain cursor-pointer transition-transform duration-200 group-hover:scale-[1.01]"
-                            onClick={() => window.open(post.attachment?.url, '_blank')}
+                            className="w-full max-h-[380px] object-contain transition-transform duration-200 group-hover:scale-[1.01]"
                           />
                           <div className="p-2.5 flex items-center justify-between text-xs text-gray-600 dark:text-gray-300 bg-gray-50/90 dark:bg-slate-800/90 border-t border-gray-150 dark:border-slate-700">
                             <span className="font-semibold truncate flex items-center gap-1.5">
                               <FileText className="h-4 w-4 text-emerald-500 shrink-0" />
                               <span className="truncate">{post.attachment.title}</span>
                             </span>
-                            <a 
-                              href={post.attachment.url} 
-                              target="_blank" 
-                              rel="noreferrer" 
-                              className="text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 font-bold text-xs shrink-0 ml-2"
-                            >
-                              <ExternalLink className="h-3.5 w-3.5" /> Full Size
-                            </a>
+                            <span className="text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 font-bold text-xs shrink-0 ml-2">
+                              <ExternalLink className="h-3.5 w-3.5" /> View Closely
+                            </span>
                           </div>
                         </div>
                       ) : post.attachment.type === 'video' ? (
@@ -757,6 +772,17 @@ export const ProfileView: React.FC = () => {
                         <span className="hidden sm:inline">{post.isSaved ? 'Saved' : 'Save'}</span>
                       </button>
                     </div>
+
+                    {/* Facebook-style View Closely Modal trigger */}
+                    <button
+                      type="button"
+                      onClick={() => openSinglePost(post.postId || post.id)}
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                      title="View post closely like Facebook"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      <span>View Closely</span>
+                    </button>
                   </div>
 
                   {/* Expandable Comments Section */}

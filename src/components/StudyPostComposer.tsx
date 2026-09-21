@@ -145,11 +145,16 @@ export const StudyPostComposer: React.FC<StudyPostComposerProps> = ({
       let attachmentUrl: string | undefined = undefined;
       let attachmentSize: string | undefined = undefined;
 
+      let attachmentCdnUrl: string | undefined = undefined;
+      let attachmentUuid: string | undefined = undefined;
+
       if (attachedAsset) {
         attachmentType = attachedAsset.type;
         attachmentTitle = attachedAsset.filename;
         // Bind permanent direct CDN URL string to the Post model
-        attachmentUrl = attachedAsset.url;
+        attachmentUrl = attachedAsset.url || attachedAsset.cdnUrl;
+        attachmentCdnUrl = attachedAsset.cdnUrl || attachedAsset.url;
+        attachmentUuid = attachedAsset.uuid;
         attachmentSize = attachedAsset.formattedSize;
       }
 
@@ -163,7 +168,9 @@ export const StudyPostComposer: React.FC<StudyPostComposerProps> = ({
         attachmentUrl,
         user?.grade || 'Grade 10',
         undefined,
-        attachmentSize
+        attachmentSize,
+        attachmentCdnUrl,
+        attachmentUuid
       );
 
       // Reset state upon successful post
