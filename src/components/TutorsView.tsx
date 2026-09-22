@@ -5,7 +5,7 @@ import { playSound } from '../utils/soundEffects';
 import { isFakeOrBotTutor } from '../utils/chatUtils';
 
 export const TutorsView: React.FC = () => {
-  const { tutors, toggleFollowTutor, addTutorReview, openDirectChat, user } = useApp();
+  const { tutors, toggleFollowTutor, addTutorReview, openDirectChat, user, showAlertModal } = useApp();
   
   // Filter out any fake tutors or bot test accounts
   const validTutors = useMemo(() => {
@@ -41,7 +41,13 @@ export const TutorsView: React.FC = () => {
     addTutorReview(activeTutor.id, rating, reviewText);
     setReviewText('');
     setShowReviewForm(false);
-    alert(`Thank you for your review! Your contribution has enhanced the academic credentials of Tutor ${activeTutor.name}. ⭐️`);
+    showAlertModal({
+      title: 'Review Submitted',
+      message: `Thank you for your review! Your contribution has enhanced the academic credentials of Tutor ${activeTutor.name}. ⭐️`,
+      confirmText: 'Done',
+      variant: 'primary',
+      icon: 'check'
+    });
   };
 
   return (

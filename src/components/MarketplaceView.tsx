@@ -35,7 +35,8 @@ export const MarketplaceView: React.FC = () => {
     settings, 
     setSettings, 
     openDirectChat,
-    showConfirmModal 
+    showConfirmModal,
+    showAlertModal
   } = useApp();
   
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
@@ -222,7 +223,12 @@ export const MarketplaceView: React.FC = () => {
 
     // Permission rule check: Seller exclusive authority + Application Admin overriding authority
     if (!canUserDeleteMarketplaceItem(item, user)) {
-      alert("Permission denied: Only the listing's seller or an Application Admin can delete this listing.");
+      showAlertModal({
+        title: 'Permission Denied',
+        message: "Only the listing's seller or an Application Admin can delete this listing.",
+        variant: 'warning',
+        icon: 'shield'
+      });
       return;
     }
 

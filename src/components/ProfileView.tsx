@@ -605,7 +605,14 @@ export const ProfileView: React.FC = () => {
                 <div 
                   key={post.id} 
                   id={`post-${post.id}`}
-                  className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-200 dark:border-slate-700 p-4 shadow-xs space-y-3"
+                  onClick={(e) => {
+                    const target = e.target as HTMLElement;
+                    if (target.closest('button, a, input, textarea, select, [role="button"], video, audio, .no-post-click')) {
+                      return;
+                    }
+                    openSinglePost(post.postId || post.id);
+                  }}
+                  className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-200 dark:border-slate-700 p-4 shadow-xs space-y-3 hover:shadow-md hover:border-blue-200/80 dark:hover:border-slate-600 transition-all duration-200 cursor-pointer"
                 >
                   {/* Post Header */}
                   <div className="flex items-center justify-between">

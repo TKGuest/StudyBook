@@ -35,7 +35,7 @@ interface LocalComment {
 }
 
 export const ReelsView: React.FC = () => {
-  const { reels, toggleReelLike, deleteReel, user, showConfirmModal } = useApp();
+  const { reels, toggleReelLike, deleteReel, user, showConfirmModal, showAlertModal } = useApp();
   const [activeReelIndex, setActiveReelIndex] = useState(0);
   const [playingStates, setPlayingStates] = useState<Record<string, boolean>>({});
   const [mutedStates, setMutedStates] = useState<Record<string, boolean>>({});
@@ -233,7 +233,12 @@ export const ReelsView: React.FC = () => {
   const handleDownloadWorksheet = (reel: any, e: React.MouseEvent) => {
     e.stopPropagation();
     if (reel.worksheet) {
-      alert(`Downloaded worksheet:\n"${reel.worksheet.title}" (${reel.worksheet.size}) to your collection!`);
+      showAlertModal({
+        title: 'Worksheet Downloaded',
+        message: `Saved "${reel.worksheet.title}" (${reel.worksheet.size}) to your collection!`,
+        variant: 'primary',
+        icon: 'check'
+      });
     }
   };
 
@@ -591,8 +596,13 @@ export const ReelsView: React.FC = () => {
                     <div className="grid grid-cols-3 gap-3 text-center">
                       <button 
                         onClick={() => {
-                          alert('Reel link copied to clipboard!');
                           setShowShareModal(null);
+                          showAlertModal({
+                            title: 'Link Copied',
+                            message: 'Reel link copied to your clipboard!',
+                            variant: 'primary',
+                            icon: 'check'
+                          });
                         }}
                         className="flex flex-col items-center gap-1.5 p-3 rounded-xl bg-neutral-800 hover:bg-neutral-750 transition-colors"
                       >
@@ -602,8 +612,13 @@ export const ReelsView: React.FC = () => {
 
                       <button 
                         onClick={() => {
-                          alert('Shared to your StudyBook feed!');
                           setShowShareModal(null);
+                          showAlertModal({
+                            title: 'Shared to Feed',
+                            message: 'Successfully shared this reel to your StudyBook feed!',
+                            variant: 'primary',
+                            icon: 'check'
+                          });
                         }}
                         className="flex flex-col items-center gap-1.5 p-3 rounded-xl bg-neutral-800 hover:bg-neutral-750 transition-colors"
                       >
@@ -613,8 +628,13 @@ export const ReelsView: React.FC = () => {
 
                       <button 
                         onClick={() => {
-                          alert('Reel sent to study group chat!');
                           setShowShareModal(null);
+                          showAlertModal({
+                            title: 'Message Sent',
+                            message: 'Reel sent to study group chat!',
+                            variant: 'primary',
+                            icon: 'check'
+                          });
                         }}
                         className="flex flex-col items-center gap-1.5 p-3 rounded-xl bg-neutral-800 hover:bg-neutral-750 transition-colors"
                       >

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { User, Post, StudyGroup, GroupRole, GroupMember, GroupFile, TutorPage, Reel, MarketplaceItem, GroupChat, AppSettings, AcademicReactionType, Comment, Message, BinderFolder, TutorRequest, RequestHistoryLog, Friend, FriendRequest, DirectMessage, DirectChat, BlockedUser, CreatorScore, GroupSettings, GroupJoinRequest, GlobalAlgorithmConfig, DEFAULT_GLOBAL_ALGORITHM_CONFIG, ActiveChatNotification, ConfirmModalOptions } from '../types';
+import { User, Post, StudyGroup, GroupRole, GroupMember, GroupFile, TutorPage, Reel, MarketplaceItem, GroupChat, AppSettings, AcademicReactionType, Comment, Message, BinderFolder, TutorRequest, RequestHistoryLog, Friend, FriendRequest, DirectMessage, DirectChat, BlockedUser, CreatorScore, GroupSettings, GroupJoinRequest, GlobalAlgorithmConfig, DEFAULT_GLOBAL_ALGORITHM_CONFIG, ActiveChatNotification, ConfirmModalOptions, AlertModalOptions } from '../types';
 import { currentUser, initialPosts, initialGroups, initialTutors, initialReels, initialMarketplaceItems, initialGroupChats, defaultSettings, SILHOUETTE_AVATAR, initialFriends, initialFriendRequests, initialDirectChats, initialCommunityUsers } from '../data/mockData';
 import { ALGORITHM_CONFIG } from '../utils/feedAlgorithm';
 import { playSound } from '../utils/soundEffects';
@@ -138,9 +138,10 @@ interface AppContextType {
   openSinglePost: (postId: string) => void;
   closeSinglePost: () => void;
 
-  // Custom GUI Confirm Modal
+  // Custom GUI Confirm & Alert Modals
   confirmModal: ConfirmModalOptions | null;
   showConfirmModal: (options: ConfirmModalOptions) => void;
+  showAlertModal: (options: AlertModalOptions | string) => void;
   closeConfirmModal: () => void;
 
   addMarketplaceItem: (item: Omit<MarketplaceItem, 'id' | 'seller' | 'distance'>) => void;
@@ -702,6 +703,46 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const closeConfirmModal = useCallback(() => {
     setConfirmModal(null);
   }, []);
+
+  const showAlertModal = useCallback((options: AlertModalOptions | string) => {
+    if (typeof options === 'string') {
+      showConfirmModal({
+        title: 'Notice',
+        message: options,
+        cancelText: null,
+        confirmText: 'Got it',
+        variant: 'info',
+        icon: 'info'
+      });
+    } else {
+      showConfirmModal({
+        title: options.title || 'Notice',
+        message: options.message,
+        cancelText: null,
+        confirmText: options.confirmText || 'Got it',
+        variant: options.variant || 'info',
+        icon: options.icon || 'info',
+        onConfirm: options.onConfirm
+      });
+    }
+  }, [showConfirmModal]);
+
+  // Global override of browser-native window.alert with custom GUI modal
+  useEffect(() => {
+    const originalAlert = window.alert;
+    window.alert = (msg?: any) => {
+      showAlertModal({
+        title: 'Notice',
+        message: String(msg ?? ''),
+        confirmText: 'Got it',
+        icon: 'info',
+        variant: 'info'
+      });
+    };
+    return () => {
+      window.alert = originalAlert;
+    };
+  }, [showAlertModal]);
 
   const openChatWindow = (groupId: string) => {
     setOpenChatIds(prev => {
@@ -2207,7 +2248,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (targetGroup) {
         const authCheck = checkUserCanPostInGroup(targetGroup, user);
         if (!authCheck.allowed) {
-          alert(authCheck.reason || 'Posting in this study group is restricted to Admins and Group Leaders.');
+          showAlertModal({
+            title: 'Posting Restricted',
+            message: authCheck.reason || 'Posting in this study group is restricted to Admins and Group Leaders.',
+            variant: 'warning',
+            icon: 'shield'
+          });
           return undefined;
         }
         if (authCheck.requiresApproval) {
@@ -2280,7 +2326,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     if (postStatus === 'pending') {
-      alert('Your post has been submitted and is pending approval by a Group Admin or Leader.');
+      showAlertModal({
+        title: 'Post Pending Review',
+        message: 'Your question has been submitted and is pending approval by a Group Admin or Moderator.',
+        variant: 'info',
+        icon: 'info'
+      });
     }
 
     playSound('send');
@@ -2309,7 +2360,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Permission check: Owner OR App Admin OR Group Admin/Leader (spam removal)
     if (!isAppAdmin && !isOwner && !isGroupModerator) {
       console.warn(`Permission denied: User ${currentUserId} cannot delete post owned by ${postOwnerId}`);
-      alert('You can only delete your own posts, or remove spam if you are a Group Admin or Leader!');
+      showAlertModal({
+        title: 'Permission Denied',
+        message: 'You can only delete your own posts, or remove spam if you are a Group Admin or Moderator!',
+        variant: 'warning',
+        icon: 'shield'
+      });
       return;
     }
 
@@ -2536,7 +2592,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Permission check: Owner OR Admin
     if (!isAdmin && targetComment.user?.id && targetComment.user.id !== currentUserId) {
       console.warn(`Permission denied: User ${currentUserId} cannot delete comment owned by ${targetComment.user.id}`);
-      alert('You can only delete comments created by yourself!');
+      showAlertModal({
+        title: 'Permission Denied',
+        message: 'You can only delete comments created by yourself!',
+        variant: 'warning',
+        icon: 'shield'
+      });
       return;
     }
 
@@ -2944,7 +3005,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const deleteReel = async (reelId: string) => {
     const targetReel = reels.find(r => r.id === reelId);
     if (targetReel && !canUserDeleteReel(targetReel, user)) {
-      alert('You can only delete reels you created, unless you are an administrator.');
+      showAlertModal({
+        title: 'Permission Denied',
+        message: 'You can only delete reels you created, unless you are an administrator.',
+        variant: 'warning',
+        icon: 'shield'
+      });
       return;
     }
 
@@ -3032,7 +3098,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!targetGroup) return;
 
     if (!canUserPinFiles(targetGroup, user)) {
-      alert('Only Group Leaders and Admins can pin or unpin study files!');
+      showAlertModal({
+        title: 'Permission Denied',
+        message: 'Only Group Moderators and Admins can pin or unpin study files!',
+        variant: 'warning',
+        icon: 'shield'
+      });
       return;
     }
 
@@ -3090,7 +3161,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const isMod = canUserRemoveSpam(targetGroup, user);
 
     if (!isUploader && !isMod) {
-      alert('You can only delete files you uploaded, or delete files if you are a Group Leader or Admin!');
+      showAlertModal({
+        title: 'Permission Denied',
+        message: 'You can only delete files you uploaded, or delete files if you are a Group Moderator or Admin!',
+        variant: 'warning',
+        icon: 'shield'
+      });
       return;
     }
 
@@ -3128,7 +3204,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!targetGroup) return;
 
     if (!canUserAssignModerator(targetGroup, user)) {
-      alert('Only Group Admins and Cohort Creators have permission to promote or change Moderator roles!');
+      showAlertModal({
+        title: 'Permission Denied',
+        message: 'Only Group Admins and Cohort Creators have permission to promote or change Moderator roles!',
+        variant: 'warning',
+        icon: 'shield'
+      });
       return;
     }
 
@@ -3241,7 +3322,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!targetGroup) return;
 
     if (!canUserManageMembers(targetGroup, user)) {
-      alert('Only Group Leaders and Admins can manage or remove cohort members!');
+      showAlertModal({
+        title: 'Permission Denied',
+        message: 'Only Group Moderators and Admins can manage or remove cohort members!',
+        variant: 'warning',
+        icon: 'shield'
+      });
       return;
     }
 
@@ -3293,9 +3379,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     const newAdminMember = targetGroup.members?.find(m => m.id === newAdminId);
-    const isLeader = targetGroup.leaderUserIds?.includes(newAdminId) || targetGroup.memberRoles?.[newAdminId] === 'leader';
-    if (!isLeader) {
-      return { success: false, message: 'Admin ownership must be passed to an active Group Leader.' };
+    const isMember = (targetGroup.members || []).some(m => m.id === newAdminId) || (targetGroup.memberUserIds || []).includes(newAdminId);
+    if (!isMember) {
+      return { success: false, message: 'Admin ownership must be passed to an active member of this group.' };
     }
 
     playSound('pop');
@@ -3466,7 +3552,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!targetGroup) return;
 
     if (!canUserModifySettings(targetGroup, user)) {
-      alert('Only Group Leaders and Admins can configure group settings!');
+      showAlertModal({
+        title: 'Permission Denied',
+        message: 'Only Group Moderators and Admins can configure group settings!',
+        variant: 'warning',
+        icon: 'shield'
+      });
       return;
     }
 
@@ -3511,7 +3602,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const effectiveRole = getUserGroupRole(targetGroup, user);
     if (effectiveRole !== 'admin') {
-      alert('Permission denied: Only the Group Admin can edit the group name, description, and banner.');
+      showAlertModal({
+        title: 'Permission Denied',
+        message: 'Only the Group Admin can edit the group name, description, and banner.',
+        variant: 'warning',
+        icon: 'shield'
+      });
       return { success: false, message: 'Only the Group Admin can edit cohort details.' };
     }
 
@@ -3592,7 +3688,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!targetGroup) return;
 
     if (!canUserReviewJoinRequests(targetGroup, user)) {
-      alert('Only Admins and Group Leaders can approve join requests.');
+      showAlertModal({
+        title: 'Permission Denied',
+        message: 'Only Admins and Group Moderators can review and approve join requests.',
+        variant: 'warning',
+        icon: 'shield'
+      });
       return;
     }
 
@@ -3645,7 +3746,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!targetGroup) return;
 
     if (!canUserReviewJoinRequests(targetGroup, user)) {
-      alert('Only Admins and Group Leaders can review join requests.');
+      showAlertModal({
+        title: 'Permission Denied',
+        message: 'Only Admins and Group Moderators can review join requests.',
+        variant: 'warning',
+        icon: 'shield'
+      });
       return;
     }
 
@@ -3736,7 +3842,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!targetItem) return;
 
     if (!canUserDeleteMarketplaceItem(targetItem, user)) {
-      alert("Permission denied: Only the listing's seller or an Application Admin can delete this listing.");
+      showAlertModal({
+        title: 'Permission Denied',
+        message: "Only the listing's seller or an Application Admin can delete this listing.",
+        variant: 'warning',
+        icon: 'shield'
+      });
       return;
     }
 
@@ -3768,7 +3879,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (targetGroup) {
       const authCheck = checkUserCanChatInGroup(targetGroup, user);
       if (!authCheck.allowed) {
-        alert(authCheck.reason || 'Group chat is restricted to Admins and Group Leaders.');
+        showAlertModal({
+          title: 'Chat Restricted',
+          message: authCheck.reason || 'Group chat is restricted to Admins and Group Moderators.',
+          variant: 'warning',
+          icon: 'shield'
+        });
         return;
       }
     }
@@ -3910,7 +4026,12 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
         !('speechSynthesis' in window) ||
         typeof window.SpeechSynthesisUtterance === 'undefined'
       ) {
-        alert('Your browser or this iframe environment does not support Text-to-Speech.');
+        showAlertModal({
+          title: 'Speech Unavailable',
+          message: 'Your browser or device does not support Text-to-Speech audio playback.',
+          variant: 'info',
+          icon: 'info'
+        });
         return;
       }
       
@@ -3927,7 +4048,12 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
       }
 
       if (!utterance) {
-        alert('Text-to-Speech cannot be initialized in the current iframe environment.');
+        showAlertModal({
+          title: 'Speech Unavailable',
+          message: 'Text-to-Speech cannot be initialized in the current browser environment.',
+          variant: 'info',
+          icon: 'info'
+        });
         return;
       }
 
@@ -4541,7 +4667,12 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
     // Sync all posts authored by this user
     await syncUserTutorStatusAcrossPosts(userId, undefined, undefined, true);
 
-    alert(`User verified as Tutor successfully!`);
+    showAlertModal({
+      title: 'Tutor Verified',
+      message: 'User verified as Tutor successfully!',
+      variant: 'primary',
+      icon: 'check'
+    });
   };
 
   // Friending Actions
@@ -4550,7 +4681,12 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
 
     // Block Rule: If a user blocks someone (or is blocked by them), they cannot view that profile, send a friend request, or follow them.
     if (isBlockedMutual(targetUser.id)) {
-      alert("Action restricted: You cannot send a friend request to this user due to privacy blocking restrictions.");
+      showAlertModal({
+        title: 'Action Restricted',
+        message: 'You cannot send a friend request to this user due to privacy blocking restrictions.',
+        variant: 'warning',
+        icon: 'userX'
+      });
       return;
     }
 
@@ -4923,7 +5059,12 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
 
     // Block Rule: If a user blocks someone (or is blocked by them), they cannot view that profile, send a friend request, or follow them.
     if (isBlockedMutual(targetUserId)) {
-      alert("Action restricted: You cannot follow this user due to privacy blocking restrictions.");
+      showAlertModal({
+        title: 'Action Restricted',
+        message: 'You cannot follow this user due to privacy blocking restrictions.',
+        variant: 'warning',
+        icon: 'userX'
+      });
       return { success: false, message: "Blocked user restriction" };
     }
 
@@ -5027,7 +5168,12 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
 
     // Check if blocked
     if (isUserBlocked(targetUser.id)) {
-      alert(`You have blocked ${targetUser.name}. To direct message them, please unblock them in Settings.`);
+      showAlertModal({
+        title: 'User Blocked',
+        message: `You have blocked ${targetUser.name}. To direct message them, please unblock them in Settings.`,
+        variant: 'warning',
+        icon: 'userX'
+      });
       return;
     }
 
@@ -5039,7 +5185,12 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
 
     // Check stranger DM permission (bypassed if explicit marketplace inquiry or admin)
     if (!isMarketplaceInquiry && targetUser.allowDMsFromStrangers === false && !isFriend && user.role !== 'admin') {
-      alert(`${targetUser.name} only accepts direct messages from approved friends. Please send them a friend request first!`);
+      showAlertModal({
+        title: 'Friends Only',
+        message: `${targetUser.name} only accepts direct messages from approved friends. Please send them a friend request first!`,
+        variant: 'info',
+        icon: 'info'
+      });
       return;
     }
 
@@ -5186,7 +5337,12 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
     const chat = directChats.find(c => c.id === chatId);
     const otherP = chat?.participants.find(p => p.id !== user.id);
     if (otherP && isUserBlocked(otherP.id)) {
-      alert('You have blocked this user. Unblock them in Settings to send messages.');
+      showAlertModal({
+        title: 'User Blocked',
+        message: 'You have blocked this user. Unblock them in Settings to send messages.',
+        variant: 'warning',
+        icon: 'userX'
+      });
       return;
     }
 
@@ -5559,6 +5715,7 @@ Report automatically generated on ${new Date().toLocaleDateString('en-US')}.
       closeSinglePost,
       confirmModal,
       showConfirmModal,
+      showAlertModal,
       closeConfirmModal,
       addMarketplaceItem,
       deleteMarketplaceItem,

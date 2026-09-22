@@ -562,3 +562,12 @@ export interface ConfirmModalOptions {
   onConfirm?: () => void | Promise<void>;
   onCancel?: () => void;
 }
+
+export interface AlertModalOptions {
+  title?: string;
+  message: string;
+  confirmText?: string;
+  variant?: 'danger' | 'warning' | 'primary' | 'info';
+  icon?: 'trash' | 'alert' | 'userX' | 'shield' | 'info' | 'check';
+  onConfirm?: () => void | Promise<void>;
+}

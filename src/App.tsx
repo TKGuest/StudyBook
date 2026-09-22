@@ -117,6 +117,13 @@ const AppContent: React.FC = () => {
       {/* Global GUI Confirmation Modal */}
       <ConfirmModal />
 
+      {/* Facebook-style Single Post Close-Up Modal / Lightbox Overlay */}
+      <AnimatePresence>
+        {selectedPostId && (
+          <SinglePostView postId={selectedPostId} onBack={closeSinglePost} />
+        )}
+      </AnimatePresence>
+
       {/* Top Header Panel */}
       <Header onSearchQuery={setSearchQuery} />
 
@@ -137,13 +144,6 @@ const AppContent: React.FC = () => {
             >
               {renderActiveView()}
             </motion.div>
-          </AnimatePresence>
-
-          {/* Facebook-style Single Post Close-Up Modal / Lightbox Overlay */}
-          <AnimatePresence>
-            {selectedPostId && (
-              <SinglePostView postId={selectedPostId} onBack={closeSinglePost} />
-            )}
           </AnimatePresence>
         </main>
 

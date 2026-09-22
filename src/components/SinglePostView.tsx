@@ -99,7 +99,7 @@ export const SinglePostView: React.FC<SinglePostViewProps> = ({ postId, onBack }
         onClick={(e) => {
           if (e.target === e.currentTarget) onBack();
         }}
-        className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4"
+        className="fixed inset-0 z-[80] bg-black/80 backdrop-blur-xs flex items-center justify-center p-4"
       >
         <motion.div 
           initial={{ opacity: 0, scale: 0.95 }}
@@ -154,12 +154,12 @@ export const SinglePostView: React.FC<SinglePostViewProps> = ({ postId, onBack }
           onBack();
         }
       }}
-      className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-0 sm:p-3 md:p-6 overflow-hidden animate-in fade-in duration-200"
+      className="fixed inset-0 z-[80] bg-black/85 backdrop-blur-xs flex items-center justify-center p-0 sm:p-3 md:p-6 overflow-hidden animate-in fade-in duration-200"
     >
       {/* Facebook-style Close Button floating at top-right */}
       <button
         onClick={onBack}
-        className="fixed top-3 right-3 sm:top-4 sm:right-4 z-60 p-2.5 rounded-full bg-black/60 hover:bg-black/90 text-white shadow-lg transition-transform hover:scale-105 cursor-pointer backdrop-blur-md border border-white/20"
+        className="fixed top-3 right-3 sm:top-4 sm:right-4 z-[90] p-2.5 rounded-full bg-black/70 hover:bg-black/95 text-white shadow-2xl transition-transform hover:scale-105 cursor-pointer backdrop-blur-md border border-white/20"
         title="Close (Esc)"
       >
         <X className="w-5 h-5" />

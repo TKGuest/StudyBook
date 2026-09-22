@@ -1077,7 +1077,14 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.95 }}
                   transition={{ duration: 0.2, ease: 'easeOut' }}
-                  className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-150 dark:border-slate-700 p-4 shadow-xs space-y-3.5 hover:shadow-md transition-shadow duration-200"
+                  onClick={(e) => {
+                    const target = e.target as HTMLElement;
+                    if (target.closest('button, a, input, textarea, select, [role="button"], video, audio, .no-post-click')) {
+                      return;
+                    }
+                    openSinglePost(post.postId || post.id);
+                  }}
+                  className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-150 dark:border-slate-700 p-4 shadow-xs space-y-3.5 hover:shadow-md hover:border-blue-200/80 dark:hover:border-slate-600 transition-all duration-200 cursor-pointer"
                 >
                   {/* Group Feed Indication: Shows if post originates from a joined study group and its interaction boost */}
                   {post.groupId && (
@@ -1090,15 +1097,6 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
                           From your study group: <strong className="font-bold text-gray-900 dark:text-white">{post.groupName || 'Study Cohort'}</strong>
                         </span>
                       </div>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <span 
-                          className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200/70 dark:border-blue-800/60" 
-                          title={`Boosted by group interactions: +${breakdown.groupBoost || 20} pts (Activity score: ${breakdown.groupInteractionScore || 0} pts)`}
-                        >
-                          <Sparkles className="h-3 w-3 text-blue-500" />
-                          <span>Group Boost {breakdown.groupBoost > 0 ? `+${breakdown.groupBoost} pts` : ''}</span>
-                        </span>
-                      </div>
                     </div>
                   )}
 
@@ -1107,7 +1105,8 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
                     <div className="flex items-start gap-3 min-w-0 flex-1">
                       {/* Avatar */}
                       <div 
-                        onClick={() => {
+                        onClick={(e) => {
+                          e.stopPropagation();
                           if (!post.isAnonymous && (post.authorId || post.user?.id)) {
                             openUserProfile(post.authorId || post.user.id);
                           }
@@ -1132,7 +1131,8 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
                         {/* Line 1: Name, Verified Tutor, Social buttons */}
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span 
-                            onClick={() => {
+                            onClick={(e) => {
+                              e.stopPropagation();
                               if (!post.isAnonymous && (post.authorId || post.user?.id)) {
                                 openUserProfile(post.authorId || post.user.id);
                               }
@@ -1175,7 +1175,11 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
                         {/* Line 2: Timestamp • Grade Tag • Subject Tag */}
                         <div className="flex items-center gap-2 text-[11px] text-gray-500 dark:text-gray-400 mt-1 flex-wrap">
                           <button
-                            onClick={() => openSinglePost(post.postId || post.id)}
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openSinglePost(post.postId || post.id);
+                            }}
                             className="hover:underline hover:text-blue-600 dark:hover:text-blue-400 transition-colors cursor-pointer font-medium"
                             title={`Open single post direct link (/post/${post.postId || post.id})`}
                           >
@@ -1243,7 +1247,10 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
                 {/* Post body - Clickable to view closely like Facebook */}
                 <div 
                   className="space-y-3 cursor-pointer group"
-                  onClick={() => openSinglePost(post.postId || post.id)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openSinglePost(post.postId || post.id);
+                  }}
                   title="Click to view post closely"
                 >
                   <p className="text-xs sm:text-sm text-gray-800 dark:text-slate-100 leading-relaxed font-sans font-normal group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
@@ -1252,11 +1259,14 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
 
                   {/* Attachment Block (If any) */}
                   {post.attachment && (
-                    <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+                    <div className="mt-2">
                       {post.attachment.type === 'image' ? (
                         <div 
                           className="rounded-xl overflow-hidden border border-gray-200 dark:border-slate-700 bg-gray-100 dark:bg-slate-900 group relative cursor-pointer"
-                          onClick={() => openSinglePost(post.postId || post.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openSinglePost(post.postId || post.id);
+                          }}
                           title="Click to view photo closely"
                         >
                           <img 
@@ -1283,7 +1293,14 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
                           />
                         </div>
                       ) : (
-                        <div className="border border-gray-150 dark:border-slate-700 rounded-xl overflow-hidden flex items-center justify-between p-3.5 bg-gray-50/50 dark:bg-slate-850 hover:bg-gray-100/50 dark:hover:bg-slate-800/50 transition-colors">
+                        <div 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openSinglePost(post.postId || post.id);
+                          }}
+                          className="border border-gray-150 dark:border-slate-700 rounded-xl overflow-hidden flex items-center justify-between p-3.5 bg-gray-50/50 dark:bg-slate-855 hover:bg-gray-100/50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer"
+                          title="Click to view attached study resource closely"
+                        >
                           <div className="flex items-center gap-3 min-w-0">
                             {post.attachment.type === 'pdf' && (
                               <div className="h-10 w-10 bg-red-100 text-red-600 rounded-xl flex items-center justify-center font-bold text-xs shrink-0">
@@ -1327,30 +1344,39 @@ export const FeedView: React.FC<FeedViewProps> = ({ searchQuery, savedOnly = fal
                             </div>
                           </div>
 
-                          {/* Download CTA buttons */}
-                          {post.attachment.type === 'pdf' || post.attachment.type === 'doc' || post.attachment.type === 'file' ? (
-                            <button 
-                              onClick={() => post.attachment && handleDownloadAttachment(post.attachment)}
-                              className="flex items-center gap-1.5 bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-300 font-bold px-3 py-1.5 rounded-lg text-xs hover:bg-blue-100 transition-colors cursor-pointer"
-                            >
-                              <Download className="h-3.5 w-3.5" />
-                              Download
-                            </button>
-                          ) : (
-                            <a 
-                              href={
-                                post.attachment.url && post.attachment.url !== '#' 
-                                  ? post.attachment.url 
-                                  : `https://www.google.com/search?q=${encodeURIComponent(post.attachment.title)}`
-                              }
-                              target="_blank"
-                              rel="noreferrer"
-                              className="flex items-center gap-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-gray-600 dark:text-gray-300 font-bold px-3 py-1.5 rounded-lg text-xs transition-colors cursor-pointer"
-                            >
-                              <ExternalLink className="h-3.5 w-3.5" />
-                              Visit
-                            </a>
-                          )}
+                          <div className="flex items-center gap-2 shrink-0 ml-2">
+                            {post.attachment.type === 'pdf' || post.attachment.type === 'doc' || post.attachment.type === 'file' ? (
+                              <button 
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  post.attachment && handleDownloadAttachment(post.attachment);
+                                }}
+                                className="flex items-center gap-1.5 bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-300 font-bold px-3 py-1.5 rounded-lg text-xs hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors cursor-pointer"
+                              >
+                                <Download className="h-3.5 w-3.5" />
+                                Download
+                              </button>
+                            ) : (
+                              <a 
+                                href={
+                                  post.attachment.url && post.attachment.url !== '#' 
+                                    ? post.attachment.url 
+                                    : `https://www.google.com/search?q=${encodeURIComponent(post.attachment.title)}`
+                                }
+                                target="_blank"
+                                rel="noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="flex items-center gap-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-slate-750 dark:hover:bg-slate-700 text-gray-700 dark:text-gray-200 font-bold px-3 py-1.5 rounded-lg text-xs transition-colors cursor-pointer"
+                              >
+                                <ExternalLink className="h-3.5 w-3.5" />
+                                Visit
+                              </a>
+                            )}
+                            <span className="text-blue-600 dark:text-blue-400 text-xs font-bold hover:underline">
+                              View Closely
+                            </span>
+                          </div>
                         </div>
                       )}
                     </div>

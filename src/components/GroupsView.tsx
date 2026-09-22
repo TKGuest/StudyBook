@@ -18,7 +18,8 @@ import {
   canUserApprovePosts,
   canUserReviewJoinRequests,
   doesUserPostRequireApproval,
-  formatRoleSimpleLabel
+  formatRoleSimpleLabel,
+  validateAdminLeaveGuardrail
 } from '../utils/permissionUtils';
 import { 
   Users, 
@@ -50,7 +51,8 @@ import {
   Globe,
   Edit3,
   Image,
-  Upload
+  Upload,
+  LogOut
 } from 'lucide-react';
 
 export const GroupsView: React.FC = () => {
@@ -77,12 +79,14 @@ export const GroupsView: React.FC = () => {
     updateGroupDetails,
     deleteStudyGroup,
     transferAdminOwnership,
+    leaveStudyGroup,
     approveJoinRequest,
     rejectJoinRequest,
     approvePendingPost,
     rejectPendingPost,
     openSinglePost,
-    showConfirmModal
+    showConfirmModal,
+    showAlertModal
   } = useApp();
 
   const [selectedGroupId, setSelectedGroupId] = useState<string>(() => {
@@ -150,6 +154,11 @@ export const GroupsView: React.FC = () => {
   const [showDeleteGroupModal, setShowDeleteGroupModal] = useState(false);
   const [isDeletingGroup, setIsDeletingGroup] = useState(false);
 
+  // Transfer Admin and Leave Group State
+  const [showTransferAdminModal, setShowTransferAdminModal] = useState(false);
+  const [selectedSuccessorId, setSelectedSuccessorId] = useState<string>('');
+  const [isTransferringAndLeaving, setIsTransferringAndLeaving] = useState(false);
+
   // Role-based permissions for current cohort
   const effectiveRole: GroupRole = getUserGroupRole(activeGroup, user);
   const permissions = getRolePermissions(effectiveRole);
@@ -159,6 +168,100 @@ export const GroupsView: React.FC = () => {
   const canAssignModerator = canUserAssignModerator(activeGroup, user);
   const canAssignLeader = canAssignModerator;
   const canDeleteGroup = canUserDeleteGroup(activeGroup, user);
+
+  const handleLeaveGroupClick = () => {
+    if (!activeGroup) return;
+
+    const userRole = getUserGroupRole(activeGroup, user);
+    const guardrail = validateAdminLeaveGuardrail(activeGroup, user);
+
+    if (userRole === 'admin' && !guardrail.canLeave) {
+      // Admin cannot leave without transferring ownership to another member
+      const otherMembers = (activeGroup.members || []).filter(m => m.id !== user.id);
+      if (otherMembers.length > 0) {
+        setSelectedSuccessorId(otherMembers[0].id);
+        setShowTransferAdminModal(true);
+        return;
+      }
+    }
+
+    showConfirmModal({
+      title: 'Leave Group?',
+      message: `Are you sure you want to leave "${activeGroup.name}"? You will step down as a member and lose access to internal discussion boards, resources, and live chat.`,
+      confirmText: 'Leave Group',
+      cancelText: 'Stay in Group',
+      variant: 'danger',
+      icon: 'trash',
+      onConfirm: async () => {
+        const res = await leaveStudyGroup(activeGroup.id);
+        if (res.success) {
+          showAlertModal({
+            title: 'Left Group',
+            message: `You have successfully left "${activeGroup.name}".`,
+            variant: 'info',
+            icon: 'check'
+          });
+        } else {
+          showAlertModal({
+            title: 'Unable to Leave Group',
+            message: res.message || 'Failed to leave group.',
+            variant: 'warning',
+            icon: 'shield'
+          });
+        }
+      }
+    });
+  };
+
+  const handleConfirmTransferAndLeave = async () => {
+    if (!activeGroup || !selectedSuccessorId) return;
+    setIsTransferringAndLeaving(true);
+
+    try {
+      const chosenMember = activeGroup.members?.find(m => m.id === selectedSuccessorId);
+      const transferRes = await transferAdminOwnership(activeGroup.id, selectedSuccessorId);
+      if (!transferRes.success) {
+        showAlertModal({
+          title: 'Transfer Failed',
+          message: transferRes.message || 'Could not transfer admin role.',
+          variant: 'warning',
+          icon: 'shield'
+        });
+        setIsTransferringAndLeaving(false);
+        return;
+      }
+
+      const leaveRes = await leaveStudyGroup(activeGroup.id);
+      setShowTransferAdminModal(false);
+      setSelectedSuccessorId('');
+
+      if (leaveRes.success) {
+        showAlertModal({
+          title: 'Admin Transferred & Left Group',
+          message: `Admin ownership has been successfully transferred to ${chosenMember?.name || 'the new Admin'}. You have stepped down and left "${activeGroup.name}".`,
+          variant: 'primary',
+          icon: 'check'
+        });
+      } else {
+        showAlertModal({
+          title: 'Notice',
+          message: leaveRes.message || 'Admin role was transferred, but an issue occurred leaving the group.',
+          variant: 'warning',
+          icon: 'shield'
+        });
+      }
+    } catch (err) {
+      console.error(err);
+      showAlertModal({
+        title: 'Error',
+        message: 'An unexpected error occurred while transferring admin ownership and leaving.',
+        variant: 'danger',
+        icon: 'trash'
+      });
+    } finally {
+      setIsTransferringAndLeaving(false);
+    }
+  };
 
   const handleConfirmDeleteGroup = async () => {
     if (!activeGroup || isDeletingGroup) return;
@@ -177,11 +280,21 @@ export const GroupsView: React.FC = () => {
         setShowDeleteGroupModal(false);
         setShowEditGroupModal(false);
       } else {
-        alert(res.message || 'Failed to delete group');
+        showAlertModal({
+          title: 'Delete Failed',
+          message: res.message || 'Failed to delete group',
+          variant: 'warning',
+          icon: 'shield'
+        });
       }
     } catch (err) {
       console.error(err);
-      alert('An error occurred while deleting the group.');
+      showAlertModal({
+        title: 'Error',
+        message: 'An error occurred while deleting the group.',
+        variant: 'danger',
+        icon: 'trash'
+      });
     } finally {
       setIsDeletingGroup(false);
     }
@@ -775,6 +888,135 @@ export const GroupsView: React.FC = () => {
     );
   };
 
+  const renderTransferAdminModal = () => {
+    if (!showTransferAdminModal || !activeGroup) return null;
+
+    const candidateMembers = (activeGroup.members || []).filter(m => m.id !== user.id);
+
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in">
+        <div className="bg-white dark:bg-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl border border-amber-200 dark:border-amber-900/50 space-y-4">
+          <div className="flex items-center gap-3">
+            <div className="p-3 rounded-xl bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 shrink-0">
+              <Crown className="h-6 w-6" />
+            </div>
+            <div>
+              <h3 className="text-base font-extrabold text-gray-900 dark:text-white">
+                Transfer Admin to Leave Group
+              </h3>
+              <p className="text-xs text-amber-600 dark:text-amber-400 font-semibold">
+                Admin Succession Required
+              </p>
+            </div>
+          </div>
+
+          <div className="bg-amber-50/70 dark:bg-amber-950/30 p-4 rounded-xl border border-amber-200/70 dark:border-amber-900/40 text-xs text-gray-700 dark:text-gray-300 leading-relaxed space-y-2">
+            <p>
+              As the primary Admin of <strong className="font-extrabold text-gray-900 dark:text-white">"{activeGroup.name}"</strong>, you cannot leave the group without assigning a new Admin.
+            </p>
+            <p className="text-[11px] text-gray-600 dark:text-gray-400">
+              Select an active group member below to become the new primary Admin. Once confirmed, Admin ownership will be transferred and you will step down and leave the group.
+            </p>
+          </div>
+
+          <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+            <label className="text-[11px] font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider block">
+              Choose New Admin ({candidateMembers.length} available)
+            </label>
+
+            {candidateMembers.length === 0 ? (
+              <div className="p-4 text-center text-xs text-gray-500 bg-gray-50 dark:bg-slate-750 rounded-xl border border-dashed border-gray-200 dark:border-slate-700">
+                No other members found in this group.
+              </div>
+            ) : (
+              candidateMembers.map(member => {
+                const isSelected = selectedSuccessorId === member.id;
+                const mRole = member.role || activeGroup.memberRoles?.[member.id] || 'member';
+
+                return (
+                  <button
+                    key={member.id}
+                    type="button"
+                    onClick={() => setSelectedSuccessorId(member.id)}
+                    className={`w-full p-3 rounded-xl border text-left flex items-center justify-between transition-all cursor-pointer ${
+                      isSelected
+                        ? 'border-amber-500 bg-amber-50/60 dark:bg-amber-950/40 shadow-xs'
+                        : 'border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-750 hover:bg-gray-50 dark:hover:bg-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      {member.avatar ? (
+                        <img
+                          src={member.avatar}
+                          alt={member.name}
+                          className="h-9 w-9 rounded-full object-cover border border-gray-200 dark:border-slate-650 shrink-0"
+                        />
+                      ) : (
+                        <div className="h-9 w-9 rounded-full bg-gradient-to-tr from-amber-600 to-orange-600 text-white flex items-center justify-center font-bold text-xs shrink-0">
+                          {member.name.substring(0, 2).toUpperCase()}
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold text-gray-900 dark:text-white truncate">
+                          {member.name}
+                        </p>
+                        <p className="text-[10px] text-gray-500 dark:text-gray-400 capitalize">
+                          Current role: {mRole}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="shrink-0 pl-2">
+                      <div className={`h-5 w-5 rounded-full border flex items-center justify-center transition-colors ${
+                        isSelected
+                          ? 'border-amber-600 bg-amber-600 text-white'
+                          : 'border-gray-300 dark:border-slate-600 bg-transparent'
+                      }`}>
+                        {isSelected && <Check className="h-3 w-3 stroke-[3]" />}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+
+          <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-gray-150 dark:border-slate-700/60">
+            <button
+              type="button"
+              onClick={() => {
+                setShowTransferAdminModal(false);
+                setSelectedSuccessorId('');
+              }}
+              disabled={isTransferringAndLeaving}
+              className="px-4 py-2.5 rounded-xl text-xs font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 transition cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirmTransferAndLeave}
+              disabled={!selectedSuccessorId || isTransferringAndLeaving}
+              className="px-5 py-2.5 rounded-xl text-xs font-extrabold bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white shadow-md shadow-amber-600/25 transition cursor-pointer flex items-center gap-1.5"
+            >
+              {isTransferringAndLeaving ? (
+                <>
+                  <Clock className="h-3.5 w-3.5 animate-spin" />
+                  <span>Transferring & Leaving...</span>
+                </>
+              ) : (
+                <>
+                  <Crown className="h-3.5 w-3.5" />
+                  <span>Transfer Admin & Leave</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
     if (!chatInput.trim() || !activeGroup) return;
@@ -833,7 +1075,12 @@ export const GroupsView: React.FC = () => {
 
     setNewFileTitle('');
     setShowAddFileModal(false);
-    alert(`Document "${newFile.title}" uploaded to group successfully!`);
+    showAlertModal({
+      title: 'File Uploaded',
+      message: `Document "${newFile.title}" uploaded to group successfully!`,
+      variant: 'primary',
+      icon: 'check'
+    });
   };
 
   const handleCreateGroupPrompt = () => {
@@ -899,6 +1146,7 @@ export const GroupsView: React.FC = () => {
         {renderCreateGroupModal()}
         {renderEditGroupModal()}
         {renderDeleteGroupModal()}
+        {renderTransferAdminModal()}
       </div>
     );
   }
@@ -989,14 +1237,21 @@ export const GroupsView: React.FC = () => {
                 )}
 
                 {isMember ? (
-                  <button
-                    type="button"
-                    onClick={() => toggleJoinGroup(activeGroup.id)}
-                    className="px-3.5 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm bg-emerald-500 hover:bg-emerald-600 text-white"
-                  >
-                    <UserCheck className="h-3.5 w-3.5" />
-                    <span>Joined</span>
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <span className="px-3 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm bg-emerald-500/20 text-emerald-200 border border-emerald-400/30 backdrop-blur-xs">
+                      <UserCheck className="h-3.5 w-3.5 text-emerald-300" />
+                      <span>Joined</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleLeaveGroupClick}
+                      className="px-3.5 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm bg-rose-600/85 hover:bg-rose-600 text-white backdrop-blur-xs hover:shadow-md"
+                      title="Leave Group"
+                    >
+                      <LogOut className="h-3.5 w-3.5" />
+                      <span>Leave Group</span>
+                    </button>
+                  </div>
                 ) : isPendingJoin ? (
                   <button
                     type="button"
@@ -1011,7 +1266,14 @@ export const GroupsView: React.FC = () => {
                     type="button"
                     onClick={async () => {
                       const res = await requestJoinGroup(activeGroup.id);
-                      if (res.message) alert(res.message);
+                      if (res.message) {
+                        showAlertModal({
+                          title: res.status === 'joined' ? 'Group Joined' : 'Join Request Sent',
+                          message: res.message,
+                          variant: res.status === 'joined' ? 'primary' : 'info',
+                          icon: res.status === 'joined' ? 'check' : 'info'
+                        });
+                      }
                     }}
                     className="px-3.5 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm bg-white hover:bg-gray-100 text-gray-900"
                   >
@@ -1145,7 +1407,17 @@ export const GroupsView: React.FC = () => {
                     const showModerationDelete = canRemoveSpam || isAuthor;
 
                     return (
-                      <div key={p.id} className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-150 dark:border-slate-700 p-4 shadow-xs space-y-3">
+                      <div 
+                        key={p.id} 
+                        onClick={(e) => {
+                          const target = e.target as HTMLElement;
+                          if (target.closest('button, a, input, textarea, select, [role="button"], video, audio, .no-post-click')) {
+                            return;
+                          }
+                          openSinglePost(p.postId || p.id);
+                        }}
+                        className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-150 dark:border-slate-700 p-4 shadow-xs space-y-3 hover:shadow-md hover:border-blue-200/80 dark:hover:border-slate-600 transition-all duration-200 cursor-pointer"
+                      >
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2.5">
                             <img 
@@ -1412,7 +1684,12 @@ export const GroupsView: React.FC = () => {
 
                           {/* Download File */}
                           <button 
-                            onClick={() => alert(`Downloading document "${file.title}"...`)}
+                            onClick={() => showAlertModal({
+                              title: 'Downloading Document',
+                              message: `Document "${file.title}" is downloading to your device.`,
+                              variant: 'info',
+                              icon: 'check'
+                            })}
                             className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-slate-700 rounded-full transition-colors cursor-pointer"
                             title="Download file"
                           >
@@ -1667,25 +1944,16 @@ export const GroupsView: React.FC = () => {
 
                           {/* Management Controls */}
                           <div className="flex items-center gap-1.5 shrink-0">
-                            {/* Admin-only: Transfer Admin ownership (Strictly enforces 1 admin rule) */}
-                            {canDeleteGroup && !isCurrentUser && memberRole !== 'admin' && (
+                            {/* Current user action: Leave Group */}
+                            {isCurrentUser && (
                               <button
                                 type="button"
-                                onClick={() => {
-                                  showConfirmModal({
-                                    title: 'Transfer Admin Ownership?',
-                                    message: `Transfer primary Admin ownership of "${activeGroup.name}" to ${member.name}? You will step down to Moderator. Groups can only have 1 primary Admin.`,
-                                    confirmText: 'Transfer Admin',
-                                    variant: 'warning',
-                                    icon: 'shield',
-                                    onConfirm: () => updateGroupMemberRole(activeGroup.id, member.id, 'admin')
-                                  });
-                                }}
-                                className="text-[10px] font-bold bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 px-2 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1 border border-rose-200 dark:border-rose-800"
-                                title="Make Admin (Demotes current admin to maintain single admin rule)"
+                                onClick={handleLeaveGroupClick}
+                                className="text-[10px] font-bold bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 px-2.5 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1 border border-rose-200 dark:border-rose-800"
+                                title="Leave Group"
                               >
-                                <Crown className="h-3 w-3" />
-                                Make Admin
+                                <LogOut className="h-3 w-3" />
+                                Leave Group
                               </button>
                             )}
 
@@ -2181,6 +2449,29 @@ export const GroupsView: React.FC = () => {
                   </div>
                 )}
 
+                {/* Leave Group Action (Any joined Member) */}
+                {isMember && (
+                  <div className="pt-5 border-t border-gray-150 dark:border-slate-750 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <h4 className="text-xs font-bold text-gray-800 dark:text-white">Leave Study Group</h4>
+                      <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                        {effectiveRole === 'admin'
+                          ? 'Transfer primary Admin role to another member and step down from this group.'
+                          : 'Step down as a member and exit cohort discussions, resources, and live chat.'}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleLeaveGroupClick}
+                      className="px-4 py-2 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 text-xs font-bold rounded-xl transition-all cursor-pointer border border-rose-200 dark:border-rose-800 flex items-center justify-center gap-1.5 shrink-0 self-start sm:self-auto"
+                      title="Leave study group"
+                    >
+                      <LogOut className="h-3.5 w-3.5" />
+                      <span>Leave group</span>
+                    </button>
+                  </div>
+                )}
+
                 {/* Delete Group Button (Admin Only) */}
                 {canDeleteGroup && (
                   <div className="pt-5 border-t border-gray-150 dark:border-slate-700/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -2208,6 +2499,7 @@ export const GroupsView: React.FC = () => {
       {renderCreateGroupModal()}
       {renderEditGroupModal()}
       {renderDeleteGroupModal()}
+      {renderTransferAdminModal()}
     </div>
   );
 };

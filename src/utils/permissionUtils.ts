@@ -372,8 +372,16 @@ export function validateAdminLeaveGuardrail(
     return { canLeave: true, activeLeaders: [] };
   }
 
-  // Find all active Moderators in this group (excluding the current user)
   const currentUserId = user?.id || '';
+  const otherMembers = (group?.members || []).filter(m => m.id !== currentUserId);
+  const otherMemberIds = (group?.memberUserIds || []).filter(id => id !== currentUserId);
+
+  // If the admin is the sole member in the group, they can leave
+  if (otherMembers.length === 0 && otherMemberIds.length === 0) {
+    return { canLeave: true, activeLeaders: [] };
+  }
+
+  // Find all active Moderators in this group (excluding the current user)
   const leaders: { id: string; name: string; avatar: string }[] = [];
 
   if (group?.members && group.members.length > 0) {
@@ -385,23 +393,9 @@ export function validateAdminLeaveGuardrail(
     });
   }
 
-  // Also check leaderUserIds if not already in leaders list
-  if (group?.leaderUserIds) {
-    group.leaderUserIds.forEach(leaderId => {
-      if (leaderId !== currentUserId && !leaders.some(l => l.id === leaderId)) {
-        const foundMember = group.members?.find(m => m.id === leaderId);
-        leaders.push({
-          id: leaderId,
-          name: foundMember?.name || `Moderator (${leaderId.slice(0, 6)})`,
-          avatar: foundMember?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=150'
-        });
-      }
-    });
-  }
-
   return {
     canLeave: false,
-    reason: 'An Admin cannot leave the group unless they explicitly pass Admin ownership over to one of the active Moderators first.',
+    reason: 'You cannot leave this group while you are the Admin. You must transfer Admin ownership to another member before leaving.',
     activeLeaders: leaders
   };
 }
